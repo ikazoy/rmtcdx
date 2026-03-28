@@ -1,0 +1,14 @@
+node_modules
+dist
+data
+repos.json
+*.tsbuildinfo
+apps/web/src/**/*.js
+apps/web/src/**/*.d.ts
+packages/shared-types/src/**/*.js
+packages/shared-types/src/**/*.d.ts
+apps/web/dist
+apps/bridge/dist
+.DS_Store
+.codex-app-protocol
+*.log

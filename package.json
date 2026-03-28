@@ -1,0 +1,15 @@
+{
+  "name": "remote-control-codex",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n bridge,web -c blue,magenta \"npm run dev -w @codex-remote/bridge\" \"npm run dev -w @codex-remote/web\"",
+    "build": "npm run build -w @codex-remote/bridge && npm run build -w @codex-remote/web",
+    "start": "npm run start -w @codex-remote/bridge"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
