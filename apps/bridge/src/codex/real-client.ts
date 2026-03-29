@@ -1,7 +1,16 @@
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
-import type { CodexBackend, CodexBridgeEvent, CodexRuntimeState, EnsureThreadParams, LoggerLike, StartRunParams } from "./types";
+import type {
+  CodexBackend,
+  CodexBridgeEvent,
+  CodexRuntimeState,
+  CodexThread,
+  EnsureThreadParams,
+  ListThreadsParams,
+  LoggerLike,
+  StartRunParams
+} from "./types";
 
 type JsonRpcMessage = {
   id?: number | string;
@@ -63,22 +72,10 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     }
   }
 
-  async ensureThread(params: EnsureThreadParams) {
+  async createThread(cwd: string) {
     await this.ensureReady();
-    if (params.threadId) {
-      const resumed = await this.request("thread/resume", {
-        threadId: params.threadId,
-        cwd: params.cwd,
-        approvalPolicy: "never",
-        sandbox: "danger-full-access",
-        persistExtendedHistory: true
-      });
-      this.sessionByThread.set(params.threadId, params.sessionId);
-      return { threadId: this.extractThreadId(resumed) ?? params.threadId };
-    }
-
     const started = await this.request("thread/start", {
-      cwd: params.cwd,
+      cwd,
       approvalPolicy: "never",
       sandbox: "danger-full-access",
       serviceName: "codex_remote_web",
@@ -89,8 +86,74 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     if (!threadId) {
       throw new Error("Codex did not return a thread id");
     }
+    return { threadId };
+  }
 
-    this.sessionByThread.set(threadId, params.sessionId);
+  async listThreads(params: ListThreadsParams = {}) {
+    await this.ensureReady();
+
+    const threads: CodexThread[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const response = await this.request("thread/list", {
+        cursor,
+        limit: params.limit ?? 100,
+        archived: params.archived ?? false,
+        cwd: params.cwd ?? null,
+        searchTerm: params.searchTerm ?? null
+      });
+
+      const page = response as { data?: CodexThread[]; nextCursor?: string | null };
+      threads.push(...(page.data ?? []));
+      cursor = page.nextCursor ?? null;
+    } while (cursor);
+
+    return threads;
+  }
+
+  async readThread(threadId: string, options?: { includeTurns?: boolean }) {
+    await this.ensureReady();
+    const response = await this.request("thread/read", {
+      threadId,
+      includeTurns: options?.includeTurns ?? true
+    });
+    const thread = (response as { thread?: CodexThread }).thread;
+    if (!thread) {
+      throw new Error(`Codex did not return thread ${threadId}`);
+    }
+    return thread;
+  }
+
+  async setThreadName(threadId: string, name: string) {
+    await this.ensureReady();
+    await this.request("thread/name/set", {
+      threadId,
+      name
+    });
+  }
+
+  async ensureThread(params: EnsureThreadParams) {
+    await this.ensureReady();
+    if (params.threadId) {
+      const resumed = await this.request("thread/resume", {
+        threadId: params.threadId,
+        cwd: params.cwd,
+        approvalPolicy: "never",
+        sandbox: "danger-full-access",
+        persistExtendedHistory: true
+      });
+      if (params.sessionId) {
+        this.sessionByThread.set(params.threadId, params.sessionId);
+      }
+      return { threadId: this.extractThreadId(resumed) ?? params.threadId };
+    }
+
+    const { threadId } = await this.createThread(params.cwd);
+
+    if (params.sessionId) {
+      this.sessionByThread.set(threadId, params.sessionId);
+    }
     return { threadId };
   }
 
@@ -102,7 +165,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     });
     const response = await this.request("turn/start", {
       threadId: ensured.threadId,
-      input: [{ type: "text", text: params.prompt, text_elements: [] }]
+      input: params.input
     });
 
     const turnId = this.extractTurnId(response);
@@ -110,9 +173,11 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       throw new Error("Codex did not return a turn id");
     }
 
-    this.sessionByThread.set(ensured.threadId, params.sessionId);
+    if (params.sessionId) {
+      this.sessionByThread.set(ensured.threadId, params.sessionId);
+    }
     this.runByTurn.set(turnId, {
-      sessionId: params.sessionId,
+      sessionId: params.sessionId ?? ensured.threadId,
       runId: params.runId
     });
 
@@ -283,11 +348,43 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       return;
     }
 
+    if (method === "item/commandExecution/outputDelta") {
+      const payload = params as { threadId: string; turnId: string; itemId: string; delta: string };
+      const mapping = this.runByTurn.get(payload.turnId);
+      if (!mapping) {
+        return;
+      }
+      this.emitBridgeEvent({
+        type: "activity.updated",
+        sessionId: mapping.sessionId,
+        runId: mapping.runId,
+        turnId: payload.turnId,
+        itemId: payload.itemId,
+        delta: payload.delta
+      });
+      return;
+    }
+
     if (method === "item/started") {
-      const payload = params as { turnId: string; item?: { type?: string; tool?: string; server?: string; command?: string } };
+      const payload = params as {
+        turnId: string;
+        item?: { id?: string; type?: string; tool?: string; server?: string; command?: string };
+      };
       const mapping = this.runByTurn.get(payload.turnId);
       if (!mapping || !payload.item) {
         return;
+      }
+      const activity = this.activityFromItem(payload.item);
+      if (activity && payload.item.id) {
+        this.emitBridgeEvent({
+          type: "activity.started",
+          sessionId: mapping.sessionId,
+          runId: mapping.runId,
+          turnId: payload.turnId,
+          itemId: payload.item.id,
+          kind: activity.kind,
+          label: activity.label
+        });
       }
       const toolName = this.toolName(payload.item);
       if (!toolName) {
@@ -307,6 +404,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       const payload = params as {
         turnId: string;
         item?: {
+          id?: string;
           type?: string;
           text?: string;
           phase?: string | null;
@@ -332,6 +430,19 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
           countsUnread
         });
         return;
+      }
+
+      if (payload.item.id) {
+        const activity = this.activityFromItem(payload.item);
+        if (activity) {
+          this.emitBridgeEvent({
+            type: "activity.completed",
+            sessionId: mapping.sessionId,
+            runId: mapping.runId,
+            turnId: payload.turnId,
+            itemId: payload.item.id
+          });
+        }
       }
 
       const toolName = this.toolName(payload.item);
@@ -439,6 +550,48 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     }
     if (item.type === "collabAgentToolCall") {
       return item.tool ?? "agent";
+    }
+    return null;
+  }
+
+  private activityFromItem(item: {
+    type?: string;
+    tool?: string;
+    server?: string;
+    command?: string;
+  }) {
+    if (!item.type) {
+      return null;
+    }
+    if (item.type === "commandExecution") {
+      return {
+        kind: "command" as const,
+        label: item.command ?? "shell command"
+      };
+    }
+    if (item.type === "mcpToolCall" || item.type === "dynamicToolCall" || item.type === "collabAgentToolCall") {
+      return {
+        kind: "tool" as const,
+        label: item.server && item.tool ? `${item.server}:${item.tool}` : item.tool ?? "tool"
+      };
+    }
+    if (item.type === "fileChange") {
+      return {
+        kind: "file" as const,
+        label: "Applying file changes"
+      };
+    }
+    if (item.type === "webSearch") {
+      return {
+        kind: "search" as const,
+        label: "Running web search"
+      };
+    }
+    if (item.type === "enteredReviewMode" || item.type === "exitedReviewMode") {
+      return {
+        kind: "review" as const,
+        label: "Review mode"
+      };
     }
     return null;
   }

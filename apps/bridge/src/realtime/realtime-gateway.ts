@@ -1,4 +1,13 @@
-import type { ClientWsEvent, Repository, Run, ServerWsEvent, SessionDetail, SessionSummary } from "../../../../packages/shared-types/src/index";
+import type {
+  ClientWsEvent,
+  LiveActivity,
+  Message,
+  Repository,
+  Run,
+  ServerWsEvent,
+  SessionDetail,
+  SessionSummary
+} from "../../../../packages/shared-types/src/index";
 
 type SocketLike = {
   readyState: number;
@@ -72,11 +81,23 @@ export class RealtimeGateway {
     }
   }
 
+  broadcastActivityStarted(activity: LiveActivity) {
+    this.broadcast({ type: "activity.started", activity });
+  }
+
+  broadcastActivityUpdated(sessionId: string, itemId: string, delta: string, updatedAt: string) {
+    this.broadcast({ type: "activity.updated", sessionId, itemId, delta, updatedAt });
+  }
+
+  broadcastActivityCompleted(sessionId: string, itemId: string) {
+    this.broadcast({ type: "activity.completed", sessionId, itemId });
+  }
+
   broadcastMessageDelta(sessionId: string, runId: string, text: string) {
     this.broadcast({ type: "message.delta", sessionId, runId, text });
   }
 
-  broadcastMessageFinal(sessionId: string, runId: string, message: SessionDetail["session"] extends never ? never : { id: string; sessionId: string; role: "assistant"; text: string; createdAt: string }) {
+  broadcastMessageFinal(sessionId: string, runId: string, message: Message & { role: "assistant" }) {
     this.broadcast({ type: "message.final", sessionId, runId, message });
   }
 

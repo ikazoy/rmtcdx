@@ -6,7 +6,8 @@ import type {
   ReposResponse,
   RunResponse,
   SessionDetail,
-  SessionsResponse
+  SessionsResponse,
+  UpdateSessionRequest
 } from "../../../../packages/shared-types/src/index";
 
 async function request<T>(input: string, init?: RequestInit) {
@@ -31,8 +32,11 @@ async function request<T>(input: string, init?: RequestInit) {
 export const api = {
   health: () => request<HealthResponse>("/healthz"),
   repos: () => request<ReposResponse>("/api/repos"),
-  sessions: (repoId: string, search: string, filter: string) => {
-    const query = new URLSearchParams({ repoId });
+  sessions: (repoId: string | null, search: string, filter: string) => {
+    const query = new URLSearchParams();
+    if (repoId) {
+      query.set("repoId", repoId);
+    }
     if (search.trim()) {
       query.set("q", search.trim());
     }
@@ -47,6 +51,11 @@ export const api = {
   createSession: (payload: CreateSessionRequest) =>
     request<{ session: SessionDetail["session"] }>("/api/sessions", {
       method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  renameSession: (sessionId: string, payload: UpdateSessionRequest) =>
+    request<SessionDetail>(`/api/sessions/${sessionId}`, {
+      method: "PATCH",
       body: JSON.stringify(payload)
     }),
   markRead: (sessionId: string) =>

@@ -15,6 +15,10 @@ export function useRealtime() {
   const setWsState = useUiStore((state) => state.setWsState);
   const appendStreaming = useUiStore((state) => state.appendStreaming);
   const clearStreaming = useUiStore((state) => state.clearStreaming);
+  const upsertActivity = useUiStore((state) => state.upsertActivity);
+  const appendActivityOutput = useUiStore((state) => state.appendActivityOutput);
+  const removeActivity = useUiStore((state) => state.removeActivity);
+  const clearActivities = useUiStore((state) => state.clearActivities);
   const setBackendBanner = useUiStore((state) => state.setBackendBanner);
 
   useEffect(() => {
@@ -54,10 +58,20 @@ export function useRealtime() {
             void queryClient.invalidateQueries({ queryKey: queryKeys.session(event.sessionId) });
             void queryClient.invalidateQueries({ queryKey: ["sessions"] });
             return;
+          case "activity.started":
+            upsertActivity(event.activity);
+            return;
+          case "activity.updated":
+            appendActivityOutput(event.sessionId, event.itemId, event.delta, event.updatedAt);
+            return;
+          case "activity.completed":
+            removeActivity(event.sessionId, event.itemId);
+            return;
           case "run.started":
           case "run.completed":
           case "run.error":
           case "run.interrupted":
+            clearActivities(event.run.sessionId);
             void queryClient.invalidateQueries({ queryKey: queryKeys.session(event.run.sessionId) });
             void queryClient.invalidateQueries({ queryKey: ["sessions"] });
             return;
@@ -90,5 +104,15 @@ export function useRealtime() {
       }
       socket?.close();
     };
-  }, [appendStreaming, clearStreaming, queryClient, setBackendBanner, setWsState]);
+  }, [
+    appendActivityOutput,
+    appendStreaming,
+    clearActivities,
+    clearStreaming,
+    queryClient,
+    removeActivity,
+    setBackendBanner,
+    setWsState,
+    upsertActivity
+  ]);
 }

@@ -1,5 +1,69 @@
 import { EventEmitter } from "node:events";
 
+export type CodexActivityKind = "command" | "tool" | "file" | "search" | "review";
+
+export type CodexTextElement = {
+  byteRange: {
+    start: number;
+    end: number;
+  };
+  placeholder: string | null;
+};
+
+export type CodexUserInput =
+  | { type: "text"; text: string; text_elements: CodexTextElement[] }
+  | { type: "image"; url: string }
+  | { type: "localImage"; path: string }
+  | { type: "skill"; name: string; path: string }
+  | { type: "mention"; name: string; path: string };
+
+export type CodexThreadItem =
+  | { type: "userMessage"; id: string; content: CodexUserInput[] }
+  | { type: "agentMessage"; id: string; text: string; phase: string | null }
+  | { type: "plan"; id: string; text: string }
+  | { type: "reasoning"; id: string; summary: string[]; content: string[] }
+  | { type: "commandExecution"; id: string; command: string; cwd: string; status: string; aggregatedOutput: string | null; exitCode: number | null }
+  | { type: "fileChange"; id: string; changes: Array<unknown>; status: string }
+  | { type: "mcpToolCall"; id: string; server: string; tool: string; status: string }
+  | { type: "dynamicToolCall"; id: string; tool: string; status: string }
+  | { type: "collabAgentToolCall"; id: string; tool: string; status: string; prompt: string | null }
+  | { type: "webSearch"; id: string; query: string }
+  | { type: "imageView"; id: string; path: string }
+  | { type: "imageGeneration"; id: string; status: string; revisedPrompt: string | null; result: string }
+  | { type: "enteredReviewMode"; id: string; review: string }
+  | { type: "exitedReviewMode"; id: string; review: string }
+  | { type: "contextCompaction"; id: string }
+  | { type: string; id: string };
+
+export type CodexThreadTurn = {
+  id: string;
+  items: CodexThreadItem[];
+  status: "completed" | "interrupted" | "failed" | "inProgress";
+  error: { message: string | null } | null;
+};
+
+export type CodexThread = {
+  id: string;
+  preview: string;
+  createdAt: number;
+  updatedAt: number;
+  status: { type: "notLoaded" | "idle" | "systemError" | "active"; activeFlags?: string[] };
+  cwd: string;
+  path: string | null;
+  name: string | null;
+  modelProvider: string;
+  source: unknown;
+  gitInfo: { sha: string | null; branch: string | null; originUrl: string | null } | null;
+  turns: CodexThreadTurn[];
+};
+
+export type ListThreadsParams = {
+  cwd?: string;
+  archived?: boolean;
+  searchTerm?: string;
+  limit?: number;
+};
+
 export type CodexRuntimeState = {
   mode: "real" | "mock";
   ready: boolean;
@@ -11,6 +75,30 @@ export type CodexRuntimeState = {
 export type CodexBridgeEvent =
   | { type: "message.delta"; sessionId: string; runId: string; turnId: string; text: string }
   | { type: "message.final"; sessionId: string; runId: string; turnId: string; text: string; countsUnread: boolean }
+  | {
+      type: "activity.started";
+      sessionId: string;
+      runId: string;
+      turnId: string;
+      itemId: string;
+      kind: CodexActivityKind;
+      label: string;
+    }
+  | {
+      type: "activity.updated";
+      sessionId: string;
+      runId: string;
+      turnId: string;
+      itemId: string;
+      delta: string;
+    }
+  | {
+      type: "activity.completed";
+      sessionId: string;
+      runId: string;
+      turnId: string;
+      itemId: string;
+    }
   | { type: "tool.start"; sessionId: string; runId: string; turnId: string; name: string }
   | { type: "tool.end"; sessionId: string; runId: string; turnId: string; name: string; ok: boolean }
   | { type: "run.completed"; sessionId: string; runId: string; turnId: string }
@@ -19,16 +107,16 @@ export type CodexBridgeEvent =
   | { type: "backend.degraded"; reason: string };
 
 export type EnsureThreadParams = {
-  sessionId: string;
+  sessionId?: string;
   cwd: string;
   threadId?: string;
 };
 
 export type StartRunParams = {
-  sessionId: string;
+  sessionId?: string;
   runId: string;
   cwd: string;
-  prompt: string;
+  input: CodexUserInput[];
   threadId?: string;
 };
 
@@ -40,6 +128,10 @@ export type StartRunResult = {
 export interface CodexBackend extends EventEmitter {
   start(): Promise<void>;
   stop(): Promise<void>;
+  createThread(cwd: string): Promise<{ threadId: string }>;
+  listThreads(params?: ListThreadsParams): Promise<CodexThread[]>;
+  readThread(threadId: string, options?: { includeTurns?: boolean }): Promise<CodexThread>;
+  setThreadName(threadId: string, name: string): Promise<void>;
   ensureThread(params: EnsureThreadParams): Promise<{ threadId: string }>;
   startRun(params: StartRunParams): Promise<StartRunResult>;
   interruptRun(runId: string, threadId: string, turnId: string): Promise<void>;

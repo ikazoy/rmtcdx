@@ -366,6 +366,7 @@ export class Database {
       id: row.id,
       sessionId: row.session_id,
       role: row.role,
+      kind: row.role === "user" ? "user_message" : row.role === "assistant" ? "assistant_message" : "context_compaction",
       text: row.text,
       createdAt: row.created_at
     }));
@@ -507,7 +508,14 @@ export class Database {
       .prepare("INSERT INTO messages (id, session_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)")
       .run(id, sessionId, role, text, createdAt);
 
-    return { id, sessionId, role, text, createdAt };
+    return {
+      id,
+      sessionId,
+      role,
+      kind: role === "user" ? "user_message" : role === "assistant" ? "assistant_message" : "context_compaction",
+      text,
+      createdAt
+    };
   }
 
   private mapRepository(row: RepositoryRow): Repository {

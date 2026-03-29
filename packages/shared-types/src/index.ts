@@ -1,6 +1,24 @@
 export type SessionStatus = "idle" | "running" | "completed" | "error" | "archived";
 export type RunStatus = "queued" | "running" | "completed" | "interrupted" | "error";
 export type MessageRole = "user" | "assistant" | "system";
+export type MessageKind =
+  | "user_message"
+  | "assistant_message"
+  | "assistant_thinking"
+  | "plan"
+  | "reasoning"
+  | "command_execution"
+  | "file_change"
+  | "mcp_tool_call"
+  | "dynamic_tool_call"
+  | "collab_agent_tool_call"
+  | "web_search"
+  | "image_view"
+  | "image_generation"
+  | "review_mode_entered"
+  | "review_mode_exited"
+  | "context_compaction"
+  | "run_error";
 
 export type Repository = {
   id: string;
@@ -17,6 +35,7 @@ export type Repository = {
 export type SessionSummary = {
   id: string;
   repoId: string;
+  repoName?: string;
   title: string;
   summary: string;
   codexThreadId?: string;
@@ -39,7 +58,16 @@ export type Message = {
   sessionId: string;
   role: MessageRole;
   text: string;
+  attachments?: MessageAttachment[];
   createdAt: string;
+  kind: MessageKind;
+  status?: string;
+};
+
+export type MessageAttachment = {
+  kind: "image";
+  name: string;
+  url: string;
 };
 
 export type Run = {
@@ -50,6 +78,20 @@ export type Run = {
   startedAt: string;
   finishedAt?: string;
   errorMessage?: string;
+};
+
+export type LiveActivityKind = "command" | "tool" | "file" | "search" | "review";
+
+export type LiveActivity = {
+  sessionId: string;
+  runId: string;
+  turnId: string;
+  itemId: string;
+  kind: LiveActivityKind;
+  label: string;
+  output: string;
+  startedAt: string;
+  updatedAt: string;
 };
 
 export type SessionDetail = {
@@ -86,8 +128,21 @@ export type CreateSessionRequest = {
 };
 
 export type CreateRunRequest = {
-  sessionId: string;
   prompt: string;
+  sessionId?: string;
+  repoId?: string;
+  attachments?: ImageAttachmentInput[];
+};
+
+export type ImageAttachmentInput = {
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+  size: number;
+};
+
+export type UpdateSessionRequest = {
+  title: string;
 };
 
 export type ClientWsEvent =
@@ -104,6 +159,9 @@ export type ServerWsEvent =
   | { type: "run.completed"; run: Run }
   | { type: "run.error"; run: Run }
   | { type: "run.interrupted"; run: Run }
+  | { type: "activity.started"; activity: LiveActivity }
+  | { type: "activity.updated"; sessionId: string; itemId: string; delta: string; updatedAt: string }
+  | { type: "activity.completed"; sessionId: string; itemId: string }
   | { type: "message.delta"; sessionId: string; runId: string; text: string }
   | { type: "message.final"; sessionId: string; runId: string; message: Message }
   | {

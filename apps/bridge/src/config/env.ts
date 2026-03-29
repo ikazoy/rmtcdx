@@ -8,10 +8,13 @@ export type AppConfig = {
   reposFile: string;
   dataDir: string;
   dbFile: string;
+  uploadsDir: string;
   webDistDir: string;
   codexMode: "auto" | "real" | "mock";
   maxPromptLength: number;
   maxConcurrentRuns: number;
+  maxImageAttachments: number;
+  maxImageAttachmentBytes: number;
 };
 
 export function loadConfig(): AppConfig {
@@ -23,9 +26,12 @@ export function loadConfig(): AppConfig {
     reposFile: process.env.REPO_CONFIG_PATH ?? path.join(workspaceRoot, "repos.json"),
     dataDir,
     dbFile: process.env.DB_FILE ?? path.join(dataDir, "remote-control.db"),
+    uploadsDir: process.env.UPLOADS_DIR ?? path.join(dataDir, "uploads"),
     webDistDir: process.env.WEB_DIST_DIR ?? path.join(workspaceRoot, "apps/web/dist"),
     codexMode: (process.env.CODEX_MODE as AppConfig["codexMode"] | undefined) ?? "auto",
     maxPromptLength: Number(process.env.MAX_PROMPT_LENGTH ?? 12000),
-    maxConcurrentRuns: Number(process.env.MAX_CONCURRENT_RUNS ?? 1)
+    maxConcurrentRuns: Number(process.env.MAX_CONCURRENT_RUNS ?? 1),
+    maxImageAttachments: Number(process.env.MAX_IMAGE_ATTACHMENTS ?? 4),
+    maxImageAttachmentBytes: Number(process.env.MAX_IMAGE_ATTACHMENT_BYTES ?? 10 * 1024 * 1024)
   };
 }

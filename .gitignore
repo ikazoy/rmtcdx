@@ -2,6 +2,9 @@ node_modules
 dist
 data
 repos.json
+.env
+.env.*
+!.env.example
 *.tsbuildinfo
 apps/web/src/**/*.js
 apps/web/src/**/*.d.ts
@@ -12,3 +15,11 @@ apps/bridge/dist
 .DS_Store
 .codex-app-protocol
 *.log
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal

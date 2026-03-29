@@ -15,15 +15,7 @@ const repoConfigSchema = z.array(
 
 export type RepoConfig = z.infer<typeof repoConfigSchema>[number];
 
-export function readRepoConfig(filePath: string) {
-  if (!fs.existsSync(filePath)) {
-    const examplePath = path.join(path.dirname(filePath), "repos.example.json");
-    const hint = fs.existsSync(examplePath)
-      ? ` Copy repos.example.json to ${path.basename(filePath)} and update the repo paths first.`
-      : "";
-    throw new Error(`Repository config not found: ${filePath}.${hint}`);
-  }
-
+function parseRepoConfig(filePath: string) {
   const raw = fs.readFileSync(filePath, "utf8");
   const configDir = path.dirname(filePath);
   return repoConfigSchema.parse(JSON.parse(raw)).map((repo) => {
@@ -42,4 +34,24 @@ export function readRepoConfig(filePath: string) {
       path: resolvedPath
     };
   });
+}
+
+export function readRepoConfig(filePath: string) {
+  if (!fs.existsSync(filePath)) {
+    const examplePath = path.join(path.dirname(filePath), "repos.example.json");
+    const hint = fs.existsSync(examplePath)
+      ? ` Copy repos.example.json to ${path.basename(filePath)} and update the repo paths first.`
+      : "";
+    throw new Error(`Repository config not found: ${filePath}.${hint}`);
+  }
+
+  return parseRepoConfig(filePath);
+}
+
+export function readRepoConfigOptional(filePath: string) {
+  if (!fs.existsSync(filePath)) {
+    return [] satisfies RepoConfig[];
+  }
+
+  return parseRepoConfig(filePath);
 }
