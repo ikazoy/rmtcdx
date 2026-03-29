@@ -1866,6 +1866,12 @@ button {
   color: inherit;
 }
 
+.message-card--user .message-markdown p,
+.message-card--user .message-markdown li,
+.message-card--user .message-markdown blockquote {
+  white-space: pre-wrap;
+}
+
 .message-markdown pre {
   overflow: auto;
   padding: 0.85rem 0.95rem;
