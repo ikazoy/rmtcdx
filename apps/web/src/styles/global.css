@@ -376,7 +376,16 @@ button {
 }
 
 .ghost-button--back {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border-radius: 0.8rem;
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .ghost-button--toggle {
@@ -1239,6 +1248,14 @@ button {
   margin-bottom: 0.7rem;
 }
 
+.message-attachments__label {
+  grid-column: 1 / -1;
+  font-size: 0.76rem;
+  color: #9ea19b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .message-attachment {
   display: grid;
   gap: 0.45rem;
@@ -1268,6 +1285,10 @@ button {
 
 .message-card--user .message-attachment span {
   color: rgba(255, 255, 255, 0.72);
+}
+
+.message-card--user .message-attachments__label {
+  color: rgba(255, 255, 255, 0.62);
 }
 
 .message-markdown > :first-child {
@@ -1451,6 +1472,11 @@ button {
   border-color: rgba(255, 255, 255, 0.16);
 }
 
+.composer-attach:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
 .composer textarea {
   flex: 1 1 auto;
   border: none;
@@ -1526,6 +1552,13 @@ button {
   padding-left: 0.1rem;
 }
 
+.composer-error {
+  margin: 0;
+  color: #ffb6a9;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 .empty-state {
   display: grid;
   gap: 0.38rem;
@@ -1557,8 +1590,17 @@ button {
   color: #f2f1ea;
 }
 
+.workspace-shell__chat .ghost-button--back {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
 .workspace-shell__chat .ghost-button:hover {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.workspace-shell__chat .ghost-button--back:hover {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 @media (max-width: 859px) {

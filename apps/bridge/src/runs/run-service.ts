@@ -37,9 +37,6 @@ export class RunService {
     if (prompt.length > this.config.maxPromptLength) {
       throw new Error(`Prompt is too long. Max ${this.config.maxPromptLength} characters.`);
     }
-    if (this.getActiveRunsCount() >= this.config.maxConcurrentRuns) {
-      throw new Error("Another run is already active. Wait for it to finish first.");
-    }
     if (sessionId && this.activeRunBySession.has(sessionId)) {
       throw new Error("This session already has an active run.");
     }

@@ -11,6 +11,8 @@ import type {
 } from "../../../../../packages/shared-types/src/index";
 import { formatClock, formatRelativeTime } from "../../components/formatters";
 
+const MAX_IMAGE_ATTACHMENTS = 5;
+
 type OptimisticUserMessage = {
   prompt: string;
   attachments: MessageAttachment[];
@@ -142,6 +144,9 @@ const MessageAttachments = memo(function MessageAttachments({
 
   return (
     <div className="message-attachments">
+      <span className="message-attachments__label">
+        {attachments.length} image{attachments.length === 1 ? "" : "s"} attached
+      </span>
       {attachments.map((attachment, index) => (
         <a
           key={`${attachment.url}:${index}`}
@@ -356,6 +361,7 @@ export function ChatPane({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const selectedImagesRef = useRef<ComposerImage[]>([]);
   const [selectedImages, setSelectedImages] = useState<ComposerImage[]>([]);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const openedSessionRef = useRef<{ id: string | null; openedAt: number }>({
     id: null,
     openedAt: 0
@@ -395,6 +401,7 @@ export function ChatPane({
       composerRef.current.style.height = "auto";
     }
     clearSelectedImages();
+    setSubmitError(null);
 
     openedSessionRef.current = {
       id: detail.session.id,
@@ -446,23 +453,35 @@ export function ChatPane({
     return () => window.cancelAnimationFrame(frame);
   }, [messages, streamingText]);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const prompt = composerRef.current?.value.trim() ?? "";
     if (!prompt && selectedImages.length === 0) {
       return;
     }
 
-    const files = selectedImages.map((image) => image.file);
+    setSubmitError(null);
 
-    // Clear composer immediately for snappy feedback — the optimistic message
-    // already reflects the user's input in the timeline.
+    const files = selectedImages.map((image) => image.file);
+    const savedImages = [...selectedImages];
+
+    // Clear composer immediately for snappy feedback
     if (composerRef.current) {
       composerRef.current.value = "";
       composerRef.current.style.height = "auto";
     }
     clearSelectedImages();
 
-    void onSubmit({ prompt, files });
+    try {
+      await onSubmit({ prompt, files });
+    } catch (error) {
+      // Restore composer on failure
+      if (composerRef.current) {
+        composerRef.current.value = prompt;
+        composerRef.current.style.height = "auto";
+      }
+      setSelectedImages(savedImages);
+      setSubmitError(error instanceof Error ? error.message : "Unable to send this message.");
+    }
   };
 
   const autoResize = () => {
@@ -470,6 +489,7 @@ export function ChatPane({
     if (!textarea) {
       return;
     }
+    setSubmitError(null);
     textarea.style.height = "auto";
     textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
   };
@@ -493,8 +513,26 @@ export function ChatPane({
       return;
     }
 
-    const nextImages = files.map((file) => ({
-      id: crypto.randomUUID(),
+    const remainingSlots = Math.max(0, MAX_IMAGE_ATTACHMENTS - selectedImagesRef.current.length);
+    if (remainingSlots === 0) {
+      setSubmitError(`You can attach up to ${MAX_IMAGE_ATTACHMENTS} images per message.`);
+      event.target.value = "";
+      return;
+    }
+
+    const acceptedFiles = files.slice(0, remainingSlots);
+    if (acceptedFiles.length < files.length) {
+      setSubmitError(
+        remainingSlots === 1
+          ? "Only the first image was added."
+          : `Only the first ${remainingSlots} images were added.`
+      );
+    } else {
+      setSubmitError(null);
+    }
+
+    const nextImages = acceptedFiles.map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       file,
       previewUrl: URL.createObjectURL(file)
     }));
@@ -504,6 +542,7 @@ export function ChatPane({
   };
 
   const removeSelectedImage = (imageId: string) => {
+    setSubmitError(null);
     setSelectedImages((current) => {
       const nextImages: ComposerImage[] = [];
 
@@ -523,8 +562,14 @@ export function ChatPane({
     <div className="chat-card">
       <div className="chat-toolbar">
         <div className="chat-toolbar__left">
-          <button className="ghost-button ghost-button--back" onClick={() => void onBack()} type="button">
-            <span aria-hidden="true">←</span> Back
+          <button
+            aria-label="Back to sidebar"
+            className="ghost-button ghost-button--back"
+            onClick={() => void onBack()}
+            title="Back"
+            type="button"
+          >
+            <span aria-hidden="true">←</span>
           </button>
           <button
             className="ghost-button ghost-button--toggle"
@@ -629,6 +674,7 @@ export function ChatPane({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   aria-label="Attach images"
+                  disabled={isSubmitting || selectedImages.length >= MAX_IMAGE_ATTACHMENTS}
                 >
                   Image
                 </button>
@@ -664,11 +710,12 @@ export function ChatPane({
               <div className="composer-meta">
                 <span>
                   {selectedImages.length > 0
-                    ? `${selectedImages.length} image${selectedImages.length === 1 ? "" : "s"} attached`
-                    : "Attach screenshots or diagrams when needed"}
+                    ? `${selectedImages.length} / ${MAX_IMAGE_ATTACHMENTS} images attached`
+                    : `Attach up to ${MAX_IMAGE_ATTACHMENTS} screenshots or diagrams`}
                 </span>
                 <span>⌘/Ctrl+Enter to send · Shift+Enter for newline</span>
               </div>
+              {submitError ? <p className="composer-error">{submitError}</p> : null}
             </div>
           </div>
         </>

@@ -12,7 +12,6 @@ export type AppConfig = {
   webDistDir: string;
   codexMode: "auto" | "real" | "mock";
   maxPromptLength: number;
-  maxConcurrentRuns: number;
   maxImageAttachments: number;
   maxImageAttachmentBytes: number;
 };
@@ -30,8 +29,7 @@ export function loadConfig(): AppConfig {
     webDistDir: process.env.WEB_DIST_DIR ?? path.join(workspaceRoot, "apps/web/dist"),
     codexMode: (process.env.CODEX_MODE as AppConfig["codexMode"] | undefined) ?? "auto",
     maxPromptLength: Number(process.env.MAX_PROMPT_LENGTH ?? 12000),
-    maxConcurrentRuns: Number(process.env.MAX_CONCURRENT_RUNS ?? 1),
-    maxImageAttachments: Number(process.env.MAX_IMAGE_ATTACHMENTS ?? 4),
+    maxImageAttachments: Number(process.env.MAX_IMAGE_ATTACHMENTS ?? 5),
     maxImageAttachmentBytes: Number(process.env.MAX_IMAGE_ATTACHMENT_BYTES ?? 10 * 1024 * 1024)
   };
 }
