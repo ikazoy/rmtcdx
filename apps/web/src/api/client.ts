@@ -58,6 +58,10 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(payload)
     }),
+  archiveSession: (sessionId: string) =>
+    request<{ ok: true }>(`/api/sessions/${sessionId}/archive`, {
+      method: "POST"
+    }),
   markRead: (sessionId: string) =>
     request<{ ok: true }>(`/api/sessions/${sessionId}/read`, {
       method: "POST"

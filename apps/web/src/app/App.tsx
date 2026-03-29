@@ -8,7 +8,8 @@ import type {
   Message,
   MessageAttachment,
   SessionDetail,
-  SessionFilter
+  SessionFilter,
+  SessionsResponse
 } from "../../../../packages/shared-types/src/index";
 import { api } from "../api/client";
 import { queryKeys } from "./query";
@@ -238,9 +239,43 @@ export function App() {
     }
   });
 
+  const archiveMutation = useMutation({
+    mutationFn: (sessionId: string) => api.archiveSession(sessionId),
+    onSuccess: async (_data, sessionId) => {
+      queryClient.setQueriesData<SessionsResponse>({ queryKey: ["sessions"] }, (current) =>
+        current
+          ? {
+              sessions: current.sessions.filter((session) => session.id !== sessionId)
+            }
+          : current
+      );
+      queryClient.removeQueries({ queryKey: queryKeys.session(sessionId) });
+      queryClient.removeQueries({ queryKey: queryKeys.messages(sessionId) });
+
+      if (useUiStore.getState().selectedSessionId === sessionId) {
+        const nextSessions = queryClient.getQueryData<SessionsResponse>(
+          queryKeys.sessions(selectedRepoId, deferredSearch, filter)
+        );
+        setSelectedSessionId(nextSessions?.sessions[0]?.id ?? null);
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.repos })
+      ]);
+    }
+  });
+
   const repos = reposQuery.data?.repos ?? [];
   const sessions = sessionsQuery.data?.sessions ?? [];
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
+  const selectedSessionSummary = sessions.find((session) => session.id === selectedSessionId) ?? null;
+  const fallbackCreateRepoId =
+    selectedRepoId ??
+    sessionDetailQuery.data?.session.repoId ??
+    selectedSessionSummary?.repoId ??
+    repos[0]?.id ??
+    null;
   const draftCreatedAt = new Date().toISOString();
   const draftDetail =
     isDraftSession && selectedRepo
@@ -356,11 +391,13 @@ export function App() {
               });
             }}
             isCreatingSession={false}
+            canCreateSession={Boolean(fallbackCreateRepoId)}
             onCreateSession={() => {
-              if (!selectedRepoId) {
+              if (!fallbackCreateRepoId) {
                 return;
               }
-              setSelectedSessionId(`draft:${selectedRepoId}:${Date.now()}`);
+              setSelectedRepoId(fallbackCreateRepoId);
+              setSelectedSessionId(`draft:${fallbackCreateRepoId}:${Date.now()}`);
               setMobilePane("chat");
             }}
           />
@@ -445,10 +482,28 @@ export function App() {
                 title: nextTitle
               });
             }}
+            onArchive={async () => {
+              if (!detail || isDraftSession) {
+                return;
+              }
+
+              const confirmed = window.confirm(`Archive "${detail.session.title}"?`);
+              if (!confirmed) {
+                return;
+              }
+
+              try {
+                await archiveMutation.mutateAsync(detail.session.id);
+              } catch (error) {
+                window.alert(error instanceof Error ? error.message : "Unable to archive session.");
+              }
+            }}
             isSubmitting={runMutation.isPending}
             isInterrupting={interruptMutation.isPending}
             isRenaming={renameMutation.isPending}
+            isArchiving={archiveMutation.isPending}
             canRename={!isDraftSession}
+            canArchive={!isDraftSession}
           />
         </section>
       </main>

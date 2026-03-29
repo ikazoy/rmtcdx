@@ -25,17 +25,46 @@ export function useRealtime() {
     let socket: WebSocket | null = null;
     let reconnectTimer: number | undefined;
     let attempts = 0;
+    let disposed = false;
+
+    const scheduleReconnect = () => {
+      if (disposed) {
+        return;
+      }
+
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer);
+      }
+
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = undefined;
+        connect();
+      }, Math.min(6000, 700 * attempts));
+    };
 
     const connect = () => {
-      setWsState(attempts === 0 ? "connecting" : "reconnecting");
-      socket = new WebSocket(wsUrl());
+      if (disposed) {
+        return;
+      }
 
-      socket.addEventListener("open", () => {
+      setWsState(attempts === 0 ? "connecting" : "reconnecting");
+      const nextSocket = new WebSocket(wsUrl());
+      socket = nextSocket;
+
+      nextSocket.addEventListener("open", () => {
+        if (disposed || socket !== nextSocket) {
+          nextSocket.close();
+          return;
+        }
         attempts = 0;
         setWsState("connected");
       });
 
-      socket.addEventListener("message", (message) => {
+      nextSocket.addEventListener("message", (message) => {
+        if (disposed || socket !== nextSocket) {
+          return;
+        }
+
         const event = JSON.parse(message.data) as ServerWsEvent;
         switch (event.type) {
           case "repos.updated":
@@ -85,24 +114,36 @@ export function useRealtime() {
         }
       });
 
-      socket.addEventListener("close", () => {
+      nextSocket.addEventListener("close", () => {
+        if (socket === nextSocket) {
+          socket = null;
+        }
+        if (disposed) {
+          return;
+        }
         setWsState("reconnecting");
         attempts += 1;
-        reconnectTimer = window.setTimeout(connect, Math.min(6000, 700 * attempts));
+        scheduleReconnect();
       });
 
-      socket.addEventListener("error", () => {
-        socket?.close();
+      nextSocket.addEventListener("error", () => {
+        if (socket !== nextSocket) {
+          return;
+        }
+        nextSocket.close();
       });
     };
 
     connect();
 
     return () => {
+      disposed = true;
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
       }
-      socket?.close();
+      const currentSocket = socket;
+      socket = null;
+      currentSocket?.close();
     };
   }, [
     appendActivityOutput,

@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { Repository, SessionFilter, SessionSummary } from "../../../../../packages/shared-types/src/index";
 import { SESSION_FILTERS } from "../../../../../packages/shared-types/src/index";
 import { formatRelativeTime } from "../../components/formatters";
@@ -13,6 +14,7 @@ type Props = {
   wsState: string;
   backendMode: "real" | "mock" | undefined;
   isCreatingSession: boolean;
+  canCreateSession: boolean;
   onSearchChange: (value: string) => void;
   onFilterChange: (value: SessionFilter) => void;
   onSelectRepo: (repoId: string | null) => void;
@@ -80,6 +82,7 @@ export function SidebarPane({
   search,
   filter,
   isCreatingSession,
+  canCreateSession,
   onSearchChange,
   onFilterChange,
   onSelectRepo,
@@ -87,6 +90,8 @@ export function SidebarPane({
   onHoverSession,
   onCreateSession
 }: Props) {
+  const filterMenuRef = useRef<HTMLDivElement | null>(null);
+  const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const collapsedRepos = useUiStore((state) => state.collapsedRepos);
   const toggleRepoCollapsed = useUiStore((state) => state.toggleRepoCollapsed);
 
@@ -115,73 +120,145 @@ export function SidebarPane({
   const selectedRepo = orderedRepos.find((repo) => repo.id === selectedRepoId) ?? null;
   const repoGroups = selectedRepoId ? [] : groupByRepo(sessions);
   const singleRepoSessions = selectedRepoId ? sessions : [];
+  const activeSummary = [
+    selectedRepo ? formatRepoLabel(selectedRepo) : "All projects",
+    filterLabel(filter),
+    search.trim() ? `Search: ${search.trim()}` : null
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  function closeFilterMenu() {
+    setIsFilterMenuOpen(false);
+  }
+
+  useEffect(() => {
+    if (!isFilterMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!filterMenuRef.current?.contains(event.target as Node)) {
+        closeFilterMenu();
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeFilterMenu();
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isFilterMenuOpen]);
 
   return (
     <div className="sidebar-card">
       <div className="sidebar-brand">
-        <h1>Threads</h1>
-      </div>
-
-      <label className="workspace-picker">
-        <span>Workspace</span>
-        <select
-          value={selectedRepoId ?? ""}
-          onChange={(event) => onSelectRepo(event.target.value || null)}
-        >
-          <option value="">All projects</option>
-          {orderedRepos.map((repo) => (
-            <option key={repo.id} value={repo.id}>
-              {formatRepoLabel(repo)}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      {selectedRepo ? (
-        <div className="sidebar-actions">
-          <button
-            className="action-button"
-            disabled={isCreatingSession}
-            onClick={onCreateSession}
-            type="button"
-          >
-            {isCreatingSession ? "Creating..." : "New session"}
-          </button>
+        <div className="sidebar-brand__copy">
+          <h1>Threads</h1>
+          <p className="sidebar-toolbar__summary">{activeSummary}</p>
         </div>
-      ) : null}
 
-      <label className="search-field search-field--sidebar">
-        <span>Search threads</span>
-        <div className="search-field__wrapper">
-          <input
-            placeholder="Search..."
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-          />
-          {search ? (
-            <button
-              className="search-field__clear"
-              onClick={() => onSearchChange("")}
-              type="button"
-              aria-label="Clear search"
+        <div ref={filterMenuRef} className="sidebar-menu">
+          <button
+            className="sidebar-menu__trigger"
+            onClick={() => setIsFilterMenuOpen((current) => !current)}
+            type="button"
+            aria-expanded={isFilterMenuOpen}
+            aria-label="Open filters"
+          >
+            <span className="sr-only">Open filters</span>
+            <svg
+              className="sidebar-menu__trigger-icon"
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
             >
-              ×
-            </button>
+              <path d="M4 7H14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              <path d="M10 17H20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              <circle cx="17" cy="7" r="2.2" stroke="currentColor" strokeWidth="1.8" />
+              <circle cx="7" cy="17" r="2.2" stroke="currentColor" strokeWidth="1.8" />
+            </svg>
+          </button>
+
+          {isFilterMenuOpen ? (
+            <div className="sidebar-menu__popover">
+              <section className="sidebar-menu__section">
+                <span className="sidebar-menu__section-title">State</span>
+                <div className="sidebar-menu__list">
+                  {SESSION_FILTERS.map((candidate) => {
+                    const isActive = candidate === filter;
+                    return (
+                      <button
+                        key={candidate}
+                        className={`sidebar-menu__item ${isActive ? "is-active" : ""}`}
+                        onClick={() => {
+                          onFilterChange(candidate);
+                          closeFilterMenu();
+                        }}
+                        type="button"
+                      >
+                        <span>{filterLabel(candidate)}</span>
+                        <span className={`sidebar-menu__check ${isActive ? "is-visible" : ""}`} aria-hidden="true" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className="sidebar-menu__section">
+                <label className="workspace-picker">
+                  <span>Workspace</span>
+                  <select
+                    value={selectedRepoId ?? ""}
+                    onChange={(event) => {
+                      onSelectRepo(event.target.value || null);
+                      closeFilterMenu();
+                    }}
+                  >
+                    <option value="">All projects</option>
+                    {orderedRepos.map((repo) => (
+                      <option key={repo.id} value={repo.id}>
+                        {formatRepoLabel(repo)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </section>
+
+              <section className="sidebar-menu__section">
+                <label className="search-field search-field--sidebar">
+                  <span>Search threads</span>
+                  <div className="search-field__wrapper">
+                    <input
+                      placeholder="Search..."
+                      value={search}
+                      onChange={(event) => onSearchChange(event.target.value)}
+                    />
+                    {search ? (
+                      <button
+                        className="search-field__clear"
+                        onClick={() => onSearchChange("")}
+                        type="button"
+                        aria-label="Clear search"
+                      >
+                        ×
+                      </button>
+                    ) : null}
+                  </div>
+                </label>
+              </section>
+            </div>
           ) : null}
         </div>
-      </label>
-
-      <div className="sidebar-controls">
-        <label className="workspace-picker workspace-picker--compact">
-          <span>State</span>
-          <select value={filter} onChange={(event) => onFilterChange(event.target.value as SessionFilter)}>
-            {SESSION_FILTERS.map((candidate) => (
-              <option key={candidate} value={candidate}>
-                {filterLabel(candidate)}
-              </option>
-            ))}
-          </select>
-        </label>
       </div>
 
       <div className="sidebar-scroll">
@@ -246,6 +323,18 @@ export function SidebarPane({
           </div>
         ) : null}
       </div>
+
+      <div className="sidebar-footer">
+        <button
+          className="sidebar-fab"
+          disabled={!canCreateSession || isCreatingSession}
+          onClick={onCreateSession}
+          type="button"
+          title={canCreateSession ? "Create a new session" : "No workspace available"}
+        >
+          {isCreatingSession ? "Creating..." : "+ New session"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -280,11 +369,9 @@ function SessionRow({
       <p className="session-row__preview">{getPreviewText(session)}</p>
       <div className="session-row__meta">
         {showRepo && session.repoName ? <span>{session.repoName}</span> : null}
-        {session.status === "running" ? <span className="badge">running</span> : null}
         {session.status === "error" || session.hasUnreadError ? (
           <span className="badge badge--error">error</span>
         ) : null}
-        {session.hasUnreadCompletion ? <span className="badge">done</span> : null}
         {session.unreadCount > 0 ? <span className="badge">{session.unreadCount}</span> : null}
       </div>
     </button>

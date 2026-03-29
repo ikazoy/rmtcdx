@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type {
+  FileChangeEntry,
   Message,
   MessageAttachment,
   Repository,
@@ -148,6 +149,11 @@ export class LiveCatalogService {
 
     await this.codex.setThreadName(sessionId, nextTitle);
     return this.getSessionDetail(sessionId);
+  }
+
+  async archiveSession(sessionId: string) {
+    await this.readThreadWithFallback(sessionId, false);
+    await this.codex.archiveThread(sessionId);
   }
 
   async getThread(sessionId: string) {
@@ -307,7 +313,15 @@ export class LiveCatalogService {
         kind: "command_execution",
         text: this.formatCommandExecution(item.command, item.aggregatedOutput, item.exitCode),
         createdAt,
-        status: item.status
+        status: item.status,
+        metadata: {
+          type: "command_execution",
+          command: item.command,
+          cwd: item.cwd,
+          output: item.aggregatedOutput,
+          exitCode: item.exitCode,
+          durationMs: item.durationMs
+        }
       };
     }
 
@@ -319,7 +333,11 @@ export class LiveCatalogService {
         kind: "file_change",
         text: `Updated ${item.changes.length} file${item.changes.length === 1 ? "" : "s"}.`,
         createdAt,
-        status: item.status
+        status: item.status,
+        metadata: {
+          type: "file_change",
+          changes: item.changes.map((change) => this.mapFileChange(change))
+        }
       };
     }
 
@@ -489,6 +507,19 @@ export class LiveCatalogService {
     }
 
     return sections.join("\n\n");
+  }
+
+  private mapFileChange(change: {
+    path: string;
+    kind: { type: "add" } | { type: "delete" } | { type: "update"; move_path: string | null };
+    diff: string;
+  }): FileChangeEntry {
+    return {
+      path: change.path,
+      kind: change.kind.type,
+      movePath: change.kind.type === "update" ? change.kind.move_path : undefined,
+      diff: change.diff
+    };
   }
 
   private clipBlock(text: string, max: number) {

@@ -22,8 +22,26 @@ export type CodexThreadItem =
   | { type: "agentMessage"; id: string; text: string; phase: string | null }
   | { type: "plan"; id: string; text: string }
   | { type: "reasoning"; id: string; summary: string[]; content: string[] }
-  | { type: "commandExecution"; id: string; command: string; cwd: string; status: string; aggregatedOutput: string | null; exitCode: number | null }
-  | { type: "fileChange"; id: string; changes: Array<unknown>; status: string }
+  | {
+      type: "commandExecution";
+      id: string;
+      command: string;
+      cwd: string;
+      status: string;
+      aggregatedOutput: string | null;
+      exitCode: number | null;
+      durationMs?: number | null;
+    }
+  | {
+      type: "fileChange";
+      id: string;
+      changes: Array<{
+        path: string;
+        kind: { type: "add" } | { type: "delete" } | { type: "update"; move_path: string | null };
+        diff: string;
+      }>;
+      status: string;
+    }
   | { type: "mcpToolCall"; id: string; server: string; tool: string; status: string }
   | { type: "dynamicToolCall"; id: string; tool: string; status: string }
   | { type: "collabAgentToolCall"; id: string; tool: string; status: string; prompt: string | null }
@@ -132,6 +150,7 @@ export interface CodexBackend extends EventEmitter {
   listThreads(params?: ListThreadsParams): Promise<CodexThread[]>;
   readThread(threadId: string, options?: { includeTurns?: boolean }): Promise<CodexThread>;
   setThreadName(threadId: string, name: string): Promise<void>;
+  archiveThread(threadId: string): Promise<void>;
   ensureThread(params: EnsureThreadParams): Promise<{ threadId: string }>;
   startRun(params: StartRunParams): Promise<StartRunResult>;
   interruptRun(runId: string, threadId: string, turnId: string): Promise<void>;

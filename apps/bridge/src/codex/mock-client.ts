@@ -25,6 +25,7 @@ type MockRunHandle = {
 export class MockCodexClient extends EventEmitter implements CodexBackend {
   private readonly runs = new Map<string, MockRunHandle>();
   private readonly threads = new Map<string, CodexThread>();
+  private readonly archivedThreadIds = new Set<string>();
 
   constructor(private readonly logger: LoggerLike) {
     super();
@@ -68,6 +69,10 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
   async listThreads(params: ListThreadsParams = {}) {
     return [...this.threads.values()]
       .filter((thread) => (params.cwd ? thread.cwd === params.cwd : true))
+      .filter((thread) => {
+        const archived = this.archivedThreadIds.has(thread.id);
+        return params.archived === true ? archived : !archived;
+      })
       .filter((thread) =>
         params.searchTerm
           ? `${thread.name ?? ""}\n${thread.preview}`.toLowerCase().includes(params.searchTerm.toLowerCase())
@@ -88,6 +93,14 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
     this.updateThread(threadId, {
       name
     });
+  }
+
+  async archiveThread(threadId: string) {
+    if (!this.threads.has(threadId)) {
+      throw new Error(`Unknown mock thread: ${threadId}`);
+    }
+
+    this.archivedThreadIds.add(threadId);
   }
 
   async ensureThread(params: EnsureThreadParams) {

@@ -1,9 +1,10 @@
 import { memo, useEffect, useRef, useState } from "react";
-import type { ChangeEvent, KeyboardEvent, RefObject } from "react";
+import type { ChangeEvent, KeyboardEvent, ReactNode, RefObject } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import type {
+  FileChangeEntry,
   LiveActivity,
   Message,
   MessageAttachment,
@@ -24,6 +25,29 @@ type ComposerImage = {
   previewUrl: string;
 };
 
+type CommandExecutionEntry = {
+  id: string;
+  message: Message;
+  command: string;
+  cwd: string;
+  output: string | null;
+  exitCode: number | null;
+  durationMs: number | null;
+  status?: string;
+  createdAt: string;
+};
+
+type TimelineEntry =
+  | { type: "message"; id: string; message: Message }
+  | { type: "command_group"; id: string; commands: CommandExecutionEntry[]; createdAt: string }
+  | { type: "file_group"; id: string; changes: FileChangeEntry[]; count: number; createdAt: string };
+
+type BottomSheetState =
+  | null
+  | { type: "command_list"; commands: CommandExecutionEntry[] }
+  | { type: "command_detail"; commands: CommandExecutionEntry[]; selectedIndex: number }
+  | { type: "file_list"; changes: FileChangeEntry[]; count: number };
+
 type Props = {
   detail: SessionDetail | null | undefined;
   isLoadingDetail: boolean;
@@ -39,10 +63,13 @@ type Props = {
   onSubmit: (payload: { prompt: string; files: File[] }) => Promise<void>;
   onInterrupt: () => Promise<void>;
   onRename: () => Promise<void>;
+  onArchive: () => Promise<void>;
   isSubmitting: boolean;
   isInterrupting: boolean;
   isRenaming: boolean;
+  isArchiving: boolean;
   canRename: boolean;
+  canArchive: boolean;
 };
 
 function revokeComposerImages(images: ComposerImage[]) {
@@ -75,10 +102,6 @@ function messagePresentation(message: Message) {
       return { rowRole: "assistant", label: "plan", tone: "thinking" };
     case "reasoning":
       return { rowRole: "assistant", label: "reasoning", tone: "thinking" };
-    case "command_execution":
-      return { rowRole: "system", label: "terminal", tone: "command" };
-    case "file_change":
-      return { rowRole: "system", label: "files", tone: "artifact" };
     case "mcp_tool_call":
     case "dynamic_tool_call":
     case "collab_agent_tool_call":
@@ -103,14 +126,170 @@ function messagePresentation(message: Message) {
 
 function shouldShowMessageStatus(message: Message) {
   return (
-    message.kind === "command_execution" ||
-    message.kind === "file_change" ||
     message.kind === "mcp_tool_call" ||
     message.kind === "dynamic_tool_call" ||
     message.kind === "collab_agent_tool_call" ||
     message.kind === "image_generation" ||
     message.kind === "run_error"
   );
+}
+
+function extractFencedBlock(text: string, language: string) {
+  const match = new RegExp(`\`\`\`${language}\\n([\\s\\S]*?)\\n\`\`\``).exec(text);
+  return match?.[1]?.trim() ?? "";
+}
+
+function parseExitCode(text: string) {
+  const match = /Exit code:\s*(-?\d+)/.exec(text);
+  return match ? Number(match[1]) : null;
+}
+
+function commandExecutionFromMessage(message: Message): CommandExecutionEntry {
+  if (message.metadata?.type === "command_execution") {
+    return {
+      id: message.id,
+      message,
+      command: message.metadata.command,
+      cwd: message.metadata.cwd,
+      output: message.metadata.output,
+      exitCode: message.metadata.exitCode,
+      durationMs: message.metadata.durationMs ?? null,
+      status: message.status,
+      createdAt: message.createdAt
+    };
+  }
+
+  const command = extractFencedBlock(message.text, "sh") || "shell command";
+  const output = extractFencedBlock(message.text, "text") || null;
+
+  return {
+    id: message.id,
+    message,
+    command,
+    cwd: "",
+    output,
+    exitCode: parseExitCode(message.text),
+    durationMs: null,
+    status: message.status,
+    createdAt: message.createdAt
+  };
+}
+
+function fileChangesFromMessage(message: Message) {
+  return message.metadata?.type === "file_change" ? message.metadata.changes : [];
+}
+
+function fileChangeCountFromMessage(message: Message) {
+  if (message.metadata?.type === "file_change") {
+    return message.metadata.changes.length;
+  }
+
+  const match = /Updated\s+(\d+)\s+file/.exec(message.text);
+  return match ? Number(match[1]) : 0;
+}
+
+function buildTimelineEntries(messages: Message[]): TimelineEntry[] {
+  const entries: TimelineEntry[] = [];
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]!;
+
+    if (message.kind === "command_execution") {
+      const commandMessages: Message[] = [message];
+
+      while (index + 1 < messages.length && messages[index + 1]?.kind === "command_execution") {
+        commandMessages.push(messages[index + 1]!);
+        index += 1;
+      }
+
+      const commands = commandMessages.map((item) => commandExecutionFromMessage(item));
+      entries.push({
+        type: "command_group",
+        id: `command-group:${commandMessages[0]!.id}`,
+        commands,
+        createdAt: commandMessages[commandMessages.length - 1]!.createdAt
+      });
+      continue;
+    }
+
+    if (message.kind === "file_change") {
+      const fileMessages: Message[] = [message];
+
+      while (index + 1 < messages.length && messages[index + 1]?.kind === "file_change") {
+        fileMessages.push(messages[index + 1]!);
+        index += 1;
+      }
+
+      const changes = fileMessages.flatMap((item) => fileChangesFromMessage(item));
+      const count = fileMessages.reduce((sum, item) => sum + fileChangeCountFromMessage(item), 0);
+
+      entries.push({
+        type: "file_group",
+        id: `file-group:${fileMessages[0]!.id}`,
+        changes,
+        count: Math.max(count, changes.length),
+        createdAt: fileMessages[fileMessages.length - 1]!.createdAt
+      });
+      continue;
+    }
+
+    entries.push({
+      type: "message",
+      id: message.id,
+      message
+    });
+  }
+
+  return entries;
+}
+
+function formatCountLabel(count: number, noun: string) {
+  return `${count}件の${noun}`;
+}
+
+function formatCommandGroupTitle(count: number) {
+  return `${formatCountLabel(count, "コマンド")}を実行しました`;
+}
+
+function formatFileGroupTitle(count: number) {
+  return `${formatCountLabel(count, "ファイル")}を編集しました`;
+}
+
+function commandStatusLabel(command: CommandExecutionEntry) {
+  switch (command.status) {
+    case "completed":
+      return command.exitCode === null || command.exitCode === 0 ? "完了" : `終了コード ${command.exitCode}`;
+    case "failed":
+      return command.exitCode !== null ? `失敗 · exit ${command.exitCode}` : "失敗";
+    case "inProgress":
+      return "実行中";
+    case "declined":
+      return "拒否";
+    default:
+      return command.exitCode !== null ? `終了コード ${command.exitCode}` : "Bash";
+  }
+}
+
+function formatDuration(durationMs: number | null) {
+  if (durationMs === null || Number.isNaN(durationMs)) {
+    return null;
+  }
+  if (durationMs >= 1000) {
+    return `${(durationMs / 1000).toFixed(durationMs >= 10000 ? 0 : 1)}s`;
+  }
+  return `${Math.round(durationMs)}ms`;
+}
+
+function fileChangeVerb(change: FileChangeEntry) {
+  switch (change.kind) {
+    case "add":
+      return "Add";
+    case "delete":
+      return "Delete";
+    case "update":
+    default:
+      return change.movePath ? "Move" : "Edit";
+  }
 }
 
 const MessageBody = memo(function MessageBody({ text }: { text: string }) {
@@ -120,18 +299,6 @@ const MessageBody = memo(function MessageBody({ text }: { text: string }) {
     </div>
   );
 });
-
-function CollapsibleBody({ text, label }: { text: string; label: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <details className="collapsible-body" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
-      <summary className="collapsible-body__toggle">
-        {open ? "Hide" : "Show"} {label} output
-      </summary>
-      <MessageBody text={text} />
-    </details>
-  );
-}
 
 const MessageAttachments = memo(function MessageAttachments({
   attachments
@@ -156,10 +323,131 @@ const MessageAttachments = memo(function MessageAttachments({
           rel="noreferrer"
         >
           <img src={attachment.url} alt={attachment.name} loading="lazy" />
-          <span>{attachment.name}</span>
         </a>
       ))}
     </div>
+  );
+});
+
+function SheetBackIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M15.5 5.5 9 12l6.5 6.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function SheetCloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 6 18 18M18 6 6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function TerminalIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4.5 6.5h15a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="m8 10 2.5 2L8 14.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+      <path d="M12.5 14.5h3.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function FileIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7 3.5h6l4 4v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M13 3.5v4h4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="m9 15.5 5-5 1.5 1.5-5 5H9z" fill="none" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
+function MoreActionsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="6" cy="12" r="1.8" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+      <circle cx="18" cy="12" r="1.8" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M5 6.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 16V8A1.5 1.5 0 0 1 5 6.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <circle cx="9" cy="10" r="1.4" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="m7 16 3.4-3.6a1 1 0 0 1 1.46-.02L14 14.5l1.47-1.58a1 1 0 0 1 1.45-.03L19 15.1"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.6"
+      />
+    </svg>
+  );
+}
+
+type SummaryCardProps = {
+  tone: "command" | "file";
+  title: string;
+  createdAt: string;
+  rows: Array<{
+    id: string;
+    prefix: string;
+    text: string;
+    detail?: string | null;
+  }>;
+  extraCount: number;
+  onClick: () => void;
+};
+
+const SummaryCard = memo(function SummaryCard({
+  tone,
+  title,
+  createdAt,
+  rows,
+  extraCount,
+  onClick
+}: SummaryCardProps) {
+  return (
+    <article className="message-row message-row--system">
+      <button className={`summary-card summary-card--${tone}`} type="button" onClick={onClick}>
+        <header className="summary-card__head">
+          <div className="summary-card__title-wrap">
+            <strong>{title}</strong>
+            <span className="summary-card__chevron">›</span>
+          </div>
+          <time>{formatClock(createdAt)}</time>
+        </header>
+        <div className="summary-card__list">
+          {rows.map((row) => (
+            <div key={row.id} className="summary-card__row">
+              <span className={`summary-card__icon summary-card__icon--${tone}`}>
+                {tone === "command" ? <TerminalIcon /> : <FileIcon />}
+              </span>
+              <div className="summary-card__row-copy">
+                <span className="summary-card__row-line">
+                  <span className="summary-card__row-prefix">{row.prefix}</span>
+                  <span className="summary-card__row-text">{row.text}</span>
+                </span>
+                {row.detail ? <span className="summary-card__row-detail">{row.detail}</span> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+        {extraCount > 0 ? <div className="summary-card__more">+{extraCount}件</div> : null}
+      </button>
+    </article>
   );
 });
 
@@ -195,13 +483,173 @@ const ActivityTray = memo(function ActivityTray({ activities }: { activities: Li
   );
 });
 
+function BottomSheet({
+  title,
+  subtitle,
+  onClose,
+  onBack,
+  children
+}: {
+  title: string;
+  subtitle?: string | null;
+  onClose: () => void;
+  onBack?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="bottom-sheet-backdrop" role="presentation" onClick={onClose}>
+      <section
+        aria-label={title}
+        aria-modal="true"
+        className="bottom-sheet"
+        role="dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="bottom-sheet__handle" />
+        <header className="bottom-sheet__header">
+          <div className="bottom-sheet__side">
+            {onBack ? (
+              <button className="bottom-sheet__icon-button" type="button" aria-label="Back" onClick={onBack}>
+                <SheetBackIcon />
+              </button>
+            ) : null}
+          </div>
+          <div className="bottom-sheet__headline">
+            <strong>{title}</strong>
+            {subtitle ? <span>{subtitle}</span> : null}
+          </div>
+          <div className="bottom-sheet__side bottom-sheet__side--end">
+            <button className="bottom-sheet__icon-button" type="button" aria-label="Close" onClick={onClose}>
+              <SheetCloseIcon />
+            </button>
+          </div>
+        </header>
+        <div className="bottom-sheet__body">{children}</div>
+      </section>
+    </div>
+  );
+}
+
+function CommandListSheet({
+  commands,
+  onClose,
+  onSelect
+}: {
+  commands: CommandExecutionEntry[];
+  onClose: () => void;
+  onSelect: (index: number) => void;
+}) {
+  return (
+    <BottomSheet title={formatCommandGroupTitle(commands.length)} onClose={onClose}>
+      <div className="sheet-list">
+        {commands.map((command, index) => (
+          <button
+            key={command.id}
+            className="sheet-row sheet-row--button"
+            type="button"
+            onClick={() => onSelect(index)}
+          >
+            <span className="sheet-row__icon sheet-row__icon--command">
+              <TerminalIcon />
+            </span>
+            <div className="sheet-row__copy">
+              <span className="sheet-row__eyebrow">Bash</span>
+              <span className="sheet-row__title">{command.command}</span>
+              <span className="sheet-row__meta">
+                {commandStatusLabel(command)}
+                {command.cwd ? ` · ${command.cwd}` : ""}
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
+    </BottomSheet>
+  );
+}
+
+function CommandDetailSheet({
+  commands,
+  selectedIndex,
+  onClose,
+  onBack
+}: {
+  commands: CommandExecutionEntry[];
+  selectedIndex: number;
+  onClose: () => void;
+  onBack: () => void;
+}) {
+  const command = commands[selectedIndex];
+  if (!command) {
+    return null;
+  }
+
+  const duration = formatDuration(command.durationMs);
+
+  return (
+    <BottomSheet title="Bash" subtitle={commandStatusLabel(command)} onClose={onClose} onBack={onBack}>
+      <div className="sheet-meta">
+        {duration ? <span className="sheet-meta__badge">{duration}</span> : null}
+        {command.exitCode !== null ? <span className="sheet-meta__badge">exit {command.exitCode}</span> : null}
+        {command.cwd ? <span className="sheet-meta__badge">{command.cwd}</span> : null}
+      </div>
+
+      <section className="sheet-terminal-block">
+        <span className="sheet-terminal-block__label">コマンド</span>
+        <pre>{command.command}</pre>
+      </section>
+
+      <section className="sheet-terminal-block">
+        <span className="sheet-terminal-block__label">出力</span>
+        <pre>{command.output?.trim() || "出力はありません。"}</pre>
+      </section>
+    </BottomSheet>
+  );
+}
+
+function FileChangeSheet({
+  changes,
+  count,
+  onClose
+}: {
+  changes: FileChangeEntry[];
+  count: number;
+  onClose: () => void;
+}) {
+  return (
+    <BottomSheet title={formatFileGroupTitle(count)} onClose={onClose}>
+      <div className="sheet-list">
+        {changes.length > 0 ? (
+          changes.map((change, index) => (
+            <div key={`${change.path}:${index}`} className="sheet-row">
+              <span className="sheet-row__icon sheet-row__icon--file">
+                <FileIcon />
+              </span>
+              <div className="sheet-row__copy">
+                <span className="sheet-row__title">
+                  <span className="sheet-row__eyebrow sheet-row__eyebrow--inline">{fileChangeVerb(change)}</span>
+                  {change.movePath ?? change.path}
+                </span>
+                {change.movePath ? <span className="sheet-row__meta">{change.path}</span> : null}
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="sheet-empty">この run にはファイル一覧の詳細がありません。</p>
+        )}
+      </div>
+    </BottomSheet>
+  );
+}
+
 const ConversationTimeline = memo(function ConversationTimeline({
   messages,
   streamingText,
   liveActivities,
   optimisticMessage,
   showPendingAssistant,
-  timelineRef
+  timelineRef,
+  onOpenCommands,
+  onOpenFileChanges
 }: {
   messages: Message[];
   streamingText: string;
@@ -209,7 +657,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
   optimisticMessage?: OptimisticUserMessage | null;
   showPendingAssistant: boolean;
   timelineRef: RefObject<HTMLDivElement | null>;
+  onOpenCommands: (commands: CommandExecutionEntry[]) => void;
+  onOpenFileChanges: (changes: FileChangeEntry[], count: number) => void;
 }) {
+  const entries = buildTimelineEntries(messages);
   const hasConfirmedOptimistic =
     Boolean(optimisticMessage) &&
     messages.some((message) => optimisticMessage ? messageMatchesOptimistic(message, optimisticMessage) : false);
@@ -218,45 +669,80 @@ const ConversationTimeline = memo(function ConversationTimeline({
     <div ref={timelineRef} className="timeline-wrap">
       <div className="timeline">
         <ActivityTray activities={liveActivities} />
-        {messages.map((message) => {
+
+        {entries.map((entry) => {
+          if (entry.type === "command_group") {
+            const previewRows = entry.commands.slice(0, 3).map((command) => ({
+              id: command.id,
+              prefix: "Bash",
+              text: command.command
+            }));
+
+            return (
+              <SummaryCard
+                key={entry.id}
+                tone="command"
+                title={formatCommandGroupTitle(entry.commands.length)}
+                createdAt={entry.createdAt}
+                rows={previewRows}
+                extraCount={Math.max(0, entry.commands.length - previewRows.length)}
+                onClick={() => onOpenCommands(entry.commands)}
+              />
+            );
+          }
+
+          if (entry.type === "file_group") {
+            const previewRows = entry.changes.slice(0, 5).map((change, index) => ({
+              id: `${change.path}:${index}`,
+              prefix: fileChangeVerb(change),
+              text: change.movePath ?? change.path,
+              detail: change.movePath ? change.path : null
+            }));
+
+            return (
+              <SummaryCard
+                key={entry.id}
+                tone="file"
+                title={formatFileGroupTitle(entry.count)}
+                createdAt={entry.createdAt}
+                rows={previewRows}
+                extraCount={Math.max(0, entry.count - previewRows.length)}
+                onClick={() => onOpenFileChanges(entry.changes, entry.count)}
+              />
+            );
+          }
+
+          const { message } = entry;
           const presentation = messagePresentation(message);
           const showLabel = Boolean(presentation.label);
           const showStatus = Boolean(message.status && shouldShowMessageStatus(message));
 
           return (
-          <article key={message.id} className={`message-row message-row--${presentation.rowRole}`}>
-            <div
-              className={[
-                "message-card",
-                `message-card--${presentation.rowRole}`,
-                `message-card--${presentation.tone}`,
-                `message-card--kind-${message.kind}`
-              ].join(" ")}
-              data-kind={message.kind}
-            >
-              <header className={`message-meta ${!showLabel && !showStatus ? "message-meta--time-only" : ""}`}>
-                {showLabel || showStatus ? (
-                  <div className="message-meta__title">
-                    {showLabel ? <strong>{presentation.label}</strong> : null}
-                    {showStatus ? (
-                    <span className="message-status">{message.status}</span>
-                    ) : null}
-                  </div>
-                ) : (
-                  <span />
-                )}
-                <time>{formatClock(message.createdAt)}</time>
-              </header>
-              {message.attachments?.length ? <MessageAttachments attachments={message.attachments} /> : null}
-              {message.text ? (
-                message.kind === "command_execution" ? (
-                  <CollapsibleBody text={message.text} label="terminal" />
-                ) : (
-                  <MessageBody text={message.text} />
-                )
-              ) : null}
-            </div>
-          </article>
+            <article key={message.id} className={`message-row message-row--${presentation.rowRole}`}>
+              <div
+                className={[
+                  "message-card",
+                  `message-card--${presentation.rowRole}`,
+                  `message-card--${presentation.tone}`,
+                  `message-card--kind-${message.kind}`
+                ].join(" ")}
+                data-kind={message.kind}
+              >
+                <header className={`message-meta ${!showLabel && !showStatus ? "message-meta--time-only" : ""}`}>
+                  {showLabel || showStatus ? (
+                    <div className="message-meta__title">
+                      {showLabel ? <strong>{presentation.label}</strong> : null}
+                      {showStatus ? <span className="message-status">{message.status}</span> : null}
+                    </div>
+                  ) : (
+                    <span />
+                  )}
+                  <time>{formatClock(message.createdAt)}</time>
+                </header>
+                {message.attachments?.length ? <MessageAttachments attachments={message.attachments} /> : null}
+                {message.text ? <MessageBody text={message.text} /> : null}
+              </div>
+            </article>
           );
         })}
 
@@ -351,17 +837,23 @@ export function ChatPane({
   onSubmit,
   onInterrupt,
   onRename,
+  onArchive,
   isSubmitting,
   isInterrupting,
   isRenaming,
-  canRename
+  isArchiving,
+  canRename,
+  canArchive
 }: Props) {
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const selectedImagesRef = useRef<ComposerImage[]>([]);
   const [selectedImages, setSelectedImages] = useState<ComposerImage[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [sheetState, setSheetState] = useState<BottomSheetState>(null);
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
   const openedSessionRef = useRef<{ id: string | null; openedAt: number }>({
     id: null,
     openedAt: 0
@@ -379,6 +871,53 @@ export function ChatPane({
   }, [selectedImages]);
 
   useEffect(() => () => revokeComposerImages(selectedImagesRef.current), []);
+
+  useEffect(() => {
+    if (!isActionsMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!actionsMenuRef.current?.contains(event.target as Node)) {
+        setIsActionsMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsActionsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isActionsMenuOpen]);
+
+  useEffect(() => {
+    if (!sheetState) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSheetState(null);
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [sheetState]);
 
   const clearSelectedImages = () => {
     setSelectedImages((current) => {
@@ -402,6 +941,8 @@ export function ChatPane({
     }
     clearSelectedImages();
     setSubmitError(null);
+    setSheetState(null);
+    setIsActionsMenuOpen(false);
 
     openedSessionRef.current = {
       id: detail.session.id,
@@ -464,7 +1005,6 @@ export function ChatPane({
     const files = selectedImages.map((image) => image.file);
     const savedImages = [...selectedImages];
 
-    // Clear composer immediately for snappy feedback
     if (composerRef.current) {
       composerRef.current.value = "";
       composerRef.current.style.height = "auto";
@@ -474,7 +1014,6 @@ export function ChatPane({
     try {
       await onSubmit({ prompt, files });
     } catch (error) {
-      // Restore composer on failure
       if (composerRef.current) {
         composerRef.current.value = prompt;
         composerRef.current.style.height = "auto";
@@ -560,61 +1099,93 @@ export function ChatPane({
 
   return (
     <div className="chat-card">
-      <div className="chat-toolbar">
-        <div className="chat-toolbar__left">
-          <button
-            aria-label="Back to sidebar"
-            className="ghost-button ghost-button--back"
-            onClick={() => void onBack()}
-            title="Back"
-            type="button"
-          >
-            <span aria-hidden="true">←</span>
-          </button>
-          <button
-            className="ghost-button ghost-button--toggle"
-            onClick={onToggleSidebar}
-            type="button"
-            aria-label="Toggle sidebar"
-          >
-            ☰
-          </button>
-        </div>
-        {detail ? (
-          <div className="chat-toolbar__meta">
-            <span
-              className={[
-                "status-badge",
-                `status-badge--${bannerRunState ?? detail.session.status ?? "idle"}`
-              ].join(" ")}
-            >
-              {detail.session.status ?? "idle"}
-            </span>
-          </div>
-        ) : null}
-      </div>
-
       {detail ? (
         <>
           <div className="chat-head">
-            <div>
-              <h2>
-                <span
-                  className={[
-                    "status-dot",
-                    `status-dot--${bannerRunState ?? detail.session.status ?? "idle"}`
-                  ].join(" ")}
-                />
-                {detail.session.title}
-              </h2>
-              <p className="subtle">
-                Updated {formatRelativeTime(detail.session.updatedAt)} · {repoName ?? "unknown workspace"}
-              </p>
+            <div className="chat-head__lead">
+              <div className="chat-toolbar__left chat-head__nav">
+                <button
+                  aria-label="Back to sidebar"
+                  className="ghost-button ghost-button--back"
+                  onClick={() => void onBack()}
+                  title="Back"
+                  type="button"
+                >
+                  <SheetBackIcon />
+                </button>
+                <button
+                  className="ghost-button ghost-button--toggle"
+                  onClick={onToggleSidebar}
+                  type="button"
+                  aria-label="Toggle sidebar"
+                >
+                  ☰
+                </button>
+              </div>
+              <div className="chat-head__copy">
+                <h2>
+                  <span
+                    className={[
+                      "status-dot",
+                      `status-dot--${bannerRunState ?? detail.session.status ?? "idle"}`
+                    ].join(" ")}
+                  />
+                  {detail.session.title}
+                </h2>
+                <p className="subtle">
+                  Updated {formatRelativeTime(detail.session.updatedAt)} · {repoName ?? "unknown workspace"}
+                </p>
+              </div>
             </div>
-            {canRename ? (
-              <button className="ghost-button ghost-button--compact" onClick={() => void onRename()} type="button">
-                {isRenaming ? "Renaming..." : "Rename"}
-              </button>
+            {canRename || canArchive ? (
+              <div ref={actionsMenuRef} className="sidebar-menu chat-head__menu">
+                <button
+                  className="sidebar-menu__trigger chat-head__menu-trigger"
+                  onClick={() => setIsActionsMenuOpen((current) => !current)}
+                  type="button"
+                  aria-expanded={isActionsMenuOpen}
+                  aria-label="Open thread actions"
+                >
+                  <span className="sr-only">Open thread actions</span>
+                  <MoreActionsIcon />
+                </button>
+
+                {isActionsMenuOpen ? (
+                  <div className="sidebar-menu__popover chat-head__menu-popover">
+                    <section className="sidebar-menu__section">
+                      <div className="sidebar-menu__list">
+                        {canRename ? (
+                          <button
+                            className="sidebar-menu__item"
+                            disabled={isRenaming || isArchiving}
+                            onClick={() => {
+                              setIsActionsMenuOpen(false);
+                              void onRename();
+                            }}
+                            type="button"
+                          >
+                            <span>{isRenaming ? "Renaming..." : "Rename"}</span>
+                          </button>
+                        ) : null}
+
+                        {canArchive ? (
+                          <button
+                            className="sidebar-menu__item sidebar-menu__item--danger"
+                            disabled={isArchiving || isRenaming || isSubmitting || isInterrupting || sessionIsRunning}
+                            onClick={() => {
+                              setIsActionsMenuOpen(false);
+                              void onArchive();
+                            }}
+                            type="button"
+                          >
+                            <span>{isArchiving ? "Archiving..." : "Archive"}</span>
+                          </button>
+                        ) : null}
+                      </div>
+                    </section>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </div>
 
@@ -638,6 +1209,8 @@ export function ChatPane({
             optimisticMessage={optimisticMessage}
             showPendingAssistant={showPendingAssistant}
             timelineRef={timelineRef}
+            onOpenCommands={(commands) => setSheetState({ type: "command_list", commands })}
+            onOpenFileChanges={(changes, count) => setSheetState({ type: "file_list", changes, count })}
           />
 
           <div className="composer-shell">
@@ -662,8 +1235,7 @@ export function ChatPane({
                       >
                         ×
                       </button>
-                      <img src={image.previewUrl} alt={image.file.name || "Selected image"} />
-                      <figcaption>{image.file.name || "image"}</figcaption>
+                      <img src={image.previewUrl} alt="Selected image" />
                     </figure>
                   ))}
                 </div>
@@ -676,7 +1248,8 @@ export function ChatPane({
                   aria-label="Attach images"
                   disabled={isSubmitting || selectedImages.length >= MAX_IMAGE_ATTACHMENTS}
                 >
-                  Image
+                  <span className="sr-only">Attach images</span>
+                  <ImageIcon />
                 </button>
                 <textarea
                   ref={composerRef}
@@ -727,6 +1300,37 @@ export function ChatPane({
           <p>Choose a session from the sidebar or create a new one to start a run.</p>
         </div>
       )}
+
+      {sheetState?.type === "command_list" ? (
+        <CommandListSheet
+          commands={sheetState.commands}
+          onClose={() => setSheetState(null)}
+          onSelect={(selectedIndex) =>
+            setSheetState({
+              type: "command_detail",
+              commands: sheetState.commands,
+              selectedIndex
+            })
+          }
+        />
+      ) : null}
+
+      {sheetState?.type === "command_detail" ? (
+        <CommandDetailSheet
+          commands={sheetState.commands}
+          selectedIndex={sheetState.selectedIndex}
+          onClose={() => setSheetState(null)}
+          onBack={() => setSheetState({ type: "command_list", commands: sheetState.commands })}
+        />
+      ) : null}
+
+      {sheetState?.type === "file_list" ? (
+        <FileChangeSheet
+          changes={sheetState.changes}
+          count={sheetState.count}
+          onClose={() => setSheetState(null)}
+        />
+      ) : null}
     </div>
   );
 }

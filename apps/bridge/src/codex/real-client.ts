@@ -133,6 +133,11 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     });
   }
 
+  async archiveThread(threadId: string) {
+    await this.ensureReady();
+    await this.request("thread/archive", { threadId });
+  }
+
   async ensureThread(params: EnsureThreadParams) {
     await this.ensureReady();
     if (params.threadId) {

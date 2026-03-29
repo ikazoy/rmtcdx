@@ -62,12 +62,34 @@ export type Message = {
   createdAt: string;
   kind: MessageKind;
   status?: string;
+  metadata?: MessageMetadata;
 };
 
 export type MessageAttachment = {
   kind: "image";
   name: string;
   url: string;
+};
+
+export type MessageMetadata =
+  | {
+      type: "command_execution";
+      command: string;
+      cwd: string;
+      output: string | null;
+      exitCode: number | null;
+      durationMs?: number | null;
+    }
+  | {
+      type: "file_change";
+      changes: FileChangeEntry[];
+    };
+
+export type FileChangeEntry = {
+  path: string;
+  kind: "add" | "delete" | "update";
+  movePath?: string | null;
+  diff?: string;
 };
 
 export type Run = {

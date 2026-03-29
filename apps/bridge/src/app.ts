@@ -199,8 +199,25 @@ export async function buildApp() {
     };
   });
 
-  app.post("/api/sessions/:sessionId/archive", async () => {
-    return { ok: true };
+  app.post("/api/sessions/:sessionId/archive", async (request, reply) => {
+    const params = z.object({ sessionId: z.string().min(1) }).parse(request.params);
+    const detail = await catalog.getSessionDetail(params.sessionId);
+    if (!detail) {
+      return reply.code(404).send({ message: "Session not found" });
+    }
+
+    const sessionRuns = runs.getSessionRuns(params.sessionId, detail);
+    if (sessionRuns.activeRun) {
+      return reply.code(409).send({ message: "Cannot archive a session with an active run" });
+    }
+
+    try {
+      await catalog.archiveSession(params.sessionId);
+      realtime.broadcastSession(detail.session);
+      return { ok: true };
+    } catch (error) {
+      return reply.code(400).send({ message: error instanceof Error ? error.message : "Unable to archive session" });
+    }
   });
 
   app.post("/api/sessions/:sessionId/read", async () => {
