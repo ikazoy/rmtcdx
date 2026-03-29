@@ -11,6 +11,7 @@ import type {
   SessionFilter,
   SessionsResponse
 } from "../../../../packages/shared-types/src/index";
+import { SESSION_FILTERS } from "../../../../packages/shared-types/src/index";
 import { api } from "../api/client";
 import { queryKeys } from "./query";
 import { ChatPane } from "../features/chat/ChatPane";
@@ -19,7 +20,54 @@ import { useRealtime } from "../hooks/use-realtime";
 import { useUiStore } from "../store/ui-store";
 
 const SIDEBAR_WIDTH_KEY = "codex-remote-sidebar-width";
+const THREAD_LIST_FILTERS_KEY = "codex-remote-thread-list-filters";
 const EMPTY_ACTIVITY_MAP: Record<string, LiveActivity> = {};
+
+function readStoredThreadFilters() {
+  if (typeof window === "undefined") {
+    return { search: "", filter: "all" as SessionFilter };
+  }
+
+  try {
+    const stored = window.localStorage.getItem(THREAD_LIST_FILTERS_KEY);
+    if (!stored) {
+      return { search: "", filter: "all" as SessionFilter };
+    }
+
+    const parsed = JSON.parse(stored) as {
+      search?: unknown;
+      filter?: unknown;
+    };
+    const search = typeof parsed.search === "string" ? parsed.search : "";
+    const filter =
+      typeof parsed.filter === "string" && SESSION_FILTERS.includes(parsed.filter as SessionFilter)
+        ? (parsed.filter as SessionFilter)
+        : "all";
+
+    return { search, filter };
+  } catch {
+    return { search: "", filter: "all" as SessionFilter };
+  }
+}
+
+function persistThreadFilters(search: string, filter: SessionFilter) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!search.trim() && filter === "all") {
+    window.localStorage.removeItem(THREAD_LIST_FILTERS_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(
+    THREAD_LIST_FILTERS_KEY,
+    JSON.stringify({
+      search,
+      filter
+    })
+  );
+}
 
 type OptimisticUserMessage = {
   sessionId: string;
@@ -89,8 +137,8 @@ function clampSidebarWidth(width: number) {
 export function App() {
   useRealtime();
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<SessionFilter>("all");
+  const [search, setSearch] = useState(() => readStoredThreadFilters().search);
+  const [filter, setFilter] = useState<SessionFilter>(() => readStoredThreadFilters().filter);
   const [optimisticMessage, setOptimisticMessage] = useState<OptimisticUserMessage | null>(null);
   const optimisticMessageRef = useRef<OptimisticUserMessage | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -186,6 +234,10 @@ export function App() {
   useEffect(() => {
     window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
   }, [sidebarWidth]);
+
+  useEffect(() => {
+    persistThreadFilters(search, filter);
+  }, [filter, search]);
 
   const runMutation = useMutation({
     mutationFn: ({
@@ -330,6 +382,18 @@ export function App() {
     setSelectedSessionId(sessionId);
     setMobilePane("chat");
   };
+
+  useEffect(() => {
+    if (!selectedRepoId || !reposQuery.isSuccess) {
+      return;
+    }
+
+    if (!repos.some((repo) => repo.id === selectedRepoId)) {
+      setSelectedRepoId(null);
+      setSelectedSessionId(null);
+      setMobilePane("sidebar");
+    }
+  }, [repos, reposQuery.isSuccess, selectedRepoId, setMobilePane, setSelectedRepoId, setSelectedSessionId]);
 
   const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (window.innerWidth < 860) {

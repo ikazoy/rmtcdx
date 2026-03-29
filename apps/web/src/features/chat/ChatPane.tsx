@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import type { ChangeEvent, KeyboardEvent, ReactNode, RefObject } from "react";
+import type { ChangeEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
 import ReactMarkdown from "react-markdown";
 import remend from "remend";
 import remarkGfm from "remark-gfm";
@@ -48,6 +48,13 @@ type BottomSheetState =
   | { type: "command_list"; commands: CommandExecutionEntry[] }
   | { type: "command_detail"; commands: CommandExecutionEntry[]; selectedIndex: number }
   | { type: "file_list"; changes: FileChangeEntry[]; count: number };
+
+type ImageViewerState =
+  | null
+  | {
+      attachments: MessageAttachment[];
+      selectedIndex: number;
+    };
 
 type Props = {
   detail: SessionDetail | null | undefined;
@@ -300,9 +307,11 @@ const MessageBody = memo(function MessageBody({
 });
 
 const MessageAttachments = memo(function MessageAttachments({
-  attachments
+  attachments,
+  onOpen
 }: {
   attachments: MessageAttachment[];
+  onOpen: (attachments: MessageAttachment[], selectedIndex: number) => void;
 }) {
   if (attachments.length === 0) {
     return null;
@@ -314,15 +323,15 @@ const MessageAttachments = memo(function MessageAttachments({
         {attachments.length} image{attachments.length === 1 ? "" : "s"} attached
       </span>
       {attachments.map((attachment, index) => (
-        <a
+        <button
           key={`${attachment.url}:${index}`}
           className="message-attachment"
-          href={attachment.url}
-          target="_blank"
-          rel="noreferrer"
+          type="button"
+          onClick={() => onOpen(attachments, index)}
+          aria-label={`Open ${attachment.name}`}
         >
           <img src={attachment.url} alt={attachment.name} loading="lazy" />
-        </a>
+        </button>
       ))}
     </div>
   );
@@ -492,35 +501,208 @@ function BottomSheet({
   onBack?: () => void;
   children: ReactNode;
 }) {
+  const [dragOffset, setDragOffset] = useState(0);
+  const dragStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    dragging: boolean;
+  } | null>(null);
+
+  function handleDragStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest("button, a, input, textarea, select")) {
+      return;
+    }
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragging: false
+    };
+  }
+
+  function handleDragMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const deltaX = event.clientX - dragState.startX;
+    const deltaY = event.clientY - dragState.startY;
+
+    if (!dragState.dragging) {
+      if (deltaY <= 0 || Math.abs(deltaY) < 8 || Math.abs(deltaY) < Math.abs(deltaX)) {
+        return;
+      }
+
+      dragState.dragging = true;
+    }
+
+    event.preventDefault();
+    setDragOffset(Math.max(0, deltaY));
+  }
+
+  function finishDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    const deltaY = Math.max(0, event.clientY - dragState.startY);
+    const shouldClose = dragState.dragging && deltaY > 96;
+
+    dragStateRef.current = null;
+
+    if (shouldClose) {
+      onClose();
+      return;
+    }
+
+    setDragOffset(0);
+  }
+
+  function cancelDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    dragStateRef.current = null;
+    setDragOffset(0);
+  }
+
   return (
     <div className="bottom-sheet-backdrop" role="presentation" onClick={onClose}>
       <section
         aria-label={title}
         aria-modal="true"
-        className="bottom-sheet"
+        className={`bottom-sheet${dragOffset > 0 ? " bottom-sheet--dragging" : ""}`}
         role="dialog"
+        style={
+          dragOffset > 0
+            ? {
+                transform: `translateY(${dragOffset}px)`,
+                opacity: Math.max(0.88, 1 - dragOffset / 480)
+              }
+            : undefined
+        }
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="bottom-sheet__handle" />
-        <header className="bottom-sheet__header">
-          <div className="bottom-sheet__side">
-            {onBack ? (
-              <button className="bottom-sheet__icon-button" type="button" aria-label="Back" onClick={onBack}>
-                <SheetBackIcon />
+        <div
+          className="bottom-sheet__drag-zone"
+          onPointerCancel={cancelDrag}
+          onPointerDown={handleDragStart}
+          onPointerMove={handleDragMove}
+          onPointerUp={finishDrag}
+        >
+          <div className="bottom-sheet__handle" />
+          <header className="bottom-sheet__header">
+            <div className="bottom-sheet__side">
+              {onBack ? (
+                <button className="bottom-sheet__icon-button" type="button" aria-label="Back" onClick={onBack}>
+                  <SheetBackIcon />
+                </button>
+              ) : null}
+            </div>
+            <div className="bottom-sheet__headline">
+              <strong>{title}</strong>
+              {subtitle ? <span>{subtitle}</span> : null}
+            </div>
+            <div className="bottom-sheet__side bottom-sheet__side--end">
+              <button className="bottom-sheet__icon-button" type="button" aria-label="Close" onClick={onClose}>
+                <SheetCloseIcon />
               </button>
-            ) : null}
-          </div>
-          <div className="bottom-sheet__headline">
-            <strong>{title}</strong>
-            {subtitle ? <span>{subtitle}</span> : null}
-          </div>
-          <div className="bottom-sheet__side bottom-sheet__side--end">
-            <button className="bottom-sheet__icon-button" type="button" aria-label="Close" onClick={onClose}>
-              <SheetCloseIcon />
-            </button>
-          </div>
-        </header>
+            </div>
+          </header>
+        </div>
         <div className="bottom-sheet__body">{children}</div>
+      </section>
+    </div>
+  );
+}
+
+function ImageViewer({
+  attachments,
+  selectedIndex,
+  onSelect,
+  onClose
+}: {
+  attachments: MessageAttachment[];
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+  onClose: () => void;
+}) {
+  const attachment = attachments[selectedIndex];
+  if (!attachment) {
+    return null;
+  }
+
+  const canGoPrev = selectedIndex > 0;
+  const canGoNext = selectedIndex < attachments.length - 1;
+
+  return (
+    <div className="image-viewer-backdrop" role="presentation" onClick={onClose}>
+      <section
+        className="image-viewer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={attachment.name}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="image-viewer__header">
+          <div className="image-viewer__headline">
+            <strong>{attachment.name}</strong>
+            <span>
+              {selectedIndex + 1} / {attachments.length}
+            </span>
+          </div>
+          <button className="image-viewer__icon-button" type="button" aria-label="Close" onClick={onClose}>
+            <SheetCloseIcon />
+          </button>
+        </header>
+
+        <div className="image-viewer__body">
+          {canGoPrev ? (
+            <button
+              className="image-viewer__nav"
+              type="button"
+              aria-label="Previous image"
+              onClick={() => onSelect(selectedIndex - 1)}
+            >
+              <SheetBackIcon />
+            </button>
+          ) : null}
+
+          <div className="image-viewer__viewport">
+            <img src={attachment.url} alt={attachment.name} />
+          </div>
+
+          {canGoNext ? (
+            <button
+              className="image-viewer__nav image-viewer__nav--next"
+              type="button"
+              aria-label="Next image"
+              onClick={() => onSelect(selectedIndex + 1)}
+            >
+              <SheetBackIcon />
+            </button>
+          ) : null}
+        </div>
       </section>
     </div>
   );
@@ -645,7 +827,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
   showPendingAssistant,
   timelineRef,
   onOpenCommands,
-  onOpenFileChanges
+  onOpenFileChanges,
+  onOpenImageViewer
 }: {
   messages: Message[];
   streamingText: string;
@@ -655,6 +838,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   timelineRef: RefObject<HTMLDivElement | null>;
   onOpenCommands: (commands: CommandExecutionEntry[]) => void;
   onOpenFileChanges: (changes: FileChangeEntry[], count: number) => void;
+  onOpenImageViewer: (attachments: MessageAttachment[], selectedIndex: number) => void;
 }) {
   const entries = buildTimelineEntries(messages);
   const hasConfirmedOptimistic =
@@ -720,7 +904,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 ].join(" ")}
                 data-kind={message.kind}
               >
-                {message.attachments?.length ? <MessageAttachments attachments={message.attachments} /> : null}
+                {message.attachments?.length ? (
+                  <MessageAttachments attachments={message.attachments} onOpen={onOpenImageViewer} />
+                ) : null}
                 {message.text ? <MessageBody text={message.text} /> : null}
               </div>
             </article>
@@ -731,7 +917,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
           <article className="message-row message-row--user">
             <div className="message-card message-card--user">
               {optimisticMessage.attachments.length ? (
-                <MessageAttachments attachments={optimisticMessage.attachments} />
+                <MessageAttachments attachments={optimisticMessage.attachments} onOpen={onOpenImageViewer} />
               ) : null}
               {optimisticMessage.prompt ? <MessageBody text={optimisticMessage.prompt} /> : null}
             </div>
@@ -816,6 +1002,7 @@ export function ChatPane({
   const [selectedImages, setSelectedImages] = useState<ComposerImage[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sheetState, setSheetState] = useState<BottomSheetState>(null);
+  const [imageViewerState, setImageViewerState] = useState<ImageViewerState>(null);
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
   const openedSessionRef = useRef<{ id: string | null; openedAt: number }>({
     id: null,
@@ -862,14 +1049,47 @@ export function ChatPane({
   }, [isActionsMenuOpen]);
 
   useEffect(() => {
-    if (!sheetState) {
+    if (!sheetState && !imageViewerState) {
       return;
     }
 
     const previousOverflow = document.body.style.overflow;
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (imageViewerState) {
+          setImageViewerState(null);
+          return;
+        }
         setSheetState(null);
+        return;
+      }
+
+      if (!imageViewerState) {
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setImageViewerState((current) =>
+          current
+            ? {
+                ...current,
+                selectedIndex: Math.max(0, current.selectedIndex - 1)
+              }
+            : current
+        );
+      }
+
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setImageViewerState((current) =>
+          current
+            ? {
+                ...current,
+                selectedIndex: Math.min(current.attachments.length - 1, current.selectedIndex + 1)
+              }
+            : current
+        );
       }
     };
 
@@ -880,7 +1100,7 @@ export function ChatPane({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [sheetState]);
+  }, [imageViewerState, sheetState]);
 
   const clearSelectedImages = () => {
     setSelectedImages((current) => {
@@ -905,6 +1125,7 @@ export function ChatPane({
     clearSelectedImages();
     setSubmitError(null);
     setSheetState(null);
+    setImageViewerState(null);
     setIsActionsMenuOpen(false);
 
     openedSessionRef.current = {
@@ -1174,6 +1395,7 @@ export function ChatPane({
             timelineRef={timelineRef}
             onOpenCommands={(commands) => setSheetState({ type: "command_list", commands })}
             onOpenFileChanges={(changes, count) => setSheetState({ type: "file_list", changes, count })}
+            onOpenImageViewer={(attachments, selectedIndex) => setImageViewerState({ attachments, selectedIndex })}
           />
 
           <div className="composer-shell">
@@ -1289,6 +1511,17 @@ export function ChatPane({
           changes={sheetState.changes}
           count={sheetState.count}
           onClose={() => setSheetState(null)}
+        />
+      ) : null}
+
+      {imageViewerState ? (
+        <ImageViewer
+          attachments={imageViewerState.attachments}
+          selectedIndex={imageViewerState.selectedIndex}
+          onSelect={(selectedIndex) =>
+            setImageViewerState((current) => (current ? { ...current, selectedIndex } : current))
+          }
+          onClose={() => setImageViewerState(null)}
         />
       ) : null}
     </div>

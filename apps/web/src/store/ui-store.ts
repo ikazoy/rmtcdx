@@ -4,6 +4,66 @@ import type { LiveActivity } from "../../../../packages/shared-types/src/index";
 type MobilePane = "sidebar" | "chat";
 type WsState = "connecting" | "connected" | "reconnecting";
 
+const SELECTED_REPO_STORAGE_KEY = "codex-remote-selected-repo-id";
+const COLLAPSED_REPOS_STORAGE_KEY = "codex-remote-collapsed-repos";
+
+function readStoredSelectedRepoId() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const stored = window.localStorage.getItem(SELECTED_REPO_STORAGE_KEY)?.trim();
+  return stored ? stored : null;
+}
+
+function persistSelectedRepoId(repoId: string | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (repoId) {
+    window.localStorage.setItem(SELECTED_REPO_STORAGE_KEY, repoId);
+    return;
+  }
+
+  window.localStorage.removeItem(SELECTED_REPO_STORAGE_KEY);
+}
+
+function readStoredCollapsedRepos() {
+  if (typeof window === "undefined") {
+    return new Set<string>();
+  }
+
+  try {
+    const stored = window.localStorage.getItem(COLLAPSED_REPOS_STORAGE_KEY);
+    if (!stored) {
+      return new Set<string>();
+    }
+
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) {
+      return new Set<string>();
+    }
+
+    return new Set(parsed.filter((value): value is string => typeof value === "string" && value.length > 0));
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function persistCollapsedRepos(repoNames: Set<string>) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (repoNames.size === 0) {
+    window.localStorage.removeItem(COLLAPSED_REPOS_STORAGE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(COLLAPSED_REPOS_STORAGE_KEY, JSON.stringify([...repoNames].sort()));
+}
+
 type UiState = {
   selectedRepoId: string | null;
   selectedSessionId: string | null;
@@ -31,7 +91,7 @@ type UiState = {
 };
 
 export const useUiStore = create<UiState>((set) => ({
-  selectedRepoId: null,
+  selectedRepoId: readStoredSelectedRepoId(),
   selectedSessionId: null,
   mobilePane: "sidebar",
   sidebarVisible: true,
@@ -39,8 +99,11 @@ export const useUiStore = create<UiState>((set) => ({
   backendBanner: null,
   streaming: {},
   activities: {},
-  collapsedRepos: new Set(),
-  setSelectedRepoId: (selectedRepoId) => set({ selectedRepoId }),
+  collapsedRepos: readStoredCollapsedRepos(),
+  setSelectedRepoId: (selectedRepoId) => {
+    persistSelectedRepoId(selectedRepoId);
+    set({ selectedRepoId });
+  },
   setSelectedSessionId: (selectedSessionId) => set({ selectedSessionId }),
   setMobilePane: (mobilePane) => set({ mobilePane }),
   setSidebarVisible: (sidebarVisible) => set({ sidebarVisible }),
@@ -128,6 +191,7 @@ export const useUiStore = create<UiState>((set) => ({
       } else {
         next.add(repoName);
       }
+      persistCollapsedRepos(next);
       return { collapsedRepos: next };
     })
 }));
