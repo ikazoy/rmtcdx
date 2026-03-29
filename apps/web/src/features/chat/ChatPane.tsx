@@ -341,9 +341,10 @@ export function ChatPane({
 
   const activeRunState = detail?.activeRun?.status ?? null;
   const latestRunState = detail?.latestRun?.status ?? null;
-  const bannerRunState = activeRunState ?? (latestRunState === "error" ? "error" : null);
+  const sessionIsRunning = activeRunState === "running" || detail?.session.status === "running";
+  const bannerRunState = activeRunState ?? (sessionIsRunning ? "running" : null) ?? (latestRunState === "error" ? "error" : null);
   const showPendingAssistant =
-    !streamingText && (Boolean(optimisticMessage) || activeRunState === "running" || isSubmitting);
+    !streamingText && (Boolean(optimisticMessage) || sessionIsRunning || isSubmitting);
 
   useEffect(() => {
     selectedImagesRef.current = selectedImages;
@@ -615,7 +616,7 @@ export function ChatPane({
                   onInput={autoResize}
                   rows={1}
                 />
-                {activeRunState === "running" ? (
+                {sessionIsRunning ? (
                   <button
                     className="composer-send composer-send--stop"
                     disabled={isInterrupting}
