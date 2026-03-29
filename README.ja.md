@@ -37,6 +37,34 @@ npm run start
 - App: [http://127.0.0.1:3000](http://127.0.0.1:3000)
 - Health check: [http://127.0.0.1:3000/healthz](http://127.0.0.1:3000/healthz)
 
+## Tailscale 経由で別ネットワークから使う
+
+別ネットワークから入る場合は、bridge を localhost bind のままにして、Tailscale Serve で tailnet 内に公開するのを推奨します。
+
+```bash
+npm run build
+npm run start
+tailscale serve --bg 3000
+```
+
+その後、この node の Serve URL を開きます。例:
+
+- `https://mac-mini-1.stingray-newton.ts.net/`
+
+よく使うコマンド:
+
+```bash
+tailscale serve status
+tailscale serve off
+```
+
+ポイント:
+
+- このアプリは `/api` と `/ws` を相対パスで使うので、同じ Serve URL 経由で UI と WebSocket の両方が動きます
+- `tailscale serve --bg 3000` は、停止するまで reboot や Tailscale 再起動後も維持されます
+- 初回に `Serve is not enabled on your tailnet` と出た場合は、コマンドが表示する admin URL を一度開いて node で Serve を有効化し、その後で再実行してください
+- `HOST=0.0.0.0` で bridge を直接公開すると LAN からも到達可能になるため、意図がない限り避けてください
+
 ## `repos.json` を準備する
 
 bridge は操作対象リポジトリの一覧を `repos.json` から読み込みます。まずはテンプレートをコピーしてください。

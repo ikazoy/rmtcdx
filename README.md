@@ -37,6 +37,34 @@ After startup:
 - App: [http://127.0.0.1:3000](http://127.0.0.1:3000)
 - Health check: [http://127.0.0.1:3000/healthz](http://127.0.0.1:3000/healthz)
 
+## Remote Access over Tailscale
+
+For access from another network, keep the bridge bound to localhost and publish it to your tailnet with Tailscale Serve:
+
+```bash
+npm run build
+npm run start
+tailscale serve --bg 3000
+```
+
+Then open the Serve URL for this device, for example:
+
+- `https://mac-mini-1.stingray-newton.ts.net/`
+
+Useful commands:
+
+```bash
+tailscale serve status
+tailscale serve off
+```
+
+Notes:
+
+- This app uses relative `/api` and `/ws` paths, so the UI and WebSocket updates work through the same Serve URL
+- `tailscale serve --bg 3000` persists across reboots and Tailscale restarts until you turn it off
+- If Tailscale prints `Serve is not enabled on your tailnet`, open the admin URL shown by the command once, enable Serve for the node, and run the command again
+- Avoid exposing the bridge with `HOST=0.0.0.0` unless you intentionally want to make it reachable from your local LAN
+
 ## Configure `repos.json`
 
 The bridge reads the list of target repositories from `repos.json`. Start by copying the example file:
