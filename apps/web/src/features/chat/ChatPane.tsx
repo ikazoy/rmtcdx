@@ -529,7 +529,15 @@ export function ChatPane({
         <>
           <div className="chat-head">
             <div>
-              <h2>{detail.session.title}</h2>
+              <h2>
+                <span
+                  className={[
+                    "status-dot",
+                    `status-dot--${bannerRunState ?? detail.session.status ?? "idle"}`
+                  ].join(" ")}
+                />
+                {detail.session.title}
+              </h2>
               <p className="subtle">
                 Updated {formatRelativeTime(detail.session.updatedAt)} · {repoName ?? "unknown workspace"}
               </p>

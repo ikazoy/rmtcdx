@@ -644,6 +644,39 @@ button {
   color: #8a8c86;
 }
 
+.status-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  margin-right: 0.45rem;
+  vertical-align: middle;
+  background: #545851;
+}
+
+.status-dot--running {
+  background: #8ac9ee;
+  box-shadow: 0 0 6px rgba(138, 201, 238, 0.5);
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+.status-dot--completed {
+  background: var(--success);
+}
+
+.status-dot--error {
+  background: var(--danger);
+}
+
+.status-dot--idle {
+  background: #6b6d67;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .chat-card {
   height: 100%;
   min-height: 0;
