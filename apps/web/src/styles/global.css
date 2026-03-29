@@ -166,8 +166,7 @@ button {
   min-width: 0;
 }
 
-.sidebar-brand h1,
-.chat-head h2 {
+.sidebar-brand h1 {
   margin: 0.12rem 0 0;
   font-size: clamp(1.2rem, 2vw, 1.6rem);
   line-height: 1.08;
@@ -751,7 +750,7 @@ button {
 }
 
 .session-row--sidebar {
-  padding: 0.82rem 1rem;
+  padding: 0.68rem 1rem;
   border: none;
   border-bottom: 1px solid rgba(30, 30, 27, 0.08);
   border-radius: 0;
@@ -774,7 +773,7 @@ button {
 .session-row__titleline {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.38rem;
   min-width: 0;
 }
 
@@ -796,16 +795,25 @@ button {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  font-size: 0.88rem;
+  line-height: 1.16;
+  font-weight: 520;
 }
 
 .session-row__preview {
-  display: -webkit-box;
   overflow: hidden;
-  word-break: break-word;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  font-size: 0.94rem;
-  line-height: 1.45;
+  margin-top: 0.14rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  word-break: normal;
+  color: #8b8e87;
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.session-row__meta {
+  overflow: hidden;
+  margin-top: 0.2rem;
 }
 
 .session-dot {
@@ -994,7 +1002,10 @@ button {
 }
 
 .chat-head h2 {
-  margin-top: 0;
+  margin: 0;
+  font-size: clamp(0.9rem, 1vw, 0.98rem);
+  line-height: 1.28;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1011,11 +1022,13 @@ button {
 
 .workspace-shell__chat .chat-toolbar__meta,
 .workspace-shell__chat .subtle {
-  color: #92938d;
+  color: #7e7b74;
+  font-size: 0.76rem;
+  line-height: 1.35;
 }
 
 .workspace-shell__chat .chat-head h2 {
-  color: #f5f4ef;
+  color: #b9b6af;
 }
 
 .status-pill {
@@ -1454,19 +1467,21 @@ button {
 }
 
 .message-card--streaming {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-left: 2px solid rgba(178, 188, 168, 0.72);
-  border-radius: 1rem;
-  padding: 0.8rem 0.95rem;
+  background: transparent;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0;
+  padding: 0 0 0 0.9rem;
+  box-shadow: none;
 }
 
 .message-card--pending {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-left: 2px solid rgba(178, 188, 168, 0.72);
-  border-radius: 1rem;
-  padding: 0.8rem 0.95rem;
+  background: transparent;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0;
+  padding: 0 0 0 0.9rem;
+  box-shadow: none;
 }
 
 .message-meta {
@@ -1825,14 +1840,38 @@ button {
 
 .sheet-row--button {
   width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  appearance: none;
+  -webkit-appearance: none;
+  box-shadow: none;
   color: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background 140ms ease;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    transform 140ms ease;
 }
 
 .sheet-row--button:hover {
   background: rgba(255, 255, 255, 0.06);
+}
+
+.sheet-row--button:focus-visible {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.sheet-row--command {
+  border-color: rgba(120, 156, 227, 0.12);
+  border-left: 2px solid rgba(120, 156, 227, 0.48);
+  background: rgba(51, 69, 97, 0.14);
+}
+
+.sheet-row--command:hover,
+.sheet-row--command:focus-visible {
+  background: rgba(59, 79, 110, 0.18);
+  border-color: rgba(120, 156, 227, 0.2);
 }
 
 .sheet-row__icon {

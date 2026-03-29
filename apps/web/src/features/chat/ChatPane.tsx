@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, KeyboardEvent, ReactNode, RefObject } from "react";
 import ReactMarkdown from "react-markdown";
+import remend from "remend";
 import remarkGfm from "remark-gfm";
 
 import type {
@@ -282,10 +283,18 @@ function fileChangeVerb(change: FileChangeEntry) {
   }
 }
 
-const MessageBody = memo(function MessageBody({ text }: { text: string }) {
+const MessageBody = memo(function MessageBody({
+  text,
+  streaming = false
+}: {
+  text: string;
+  streaming?: boolean;
+}) {
+  const markdown = streaming ? remend(text, { linkMode: "text-only" }) : text;
+
   return (
     <div className="message-markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
     </div>
   );
 });
@@ -532,7 +541,7 @@ function CommandListSheet({
         {commands.map((command, index) => (
           <button
             key={command.id}
-            className="sheet-row sheet-row--button"
+            className="sheet-row sheet-row--button sheet-row--command"
             type="button"
             onClick={() => onSelect(index)}
           >
@@ -732,7 +741,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
         {streamingText ? (
           <article className="message-row message-row--assistant">
             <div className="message-card message-card--assistant message-card--thinking message-card--streaming">
-              <MessageBody text={streamingText} />
+              <MessageBody text={streamingText} streaming />
             </div>
           </article>
         ) : null}
