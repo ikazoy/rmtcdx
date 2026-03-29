@@ -14,6 +14,7 @@ import type {
 import { formatRelativeTime } from "../../components/formatters";
 
 const MAX_IMAGE_ATTACHMENTS = 5;
+const TIMELINE_PIN_THRESHOLD_PX = 24;
 
 type OptimisticUserMessage = {
   prompt: string;
@@ -79,6 +80,10 @@ type Props = {
   canRename: boolean;
   canArchive: boolean;
 };
+
+function timelineIsPinnedToBottom(timeline: HTMLDivElement) {
+  return timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop <= TIMELINE_PIN_THRESHOLD_PX;
+}
 
 function revokeComposerImages(images: ComposerImage[]) {
   for (const image of images) {
@@ -827,6 +832,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
   optimisticMessage,
   showPendingAssistant,
   timelineRef,
+  showJumpToLatest,
+  hasQueuedUpdates,
+  onJumpToLatest,
   onOpenCommands,
   onOpenFileChanges,
   onOpenImageViewer
@@ -838,6 +846,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
   optimisticMessage?: OptimisticUserMessage | null;
   showPendingAssistant: boolean;
   timelineRef: RefObject<HTMLDivElement | null>;
+  showJumpToLatest: boolean;
+  hasQueuedUpdates: boolean;
+  onJumpToLatest: () => void;
   onOpenCommands: (commands: CommandExecutionEntry[]) => void;
   onOpenFileChanges: (changes: FileChangeEntry[], count: number) => void;
   onOpenImageViewer: (attachments: MessageAttachment[], selectedIndex: number) => void;
@@ -852,115 +863,130 @@ const ConversationTimeline = memo(function ConversationTimeline({
     !showTimelineSkeleton && messages.length === 0 && !streamingText && !optimisticMessage && !showPendingAssistant;
 
   return (
-    <div ref={timelineRef} className="timeline-wrap">
-      <div className="timeline">
-        <ActivityTray activities={liveActivities} />
+    <div className="timeline-shell">
+      <div ref={timelineRef} className="timeline-wrap">
+        <div className="timeline">
+          <ActivityTray activities={liveActivities} />
 
-        {entries.map((entry) => {
-          if (entry.type === "command_group") {
-            const previewRows = entry.commands.slice(0, 3).map((command) => ({
-              id: command.id,
-              prefix: "Bash",
-              text: command.command
-            }));
+          {entries.map((entry) => {
+            if (entry.type === "command_group") {
+              const previewRows = entry.commands.slice(0, 3).map((command) => ({
+                id: command.id,
+                prefix: "Bash",
+                text: command.command
+              }));
+
+              return (
+                <SummaryCard
+                  key={entry.id}
+                  tone="command"
+                  title={formatCommandGroupTitle(entry.commands.length)}
+                  rows={previewRows}
+                  extraCount={Math.max(0, entry.commands.length - previewRows.length)}
+                  onClick={() => onOpenCommands(entry.commands)}
+                />
+              );
+            }
+
+            if (entry.type === "file_group") {
+              const previewRows = entry.changes.slice(0, 5).map((change, index) => ({
+                id: `${change.path}:${index}`,
+                prefix: fileChangeVerb(change),
+                text: change.movePath ?? change.path,
+                detail: change.movePath ? change.path : null
+              }));
+
+              return (
+                <SummaryCard
+                  key={entry.id}
+                  tone="file"
+                  title={formatFileGroupTitle(entry.count)}
+                  rows={previewRows}
+                  extraCount={Math.max(0, entry.count - previewRows.length)}
+                  onClick={() => onOpenFileChanges(entry.changes, entry.count)}
+                />
+              );
+            }
+
+            const { message } = entry;
+            const presentation = messagePresentation(message);
 
             return (
-              <SummaryCard
-                key={entry.id}
-                tone="command"
-                title={formatCommandGroupTitle(entry.commands.length)}
-                rows={previewRows}
-                extraCount={Math.max(0, entry.commands.length - previewRows.length)}
-                onClick={() => onOpenCommands(entry.commands)}
-              />
+              <article key={message.id} className={`message-row message-row--${presentation.rowRole}`}>
+                <div
+                  className={[
+                    "message-card",
+                    `message-card--${presentation.rowRole}`,
+                    `message-card--${presentation.tone}`,
+                    `message-card--kind-${message.kind}`
+                  ].join(" ")}
+                  data-kind={message.kind}
+                >
+                  {message.attachments?.length ? (
+                    <MessageAttachments attachments={message.attachments} onOpen={onOpenImageViewer} />
+                  ) : null}
+                  {message.text ? <MessageBody text={message.text} repairIncompleteMarkdown={message.role !== "user"} /> : null}
+                </div>
+              </article>
             );
-          }
+          })}
 
-          if (entry.type === "file_group") {
-            const previewRows = entry.changes.slice(0, 5).map((change, index) => ({
-              id: `${change.path}:${index}`,
-              prefix: fileChangeVerb(change),
-              text: change.movePath ?? change.path,
-              detail: change.movePath ? change.path : null
-            }));
-
-            return (
-              <SummaryCard
-                key={entry.id}
-                tone="file"
-                title={formatFileGroupTitle(entry.count)}
-                rows={previewRows}
-                extraCount={Math.max(0, entry.count - previewRows.length)}
-                onClick={() => onOpenFileChanges(entry.changes, entry.count)}
-              />
-            );
-          }
-
-          const { message } = entry;
-          const presentation = messagePresentation(message);
-
-          return (
-            <article key={message.id} className={`message-row message-row--${presentation.rowRole}`}>
-              <div
-                className={[
-                  "message-card",
-                  `message-card--${presentation.rowRole}`,
-                  `message-card--${presentation.tone}`,
-                  `message-card--kind-${message.kind}`
-                ].join(" ")}
-                data-kind={message.kind}
-              >
-                {message.attachments?.length ? (
-                  <MessageAttachments attachments={message.attachments} onOpen={onOpenImageViewer} />
+          {optimisticMessage && !hasConfirmedOptimistic ? (
+            <article className="message-row message-row--user">
+              <div className="message-card message-card--user">
+                {optimisticMessage.attachments.length ? (
+                  <MessageAttachments attachments={optimisticMessage.attachments} onOpen={onOpenImageViewer} />
                 ) : null}
-                {message.text ? <MessageBody text={message.text} repairIncompleteMarkdown={message.role !== "user"} /> : null}
+                {optimisticMessage.prompt ? <MessageBody text={optimisticMessage.prompt} /> : null}
               </div>
             </article>
-          );
-        })}
+          ) : null}
 
-        {optimisticMessage && !hasConfirmedOptimistic ? (
-          <article className="message-row message-row--user">
-            <div className="message-card message-card--user">
-              {optimisticMessage.attachments.length ? (
-                <MessageAttachments attachments={optimisticMessage.attachments} onOpen={onOpenImageViewer} />
-              ) : null}
-              {optimisticMessage.prompt ? <MessageBody text={optimisticMessage.prompt} /> : null}
+          {streamingText ? (
+            <article className="message-row message-row--assistant">
+              <div className="message-card message-card--assistant message-card--thinking message-card--streaming">
+                <MessageBody text={streamingText} repairIncompleteMarkdown />
+              </div>
+            </article>
+          ) : null}
+
+          {!streamingText && showPendingAssistant ? (
+            <article className="message-row message-row--assistant">
+              <div className="message-card message-card--assistant message-card--thinking message-card--pending">
+                <p className="thinking-text">Thinking...</p>
+              </div>
+            </article>
+          ) : null}
+
+          {showTimelineSkeleton ? (
+            <>
+              <div className="skeleton skeleton--message skeleton--message-wide" />
+              <div className="skeleton skeleton--message" />
+              <div className="skeleton skeleton--message skeleton--message-wide" />
+            </>
+          ) : null}
+
+          {showEmptyState ? (
+            <div className="empty-state empty-state--chat">
+              <strong>No conversation yet</strong>
+              <p>Start with a prompt and keep the session around for later follow-up work.</p>
             </div>
-          </article>
-        ) : null}
-
-        {streamingText ? (
-          <article className="message-row message-row--assistant">
-            <div className="message-card message-card--assistant message-card--thinking message-card--streaming">
-              <MessageBody text={streamingText} repairIncompleteMarkdown />
-            </div>
-          </article>
-        ) : null}
-
-        {!streamingText && showPendingAssistant ? (
-          <article className="message-row message-row--assistant">
-            <div className="message-card message-card--assistant message-card--thinking message-card--pending">
-              <p className="thinking-text">Thinking...</p>
-            </div>
-          </article>
-        ) : null}
-
-        {showTimelineSkeleton ? (
-          <>
-            <div className="skeleton skeleton--message skeleton--message-wide" />
-            <div className="skeleton skeleton--message" />
-            <div className="skeleton skeleton--message skeleton--message-wide" />
-          </>
-        ) : null}
-
-        {showEmptyState ? (
-          <div className="empty-state empty-state--chat">
-            <strong>No conversation yet</strong>
-            <p>Start with a prompt and keep the session around for later follow-up work.</p>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
+
+      {showJumpToLatest ? (
+        <div className="timeline-jump">
+          <button
+            className="timeline-jump__button"
+            data-has-unseen={hasQueuedUpdates}
+            onClick={onJumpToLatest}
+            type="button"
+          >
+            Latest
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 });
@@ -1013,22 +1039,84 @@ export function ChatPane({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const selectedImagesRef = useRef<ComposerImage[]>([]);
+  const autoFollowEnabledRef = useRef(true);
+  const isPinnedToBottomRef = useRef(true);
+  const isProgrammaticScrollRef = useRef(false);
+  const lastTimelineScrollTopRef = useRef(0);
+  const shouldScrollToBottomRef = useRef(true);
+  const touchStartYRef = useRef<number | null>(null);
   const [selectedImages, setSelectedImages] = useState<ComposerImage[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sheetState, setSheetState] = useState<BottomSheetState>(null);
   const [imageViewerState, setImageViewerState] = useState<ImageViewerState>(null);
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
-  const openedSessionRef = useRef<{ id: string | null; openedAt: number }>({
-    id: null,
-    openedAt: 0
-  });
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const [hasQueuedUpdates, setHasQueuedUpdates] = useState(false);
 
   const activeRunState = detail?.activeRun?.status ?? null;
   const latestRunState = detail?.latestRun?.status ?? null;
   const sessionIsRunning = activeRunState === "running" || detail?.session.status === "running";
+  const hasPendingRun = sessionIsRunning || isSubmitting || Boolean(optimisticMessage);
+  const canInterruptRun = Boolean(detail?.activeRun?.id) && !isSubmitting;
   const bannerRunState = activeRunState ?? (sessionIsRunning ? "running" : null) ?? (latestRunState === "error" ? "error" : null);
   const showPendingAssistant =
     !streamingText && (Boolean(optimisticMessage) || sessionIsRunning || isSubmitting);
+
+  const disableAutoFollow = () => {
+    autoFollowEnabledRef.current = false;
+    shouldScrollToBottomRef.current = false;
+  };
+
+  const syncTimelinePinnedState = (scrollDelta = 0, isProgrammaticScroll = false) => {
+    const timeline = timelineRef.current;
+    if (!timeline) {
+      return;
+    }
+
+    const pinnedToBottom = timelineIsPinnedToBottom(timeline);
+
+    if (!isProgrammaticScroll && scrollDelta < -1) {
+      disableAutoFollow();
+    }
+
+    if (pinnedToBottom && (isProgrammaticScroll || scrollDelta > 1)) {
+      autoFollowEnabledRef.current = true;
+    }
+
+    isPinnedToBottomRef.current = pinnedToBottom;
+    setShowJumpToLatest(!pinnedToBottom);
+
+    if (pinnedToBottom) {
+      setHasQueuedUpdates(false);
+    }
+  };
+
+  const scrollTimelineToBottom = (behavior: ScrollBehavior = "auto") => {
+    const timeline = timelineRef.current;
+    if (!timeline) {
+      return;
+    }
+
+    autoFollowEnabledRef.current = true;
+    shouldScrollToBottomRef.current = false;
+    isProgrammaticScrollRef.current = true;
+    timeline.scrollTo({ top: timeline.scrollHeight, behavior });
+    lastTimelineScrollTopRef.current = timeline.scrollTop;
+    isPinnedToBottomRef.current = true;
+    setShowJumpToLatest(false);
+    setHasQueuedUpdates(false);
+
+    window.requestAnimationFrame(() => {
+      isProgrammaticScrollRef.current = false;
+
+      if (!timelineRef.current) {
+        return;
+      }
+
+      lastTimelineScrollTopRef.current = timelineRef.current.scrollTop;
+      syncTimelinePinnedState(0, true);
+    });
+  };
 
   useEffect(() => {
     selectedImagesRef.current = selectedImages;
@@ -1141,36 +1229,15 @@ export function ChatPane({
     setSheetState(null);
     setImageViewerState(null);
     setIsActionsMenuOpen(false);
-
-    openedSessionRef.current = {
-      id: detail.session.id,
-      openedAt: Date.now()
-    };
+    autoFollowEnabledRef.current = true;
+    isPinnedToBottomRef.current = true;
+    isProgrammaticScrollRef.current = false;
+    lastTimelineScrollTopRef.current = 0;
+    shouldScrollToBottomRef.current = true;
+    touchStartYRef.current = null;
+    setShowJumpToLatest(false);
+    setHasQueuedUpdates(false);
   }, [detail?.session.id]);
-
-  useEffect(() => {
-    const timeline = timelineRef.current;
-    const sessionId = detail?.session.id;
-    if (!timeline || !sessionId) {
-      return;
-    }
-
-    const isCurrentSession = openedSessionRef.current.id === sessionId;
-    const justOpened = isCurrentSession && Date.now() - openedSessionRef.current.openedAt < 5000;
-    const isNewSession = !isCurrentSession;
-
-    if (!justOpened && !isNewSession) {
-      return;
-    }
-
-    const frame = window.requestAnimationFrame(() => {
-      if (timelineRef.current) {
-        timelineRef.current.scrollTop = timelineRef.current.scrollHeight;
-      }
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, [detail?.session.id, messages.length, streamingText]);
 
   useEffect(() => {
     const timeline = timelineRef.current;
@@ -1178,19 +1245,76 @@ export function ChatPane({
       return;
     }
 
-    const distanceFromBottom = timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop;
-    if (distanceFromBottom > 120) {
+    const handleScroll = () => {
+      const currentScrollTop = timeline.scrollTop;
+      const scrollDelta = currentScrollTop - lastTimelineScrollTopRef.current;
+      const isProgrammaticScroll = isProgrammaticScrollRef.current;
+
+      syncTimelinePinnedState(scrollDelta, isProgrammaticScroll);
+      lastTimelineScrollTopRef.current = currentScrollTop;
+    };
+
+    handleScroll();
+    timeline.addEventListener("scroll", handleScroll, { passive: true });
+
+    const handleWheel = (event: WheelEvent) => {
+      if (event.deltaY < -1) {
+        disableAutoFollow();
+      }
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      touchStartYRef.current = event.touches[0]?.clientY ?? null;
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      const currentY = event.touches[0]?.clientY;
+      if (touchStartYRef.current === null || typeof currentY !== "number") {
+        return;
+      }
+
+      if (currentY - touchStartYRef.current > 8) {
+        disableAutoFollow();
+      }
+    };
+
+    const resetTouchTracking = () => {
+      touchStartYRef.current = null;
+    };
+
+    timeline.addEventListener("wheel", handleWheel, { passive: true });
+    timeline.addEventListener("touchstart", handleTouchStart, { passive: true });
+    timeline.addEventListener("touchmove", handleTouchMove, { passive: true });
+    timeline.addEventListener("touchend", resetTouchTracking, { passive: true });
+    timeline.addEventListener("touchcancel", resetTouchTracking, { passive: true });
+
+    return () => {
+      timeline.removeEventListener("scroll", handleScroll);
+      timeline.removeEventListener("wheel", handleWheel);
+      timeline.removeEventListener("touchstart", handleTouchStart);
+      timeline.removeEventListener("touchmove", handleTouchMove);
+      timeline.removeEventListener("touchend", resetTouchTracking);
+      timeline.removeEventListener("touchcancel", resetTouchTracking);
+    };
+  }, [detail?.session.id]);
+
+  useEffect(() => {
+    if (!timelineRef.current) {
       return;
     }
 
+    if (!shouldScrollToBottomRef.current && !autoFollowEnabledRef.current) {
+      setHasQueuedUpdates(true);
+      return;
+    }
+
+    shouldScrollToBottomRef.current = false;
     const frame = window.requestAnimationFrame(() => {
-      if (timelineRef.current) {
-        timelineRef.current.scrollTop = timelineRef.current.scrollHeight;
-      }
+      scrollTimelineToBottom();
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [messages, streamingText]);
+  }, [liveActivities, messages, optimisticMessage, showPendingAssistant, streamingText]);
 
   const handleSubmit = async () => {
     const prompt = composerRef.current?.value.trim() ?? "";
@@ -1202,6 +1326,11 @@ export function ChatPane({
 
     const files = selectedImages.map((image) => image.file);
     const savedImages = [...selectedImages];
+
+    isPinnedToBottomRef.current = true;
+    shouldScrollToBottomRef.current = true;
+    setShowJumpToLatest(false);
+    setHasQueuedUpdates(false);
 
     if (composerRef.current) {
       composerRef.current.value = "";
@@ -1400,6 +1529,9 @@ export function ChatPane({
             optimisticMessage={optimisticMessage}
             showPendingAssistant={showPendingAssistant}
             timelineRef={timelineRef}
+            showJumpToLatest={showJumpToLatest}
+            hasQueuedUpdates={hasQueuedUpdates}
+            onJumpToLatest={() => scrollTimelineToBottom()}
             onOpenCommands={(commands) => setSheetState({ type: "command_list", commands })}
             onOpenFileChanges={(changes, count) => setSheetState({ type: "file_list", changes, count })}
             onOpenImageViewer={(attachments, selectedIndex) => setImageViewerState({ attachments, selectedIndex })}
@@ -1452,13 +1584,13 @@ export function ChatPane({
                       <span className="sr-only">Attach images</span>
                       <ImageIcon />
                     </button>
-                    {sessionIsRunning ? (
+                    {hasPendingRun ? (
                       <button
                         className="composer-send composer-send--stop"
-                        disabled={isInterrupting}
+                        disabled={isInterrupting || !canInterruptRun}
                         onClick={() => void onInterrupt()}
                         type="button"
-                        aria-label="Stop"
+                        aria-label={canInterruptRun ? "Stop" : "Preparing run"}
                       >
                         {isInterrupting ? "..." : "■"}
                       </button>

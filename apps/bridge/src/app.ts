@@ -11,7 +11,9 @@ import type {
   ClientWsEvent,
   CreateRunRequest,
   CreateSessionRequest,
-  SessionFilter
+  SessionDetail,
+  SessionFilter,
+  SessionSummary
 } from "../../../packages/shared-types/src/index";
 import { LiveCatalogService } from "./catalog/live-catalog-service";
 import { createCodexBackend } from "./codex/index";
@@ -76,6 +78,8 @@ export async function buildApp() {
     }
   });
   const runs = new RunService(config, catalog, realtime, codex, uploads);
+  const presentSessions = (sessions: SessionSummary[]) => runs.presentSessionSummaries(sessions);
+  const presentDetail = (detail: SessionDetail) => runs.presentSessionDetail(detail);
 
   await app.register(cors, {
     origin: true,
@@ -129,10 +133,10 @@ export async function buildApp() {
       })
       .parse(request.query);
     return {
-      sessions: await catalog.listSessions(query.repoId, {
+      sessions: presentSessions(await catalog.listSessions(query.repoId, {
         search: query.q,
         filter: query.filter as SessionFilter | undefined
-      })
+      }))
     };
   });
 
@@ -144,15 +148,15 @@ export async function buildApp() {
       })
       .parse(request.query);
     return {
-      sessions: await catalog.listSessions(query.repoId, {
+      sessions: presentSessions(await catalog.listSessions(query.repoId, {
         filter: query.filter as SessionFilter | undefined
-      })
+      }))
     };
   });
 
   app.get("/api/sessions/:sessionId", async (request, reply) => {
     const params = z.object({ sessionId: z.string().min(1) }).parse(request.params);
-    const detail = await catalog.getSessionDetail(params.sessionId);
+    const detail = presentDetail(await catalog.getSessionDetail(params.sessionId));
     if (!detail) {
       return reply.code(404).send({ message: "Session not found" });
     }
@@ -178,7 +182,7 @@ export async function buildApp() {
   app.post("/api/sessions", async (request, reply) => {
     const body = createSessionSchema.parse(request.body) as CreateSessionRequest;
     try {
-      const session = await catalog.createSession(body.repoId);
+      const session = runs.presentSessionSummary(await catalog.createSession(body.repoId));
       return { session };
     } catch (error) {
       return reply.code(400).send({ message: error instanceof Error ? error.message : "Unable to create session" });
@@ -187,7 +191,7 @@ export async function buildApp() {
 
   app.post("/api/sessions/:sessionId/select", async (request, reply) => {
     const params = z.object({ sessionId: z.string().min(1) }).parse(request.params);
-    const detail = await catalog.getSessionDetail(params.sessionId);
+    const detail = presentDetail(await catalog.getSessionDetail(params.sessionId));
     if (!detail) {
       return reply.code(404).send({ message: "Session not found" });
     }
@@ -201,7 +205,7 @@ export async function buildApp() {
 
   app.post("/api/sessions/:sessionId/archive", async (request, reply) => {
     const params = z.object({ sessionId: z.string().min(1) }).parse(request.params);
-    const detail = await catalog.getSessionDetail(params.sessionId);
+    const detail = presentDetail(await catalog.getSessionDetail(params.sessionId));
     if (!detail) {
       return reply.code(404).send({ message: "Session not found" });
     }
@@ -213,7 +217,7 @@ export async function buildApp() {
 
     try {
       await catalog.archiveSession(params.sessionId);
-      realtime.broadcastSession(detail.session);
+      realtime.broadcastSession(runs.presentSessionSummary(detail.session));
       return { ok: true };
     } catch (error) {
       return reply.code(400).send({ message: error instanceof Error ? error.message : "Unable to archive session" });
@@ -229,7 +233,7 @@ export async function buildApp() {
     const body = renameSessionSchema.parse(request.body);
 
     try {
-      return await catalog.renameSession(params.sessionId, body.title);
+      return presentDetail(await catalog.renameSession(params.sessionId, body.title));
     } catch (error) {
       return reply.code(400).send({ message: error instanceof Error ? error.message : "Unable to rename session" });
     }

@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 
-import type { CreateRunRequest, LiveActivity, Message, Run } from "../../../../packages/shared-types/src/index";
+import type {
+  CreateRunRequest,
+  LiveActivity,
+  Message,
+  Run,
+  SessionDetail,
+  SessionSummary
+} from "../../../../packages/shared-types/src/index";
 import type { AppConfig } from "../config/env";
 import type { CodexBackend, CodexBridgeEvent } from "../codex/types";
 import { LiveCatalogService } from "../catalog/live-catalog-service";
@@ -116,6 +123,48 @@ export class RunService {
     };
   }
 
+  presentSessionSummary(session: SessionSummary) {
+    const lastUserMessageAt = this.latestRunBySession.get(session.id)
+      ? this.runsById.get(this.latestRunBySession.get(session.id)!)?.startedAt ?? session.lastUserMessageAt
+      : session.lastUserMessageAt;
+
+    return lastUserMessageAt && lastUserMessageAt !== session.lastUserMessageAt
+      ? {
+          ...session,
+          lastUserMessageAt
+        }
+      : session;
+  }
+
+  presentSessionSummaries(sessions: SessionSummary[]) {
+    return [...sessions]
+      .map((session) => this.presentSessionSummary(session))
+      .sort((left, right) => {
+        const primary = this.toTime(right.lastUserMessageAt ?? right.updatedAt ?? right.createdAt)
+          - this.toTime(left.lastUserMessageAt ?? left.updatedAt ?? left.createdAt);
+        if (primary !== 0) {
+          return primary;
+        }
+
+        const secondary = this.toTime(right.updatedAt) - this.toTime(left.updatedAt);
+        if (secondary !== 0) {
+          return secondary;
+        }
+
+        return right.id.localeCompare(left.id);
+      });
+  }
+
+  presentSessionDetail(detail: SessionDetail) {
+    const session = this.presentSessionSummary(detail.session);
+    return session === detail.session
+      ? detail
+      : {
+          ...detail,
+          session
+        };
+  }
+
   private async handleBackendEvent(event: CodexBridgeEvent) {
     if (event.type === "backend.degraded") {
       this.realtime.broadcastBackendDegraded(event.reason);
@@ -192,5 +241,10 @@ export class RunService {
     this.activeRunBySession.delete(event.sessionId);
     this.latestRunBySession.set(event.sessionId, event.runId);
     this.realtime.broadcastRun(event.type, next);
+  }
+
+  private toTime(value: string) {
+    const time = Date.parse(value);
+    return Number.isNaN(time) ? 0 : time;
   }
 }

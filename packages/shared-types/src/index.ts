@@ -44,6 +44,7 @@ export type SessionSummary = {
   lastEventSeq: number;
   lastReadEventSeq: number;
   lastMessageAt: string;
+  lastUserMessageAt?: string;
   lastRunFinishedAt?: string;
   latestUserPrompt?: string;
   latestAssistantExcerpt?: string;

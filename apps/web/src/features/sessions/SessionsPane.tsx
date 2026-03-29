@@ -13,6 +13,10 @@ type Props = {
   onCreate: () => void;
 };
 
+function sessionSortAt(session: SessionSummary) {
+  return session.lastUserMessageAt ?? session.updatedAt;
+}
+
 export function SessionsPane({
   sessions,
   selectedSessionId,
@@ -79,7 +83,7 @@ export function SessionsPane({
             <p>{session.summary}</p>
             <div className="session-row__meta">
               <span>{session.status}</span>
-              <span>{formatRelativeTime(session.updatedAt)}</span>
+              <span>{formatRelativeTime(sessionSortAt(session))}</span>
             </div>
           </button>
         ))}

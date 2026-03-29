@@ -28,11 +28,15 @@ type Props = {
 type RepoGroup = {
   repoName: string;
   sessions: SessionSummary[];
-  latestUpdatedAt: string;
+  latestSortAt: string;
 };
 
 function getPreviewText(session: SessionSummary) {
   return session.latestAssistantExcerpt ?? session.latestUserPrompt ?? session.summary;
+}
+
+function sessionSortAt(session: SessionSummary) {
+  return session.lastUserMessageAt ?? session.updatedAt;
 }
 
 function filterLabel(filter: SessionFilter) {
@@ -68,11 +72,11 @@ function groupByRepo(sessions: SessionSummary[]): RepoGroup[] {
     groups.push({
       repoName,
       sessions: repoSessions,
-      latestUpdatedAt: repoSessions[0]?.updatedAt ?? ""
+      latestSortAt: repoSessions[0] ? sessionSortAt(repoSessions[0]) : ""
     });
   }
 
-  groups.sort((a, b) => b.latestUpdatedAt.localeCompare(a.latestUpdatedAt));
+  groups.sort((a, b) => b.latestSortAt.localeCompare(a.latestSortAt));
   return groups;
 }
 
@@ -453,7 +457,7 @@ function SessionRow({
           <span className={`session-dot session-dot--${session.status}`} />
           <strong>{session.title}</strong>
         </div>
-        <span className="session-row__time">{formatRelativeTime(session.updatedAt)}</span>
+        <span className="session-row__time">{formatRelativeTime(sessionSortAt(session))}</span>
       </div>
       <p className="session-row__preview">{getPreviewText(session)}</p>
       <div className="session-row__meta">
