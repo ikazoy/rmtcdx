@@ -2589,6 +2589,52 @@ button {
 }
 
 @media (max-width: 859px) {
+  body[data-mobile-pane="sidebar"] {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  body[data-mobile-pane="sidebar"] #root,
+  body[data-mobile-pane="sidebar"] .app-shell,
+  body[data-mobile-pane="sidebar"] .workspace-shell {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  body[data-mobile-pane="sidebar"] .workspace-shell {
+    display: block;
+    overflow: visible;
+  }
+
+  body[data-mobile-pane="sidebar"] .workspace-shell__sidebar {
+    display: flex;
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  body[data-mobile-pane="sidebar"] .workspace-shell__chat,
+  body[data-mobile-pane="sidebar"] .workspace-shell__resizer {
+    display: none;
+  }
+
+  body[data-mobile-pane="sidebar"] .sidebar-shell,
+  body[data-mobile-pane="sidebar"] .sidebar-card {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  body[data-mobile-pane="sidebar"] .sidebar-scroll {
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow: visible;
+    overscroll-behavior: auto;
+  }
+
   .workspace-shell {
     display: grid;
     grid-template-columns: 100%;

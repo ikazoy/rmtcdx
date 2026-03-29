@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import type {
   ImageAttachmentInput,
@@ -21,7 +22,13 @@ import { useUiStore } from "../store/ui-store";
 
 const SIDEBAR_WIDTH_KEY = "codex-remote-sidebar-width";
 const THREAD_LIST_FILTERS_KEY = "codex-remote-thread-list-filters";
+const MOBILE_BREAKPOINT_PX = 860;
+const MOBILE_MEDIA_QUERY = `(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`;
 const EMPTY_ACTIVITY_MAP: Record<string, LiveActivity> = {};
+
+type DetailLocationState = {
+  fromThreadList?: boolean;
+} | null;
 
 function readStoredThreadFilters() {
   if (typeof window === "undefined") {
@@ -134,9 +141,40 @@ function clampSidebarWidth(width: number) {
   return Math.min(Math.max(width, 280), maxWidth);
 }
 
+function readIsMobileViewport() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.matchMedia(MOBILE_MEDIA_QUERY).matches;
+}
+
+function buildSessionPath(sessionId: string) {
+  return `/sessions/${encodeURIComponent(sessionId)}`;
+}
+
+function readSessionIdFromPathname(pathname: string) {
+  if (!pathname.startsWith("/sessions/")) {
+    return null;
+  }
+
+  const encodedSessionId = pathname.slice("/sessions/".length).replace(/\/+$/, "");
+  if (!encodedSessionId) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(encodedSessionId);
+  } catch {
+    return null;
+  }
+}
+
 export function App() {
   useRealtime();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [search, setSearch] = useState(() => readStoredThreadFilters().search);
   const [filter, setFilter] = useState<SessionFilter>(() => readStoredThreadFilters().filter);
   const [optimisticMessage, setOptimisticMessage] = useState<OptimisticUserMessage | null>(null);
@@ -150,7 +188,10 @@ export function App() {
     return Number.isFinite(stored) ? clampSidebarWidth(stored) : 308;
   });
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(() => readIsMobileViewport());
   const deferredSearch = useDeferredValue(search);
+  const routeSessionId = useMemo(() => readSessionIdFromPathname(location.pathname), [location.pathname]);
+  const detailLocationState = (location.state ?? null) as DetailLocationState;
 
   useEffect(() => {
     optimisticMessageRef.current = optimisticMessage;
@@ -207,16 +248,43 @@ export function App() {
   });
 
   useEffect(() => {
-    const sessions = sessionsQuery.data?.sessions ?? [];
-    if (sessions.length === 0) {
+    if (typeof window === "undefined") {
       return;
     }
 
-    const firstSession = sessions[0];
-    if (!selectedSessionId && firstSession) {
-      setSelectedSessionId(firstSession.id);
+    const mediaQuery = window.matchMedia(MOBILE_MEDIA_QUERY);
+    const handleChange = (event: MediaQueryListEvent) => {
+      setIsMobileViewport(event.matches);
+    };
+
+    setIsMobileViewport(mediaQuery.matches);
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
+  useEffect(() => {
+    if (selectedSessionId !== routeSessionId) {
+      setSelectedSessionId(routeSessionId);
     }
-  }, [selectedSessionId, sessionsQuery.data?.sessions, setSelectedSessionId]);
+
+    const nextMobilePane = routeSessionId ? "chat" : "sidebar";
+    if (mobilePane !== nextMobilePane) {
+      setMobilePane(nextMobilePane);
+    }
+  }, [mobilePane, routeSessionId, selectedSessionId, setMobilePane, setSelectedSessionId]);
+
+  useEffect(() => {
+    const firstSession = sessionsQuery.data?.sessions[0];
+    if (isMobileViewport || routeSessionId || !firstSession) {
+      return;
+    }
+
+    if (selectedRepoId && firstSession.repoId !== selectedRepoId) {
+      return;
+    }
+
+    navigate(buildSessionPath(firstSession.id), { replace: true });
+  }, [isMobileViewport, navigate, routeSessionId, selectedRepoId, sessionsQuery.data?.sessions]);
 
   useEffect(() => {
     const sessions = sessionsQuery.data?.sessions ?? [];
@@ -238,6 +306,23 @@ export function App() {
   useEffect(() => {
     persistThreadFilters(search, filter);
   }, [filter, search]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    if (!isMobileViewport) {
+      delete document.body.dataset.mobilePane;
+      return;
+    }
+
+    document.body.dataset.mobilePane = mobilePane;
+
+    return () => {
+      delete document.body.dataset.mobilePane;
+    };
+  }, [isMobileViewport, mobilePane]);
 
   const runMutation = useMutation({
     mutationFn: ({
@@ -261,6 +346,13 @@ export function App() {
       );
       setSelectedSessionId(data.run.sessionId);
       setMobilePane("chat");
+      const nextPath = buildSessionPath(data.run.sessionId);
+      if (location.pathname !== nextPath || isDraftSession) {
+        navigate(nextPath, {
+          replace: isDraftSession,
+          state: detailLocationState
+        });
+      }
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sessions"] }),
         queryClient.invalidateQueries({ queryKey: queryKeys.session(data.run.sessionId) }),
@@ -308,7 +400,13 @@ export function App() {
         const nextSessions = queryClient.getQueryData<SessionsResponse>(
           queryKeys.sessions(selectedRepoId, deferredSearch, filter)
         );
-        setSelectedSessionId(nextSessions?.sessions[0]?.id ?? null);
+        const nextSessionId = nextSessions?.sessions[0]?.id ?? null;
+        setSelectedSessionId(nextSessionId);
+        setMobilePane(nextSessionId ? "chat" : "sidebar");
+        navigate(nextSessionId ? buildSessionPath(nextSessionId) : "/", {
+          replace: true,
+          state: nextSessionId ? detailLocationState : null
+        });
       }
 
       await Promise.all([
@@ -376,11 +474,22 @@ export function App() {
     setSelectedRepoId(repoId);
     setSelectedSessionId(null);
     setMobilePane("sidebar");
+    if (location.pathname !== "/") {
+      navigate("/", { replace: true });
+    }
   };
 
   const selectSession = (sessionId: string) => {
     setSelectedSessionId(sessionId);
     setMobilePane("chat");
+    const nextPath = buildSessionPath(sessionId);
+    if (location.pathname !== nextPath) {
+      navigate(nextPath, {
+        state: {
+          fromThreadList: true
+        } satisfies NonNullable<DetailLocationState>
+      });
+    }
   };
 
   useEffect(() => {
@@ -392,11 +501,12 @@ export function App() {
       setSelectedRepoId(null);
       setSelectedSessionId(null);
       setMobilePane("sidebar");
+      navigate("/", { replace: true });
     }
-  }, [repos, reposQuery.isSuccess, selectedRepoId, setMobilePane, setSelectedRepoId, setSelectedSessionId]);
+  }, [navigate, repos, reposQuery.isSuccess, selectedRepoId, setMobilePane, setSelectedRepoId, setSelectedSessionId]);
 
   const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (window.innerWidth < 860) {
+    if (window.innerWidth < MOBILE_BREAKPOINT_PX) {
       return;
     }
 
@@ -427,7 +537,12 @@ export function App() {
     <div className={`app-shell ${isResizingSidebar ? "is-resizing" : ""}`}>
       {backendBanner ? <div className="banner">{backendBanner}</div> : null}
 
-      <main className="workspace-shell" data-sidebar-collapsed={!sidebarVisible} style={workspaceStyle}>
+      <main
+        className="workspace-shell"
+        data-mobile-pane={isMobileViewport ? mobilePane : "desktop"}
+        data-sidebar-collapsed={!sidebarVisible}
+        style={workspaceStyle}
+      >
         <aside className="workspace-shell__sidebar" data-mobile-visible={mobilePane !== "chat"}>
           <SidebarPane
             repos={repos}
@@ -462,9 +577,15 @@ export function App() {
               if (!fallbackCreateRepoId) {
                 return;
               }
+              const draftSessionId = `draft:${fallbackCreateRepoId}:${Date.now()}`;
               setSelectedRepoId(fallbackCreateRepoId);
-              setSelectedSessionId(`draft:${fallbackCreateRepoId}:${Date.now()}`);
+              setSelectedSessionId(draftSessionId);
               setMobilePane("chat");
+              navigate(buildSessionPath(draftSessionId), {
+                state: {
+                  fromThreadList: true
+                } satisfies NonNullable<DetailLocationState>
+              });
             }}
           />
         </aside>
@@ -495,7 +616,14 @@ export function App() {
             wsState={wsState}
             backendMode={healthQuery.data?.codex.mode}
             repoName={activeRepoName}
-            onBack={() => setMobilePane("sidebar")}
+            onBack={() => {
+              if (detailLocationState?.fromThreadList) {
+                navigate(-1);
+                return;
+              }
+
+              navigate("/", { replace: true });
+            }}
             onSubmit={async ({ prompt, files }) => {
               if (!selectedSessionId) {
                 return;
