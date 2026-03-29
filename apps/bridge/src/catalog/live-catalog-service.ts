@@ -100,15 +100,19 @@ export class LiveCatalogService {
   }
 
   async listSessions(repoId?: string, options?: { search?: string; filter?: SessionFilter }) {
+    const search = options?.search?.trim();
     const threads = await this.codex.listThreads({
       archived: false,
-      searchTerm: options?.search?.trim() || undefined
+      searchTerm: search || undefined
     });
     const contexts = await this.enrichThreads(threads);
 
     return contexts
       .filter((context) => !repoId || context.repo.id === repoId)
       .map((context) => this.mapThreadSummary(context))
+      // `thread/list.searchTerm` is part of the protocol, but current Codex CLI builds may still
+      // return unfiltered pages. Re-apply the same title-only match here so the UI stays aligned.
+      .filter((session) => this.matchesSearch(session, search))
       .filter((session) => this.matchesFilter(session, options?.filter))
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
   }
@@ -168,6 +172,14 @@ export class LiveCatalogService {
       return session.hasUnreadCompletion || session.hasUnreadError;
     }
     return session.status === filter;
+  }
+
+  private matchesSearch(session: SessionSummary, search?: string) {
+    if (!search) {
+      return true;
+    }
+
+    return session.title.toLocaleLowerCase().includes(search.toLocaleLowerCase());
   }
 
   private async enrichThreads(threads: CodexThread[]) {
@@ -384,7 +396,11 @@ export class LiveCatalogService {
         role: "system",
         kind: "web_search",
         text: `Query: ${item.query}`,
-        createdAt
+        createdAt,
+        metadata: {
+          type: "web_search",
+          query: item.query
+        }
       };
     }
 
@@ -583,13 +599,23 @@ export class LiveCatalogService {
   }
 
   private threadTitle(thread: CodexThread, fallback: string) {
+    const extractedTitle = this.searchableThreadTitle(thread, fallback);
+    if (thread.name?.trim()) {
+      return extractedTitle;
+    }
+    return excerpt(extractedTitle, 64);
+  }
+
+  private searchableThreadTitle(thread: CodexThread, fallback: string) {
     if (thread.name?.trim()) {
       return thread.name.trim();
     }
+
     const preview = thread.preview.trim();
     if (preview) {
-      return excerpt(preview.split("\n")[0] ?? preview, 64);
+      return (preview.split("\n")[0] ?? preview).trim();
     }
+
     return fallback ? "New session" : "New thread";
   }
 

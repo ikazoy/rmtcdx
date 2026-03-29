@@ -59,8 +59,12 @@ npm run build -w @codex-remote/web
 | `CODEX_MODE` | `auto` | `auto` / `real` / `mock` |
 | `PORT` | `3000` | bridge listen port |
 | `HOST` | `127.0.0.1` | bridge listen host |
+| `REPO_CONFIG_PATH` | `<workspace>/repos.json` | repo config file |
+| `DATA_DIR` | `<workspace>/data` | app data directory |
+| `DB_FILE` | `<workspace>/data/remote-control.db` | SQLite DB file |
 | `MAX_PROMPT_LENGTH` | `12000` | prompt 文字数上限 |
-| `MAX_CONCURRENT_RUNS` | `1` | 同時 run 数 |
+| `MAX_IMAGE_ATTACHMENTS` | `5` | 1 run あたりの画像数上限 |
+| `MAX_IMAGE_ATTACHMENT_BYTES` | `10485760` | 画像 1 枚あたりの最大サイズ |
 
 ## Code Conventions
 
@@ -69,6 +73,12 @@ npm run build -w @codex-remote/web
 - backend の dev は `tsx watch`、build は `tsup`
 - frontend の build は `vite build`
 - 日本語コメント・ドキュメント OK
+
+## Documentation Notes
+
+- top-level README は `README.md` と `README.ja.md` の 2 つを運用する
+- `README.md` は GitHub 既定表示用の英語版、`README.ja.md` は日本語版
+- セットアップ手順や機能一覧を更新するときは両方を同期して更新する
 
 ## Architecture Notes
 

@@ -1,33 +1,25 @@
 # Codex Remote Web Client
 
-`codex_remote_web_client_v_1_5_design.md` をもとに実装した、mobile-first の Codex remote bridge + web UI です。
+[English](./README.md) | [日本語](./README.ja.md)
 
-ローカルのリポジトリを Web UI から選択し、session 作成、prompt 送信、run 状態監視、message 履歴確認までを一通り扱えます。
+Codex Remote Web Client is a mobile-first web UI for remotely operating OpenAI Codex CLI from your browser. It lets you choose a local repository, create and revisit sessions, send prompts, follow runs in real time, and review message history from one interface.
 
-## できること
+## Features
 
-- repo 一覧の表示と選択
-- session 作成、一覧、検索、未読管理
-- prompt 送信と run 状態管理
-- WebSocket によるリアルタイム更新
-- `CODEX_MODE=real` で Codex app-server 実行
-- `CODEX_MODE=mock` でバックエンド単体のローカル確認
+- Repository picker for local workspaces defined in `repos.json`
+- Session list with search, filters, unread state, rename, and archive
+- Prompt submission with optional image attachments
+- Live run updates and message streaming over WebSocket
+- SQLite-backed persistence for sessions and messages
+- Mobile-first layout for moving between the session list and chat view
 
-## 構成
+## Requirements
 
-- `apps/bridge`: Fastify + SQLite + WebSocket + Codex app-server bridge
-- `apps/web`: React + Vite + TanStack Query + Zustand の UI
-- `packages/shared-types`: backend / frontend 共有型
-
-## 前提
-
-- Node.js 20 以上
+- Node.js 20 or newer
 - npm
-- `CODEX_MODE=real` を使う場合は `codex` CLI がローカルに入っていること
+- `codex` CLI installed locally if you want the bridge to drive a live Codex backend
 
-## 最短セットアップ
-
-GitHub から clone した人がまず画面を立ち上げるだけなら、mock mode が最短です。
+## Quick Start
 
 ```bash
 git clone https://github.com/ikazoy/remote-control-codex.git
@@ -35,23 +27,25 @@ cd remote-control-codex
 cp repos.example.json repos.json
 npm install
 npm run build
-CODEX_MODE=mock npm run start
+npm run start
 ```
 
-起動後:
+`npm run start` uses `CODEX_MODE=auto` by default. If the `codex` CLI is available, the bridge connects to it. If not, it falls back to mock mode.
 
-- Bridge + built web: [http://127.0.0.1:3000](http://127.0.0.1:3000)
-- health check: [http://127.0.0.1:3000/healthz](http://127.0.0.1:3000/healthz)
+After startup:
 
-## `repos.json` の準備
+- App: [http://127.0.0.1:3000](http://127.0.0.1:3000)
+- Health check: [http://127.0.0.1:3000/healthz](http://127.0.0.1:3000/healthz)
 
-このアプリは操作対象 repo を `repos.json` から読み込みます。公開用には `repos.example.json` を同梱しているので、clone 後にコピーして使ってください。
+## Configure `repos.json`
+
+The bridge reads the list of target repositories from `repos.json`. Start by copying the example file:
 
 ```bash
 cp repos.example.json repos.json
 ```
 
-例:
+Example:
 
 ```json
 [
@@ -65,119 +59,100 @@ cp repos.example.json repos.json
 ]
 ```
 
-注意:
+Notes:
 
-- `path` は絶対パスでも相対パスでも使えます
-- 相対パスは `repos.json` が置かれているディレクトリ基準で解決されます
-- まずは `"path": "."` のままで、この clone 済み repo 自体を対象にするのが一番簡単です
+- `path` can be absolute or relative
+- Relative paths are resolved from the directory that contains `repos.json`
+- Keeping `"path": "."` is the easiest way to point the app at the cloned repository itself
 
-## 実運用モードで起動する
+## Development
 
-Codex CLI が使える環境なら `real` mode で起動できます。
-
-```bash
-npm install
-npm run build
-CODEX_MODE=real npm run start
-```
-
-bridge は内部で次のコマンドを呼び出します。
+Run the bridge and web app together during development:
 
 ```bash
-codex app-server --listen stdio://
-```
-
-`real` mode で起動できない場合は、まず `mock` mode で UI / bridge 側の確認を進めてください。
-
-## 開発用コマンド
-
-```bash
-# bridge + web dev server を同時起動
 npm run dev
-
-# production build を作成
-npm run build
-
-# build 済み web を bridge から配信
-npm run start
-
-# web 単体 dev server
-npm run dev -w @codex-remote/web
 ```
 
-## 環境変数
-
-主要な設定値:
-
-- `CODEX_MODE`: `auto` / `real` / `mock`
-- `HOST`: bridge listen host。既定値は `127.0.0.1`
-- `PORT`: bridge listen port。既定値は `3000`
-- `REPO_CONFIG_PATH`: repo 設定ファイル。既定値は `<workspace>/repos.json`
-- `DATA_DIR`: SQLite とアプリデータの格納先。既定値は `<workspace>/data`
-- `DB_FILE`: SQLite DB ファイル。既定値は `<workspace>/data/remote-control.db`
-- `WEB_DIST_DIR`: 配信する web build の場所。既定値は `<workspace>/apps/web/dist`
-- `WORKSPACE_ROOT`: workspace の明示指定が必要な場合に利用
-- `MAX_PROMPT_LENGTH`: prompt 上限。既定値は `12000`
-- `MAX_CONCURRENT_RUNS`: 同時 run 数。既定値は `1`
-
-例:
+Workspace-specific commands:
 
 ```bash
-PORT=3100 CODEX_MODE=mock npm run start
+npm run dev -w @codex-remote/bridge
+npm run dev -w @codex-remote/web
+npm run build -w @codex-remote/bridge
+npm run build -w @codex-remote/web
 ```
 
-## 動作確認
+### Mock Mode
 
-起動後に最低限見る項目:
+Use mock mode when you want to work on the UI or bridge without a working Codex CLI:
+
+```bash
+CODEX_MODE=mock npm run start
+```
+
+## Key Environment Variables
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CODEX_MODE` | `auto` | Default startup mode. Set `mock` for UI/backend-only development |
+| `HOST` | `127.0.0.1` | Bridge listen host |
+| `PORT` | `3000` | Bridge listen port |
+| `REPO_CONFIG_PATH` | `<workspace>/repos.json` | Repository list file |
+| `DATA_DIR` | `<workspace>/data` | Application data directory |
+| `DB_FILE` | `<workspace>/data/remote-control.db` | SQLite database file |
+| `UPLOADS_DIR` | `<workspace>/data/uploads` | Uploaded image storage |
+| `WEB_DIST_DIR` | `<workspace>/apps/web/dist` | Built frontend served by the bridge |
+| `WORKSPACE_ROOT` | auto-detected | Override workspace root resolution |
+| `MAX_PROMPT_LENGTH` | `12000` | Maximum prompt length |
+| `MAX_IMAGE_ATTACHMENTS` | `5` | Maximum images per run |
+| `MAX_IMAGE_ATTACHMENT_BYTES` | `10485760` | Maximum size in bytes for a single image |
+
+Example:
+
+```bash
+PORT=3100 npm run start
+```
+
+## Verify The Bridge
 
 ```bash
 curl http://127.0.0.1:3000/healthz
-curl "http://127.0.0.1:3000/api/repos"
+curl http://127.0.0.1:3000/api/repos
 ```
 
-確認ポイント:
+You should see:
 
-- `healthz` で `ok: true`
-- `api/repos` で `repos.json` の内容が返る
-- Web UI で session 作成と message 送信ができる
-- `CODEX_MODE=real` の場合は run 完了後に assistant message が保存される
+- `ok: true` from `healthz`
+- The repositories defined in `repos.json` from `api/repos`
 
-## トラブルシュート
+## Project Structure
 
-### `Repository config not found` で起動失敗する
+- `apps/bridge`: Fastify backend, SQLite persistence, WebSocket gateway, and Codex bridge
+- `apps/web`: React SPA built with Vite
+- `packages/shared-types`: shared TypeScript types used by bridge and web
+- `docs/`: supporting design and architecture notes
 
-`repos.example.json` を `repos.json` にコピーしてから起動してください。
+## Troubleshooting
+
+### `Repository config not found`
+
+Create `repos.json` from the example template:
 
 ```bash
 cp repos.example.json repos.json
 ```
 
-### `Configured repository path does not exist` が出る
+### `Configured repository path does not exist`
 
-`repos.json` の `path` が実在するローカルディレクトリを指しているか確認してください。
+Check that each `path` in `repos.json` points to a real local directory.
 
-### `CODEX_MODE=real` で backend が ready にならない
+### The bridge falls back to mock mode
 
-`codex` CLI が使えるか確認してください。
+Confirm that the Codex CLI is installed and callable:
 
 ```bash
 codex --version
 codex app-server --listen stdio://
 ```
 
-難しい場合はいったん `CODEX_MODE=mock` で立ち上げれば、bridge / UI 側の確認は進められます。
-
-### 画面は出るがリアルタイム更新されない
-
-bridge が配信している [http://127.0.0.1:3000](http://127.0.0.1:3000) を開いて確認してください。`vite` の dev server を別で使っているときは、確認対象を混同しない方が安全です。
-
-## 確認済み
-
-- `GET /healthz`
-- `GET /api/repos`
-- session 作成
-- run 開始
-- Codex app-server 実行完了の保存
-- unread badge の read 化
-- WebSocket 接続
-- mobile layout での session -> chat 遷移
+If you only need to validate the UI and bridge behavior, stay in mock mode.

@@ -39,16 +39,25 @@ type CommandExecutionEntry = {
   createdAt: string;
 };
 
+type SearchQueryEntry = {
+  id: string;
+  message: Message;
+  query: string;
+  createdAt: string;
+};
+
 type TimelineEntry =
   | { type: "message"; id: string; message: Message }
   | { type: "command_group"; id: string; commands: CommandExecutionEntry[]; createdAt: string }
-  | { type: "file_group"; id: string; changes: FileChangeEntry[]; count: number; createdAt: string };
+  | { type: "file_group"; id: string; changes: FileChangeEntry[]; count: number; createdAt: string }
+  | { type: "search_group"; id: string; searches: SearchQueryEntry[]; createdAt: string };
 
 type BottomSheetState =
   | null
   | { type: "command_list"; commands: CommandExecutionEntry[] }
   | { type: "command_detail"; commands: CommandExecutionEntry[]; selectedIndex: number }
-  | { type: "file_list"; changes: FileChangeEntry[]; count: number };
+  | { type: "file_list"; changes: FileChangeEntry[]; count: number }
+  | { type: "search_list"; searches: SearchQueryEntry[] };
 
 type ImageViewerState =
   | null
@@ -191,6 +200,14 @@ function fileChangeCountFromMessage(message: Message) {
   return match ? Number(match[1]) : 0;
 }
 
+function searchQueryFromMessage(message: Message) {
+  if (message.metadata?.type === "web_search") {
+    return message.metadata.query.trim();
+  }
+
+  return message.text.replace(/^Query:\s*/i, "").trim() || message.text.trim();
+}
+
 function buildTimelineEntries(messages: Message[]): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
 
@@ -236,6 +253,30 @@ function buildTimelineEntries(messages: Message[]): TimelineEntry[] {
       continue;
     }
 
+    if (message.kind === "web_search") {
+      const searchMessages: Message[] = [message];
+
+      while (index + 1 < messages.length && messages[index + 1]?.kind === "web_search") {
+        searchMessages.push(messages[index + 1]!);
+        index += 1;
+      }
+
+      const searches = searchMessages.map((item) => ({
+        id: item.id,
+        message: item,
+        query: searchQueryFromMessage(item),
+        createdAt: item.createdAt
+      }));
+
+      entries.push({
+        type: "search_group",
+        id: `search-group:${searchMessages[0]!.id}`,
+        searches,
+        createdAt: searchMessages[searchMessages.length - 1]!.createdAt
+      });
+      continue;
+    }
+
     entries.push({
       type: "message",
       id: message.id,
@@ -256,6 +297,10 @@ function formatCommandGroupTitle(count: number) {
 
 function formatFileGroupTitle(count: number) {
   return `${formatCountLabel(count, "ファイル")}を編集しました`;
+}
+
+function formatSearchGroupTitle(count: number) {
+  return `${formatCountLabel(count, "検索")}を実行しました`;
 }
 
 function commandStatusLabel(command: CommandExecutionEntry) {
@@ -378,6 +423,15 @@ function FileIcon() {
   );
 }
 
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="11" cy="11" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.7" />
+      <path d="m15 15 4 4" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+    </svg>
+  );
+}
+
 function MoreActionsIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -410,8 +464,10 @@ function ImageIcon() {
   );
 }
 
+type SummaryCardTone = "command" | "file" | "search";
+
 type SummaryCardProps = {
-  tone: "command" | "file";
+  tone: SummaryCardTone;
   title: string;
   rows: Array<{
     id: string;
@@ -422,6 +478,16 @@ type SummaryCardProps = {
   extraCount: number;
   onClick: () => void;
 };
+
+function SummaryCardToneIcon({ tone }: { tone: SummaryCardTone }) {
+  if (tone === "command") {
+    return <TerminalIcon />;
+  }
+  if (tone === "file") {
+    return <FileIcon />;
+  }
+  return <SearchIcon />;
+}
 
 const SummaryCard = memo(function SummaryCard({
   tone,
@@ -443,7 +509,7 @@ const SummaryCard = memo(function SummaryCard({
           {rows.map((row) => (
             <div key={row.id} className="summary-card__row">
               <span className={`summary-card__icon summary-card__icon--${tone}`}>
-                {tone === "command" ? <TerminalIcon /> : <FileIcon />}
+                <SummaryCardToneIcon tone={tone} />
               </span>
               <div className="summary-card__row-copy">
                 <span className="summary-card__row-line">
@@ -824,6 +890,33 @@ function FileChangeSheet({
   );
 }
 
+function SearchListSheet({
+  searches,
+  onClose
+}: {
+  searches: SearchQueryEntry[];
+  onClose: () => void;
+}) {
+  return (
+    <BottomSheet title={formatSearchGroupTitle(searches.length)} onClose={onClose}>
+      <div className="sheet-list">
+        {searches.map((search) => (
+          <div key={search.id} className="sheet-row">
+            <span className="sheet-row__icon sheet-row__icon--search">
+              <SearchIcon />
+            </span>
+            <div className="sheet-row__copy">
+              <span className="sheet-row__eyebrow">Query</span>
+              <span className="sheet-row__title">{search.query}</span>
+              <span className="sheet-row__meta">{formatRelativeTime(search.createdAt)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </BottomSheet>
+  );
+}
+
 const ConversationTimeline = memo(function ConversationTimeline({
   messages,
   isLoadingMessages,
@@ -837,6 +930,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onJumpToLatest,
   onOpenCommands,
   onOpenFileChanges,
+  onOpenSearches,
   onOpenImageViewer
 }: {
   messages: Message[];
@@ -851,6 +945,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onJumpToLatest: () => void;
   onOpenCommands: (commands: CommandExecutionEntry[]) => void;
   onOpenFileChanges: (changes: FileChangeEntry[], count: number) => void;
+  onOpenSearches: (searches: SearchQueryEntry[]) => void;
   onOpenImageViewer: (attachments: MessageAttachment[], selectedIndex: number) => void;
 }) {
   const entries = buildTimelineEntries(messages);
@@ -904,6 +999,25 @@ const ConversationTimeline = memo(function ConversationTimeline({
                   rows={previewRows}
                   extraCount={Math.max(0, entry.count - previewRows.length)}
                   onClick={() => onOpenFileChanges(entry.changes, entry.count)}
+                />
+              );
+            }
+
+            if (entry.type === "search_group") {
+              const previewRows = entry.searches.slice(0, 3).map((search) => ({
+                id: search.id,
+                prefix: "Query",
+                text: search.query
+              }));
+
+              return (
+                <SummaryCard
+                  key={entry.id}
+                  tone="search"
+                  title={formatSearchGroupTitle(entry.searches.length)}
+                  rows={previewRows}
+                  extraCount={Math.max(0, entry.searches.length - previewRows.length)}
+                  onClick={() => onOpenSearches(entry.searches)}
                 />
               );
             }
@@ -1534,6 +1648,7 @@ export function ChatPane({
             onJumpToLatest={() => scrollTimelineToBottom()}
             onOpenCommands={(commands) => setSheetState({ type: "command_list", commands })}
             onOpenFileChanges={(changes, count) => setSheetState({ type: "file_list", changes, count })}
+            onOpenSearches={(searches) => setSheetState({ type: "search_list", searches })}
             onOpenImageViewer={(attachments, selectedIndex) => setImageViewerState({ attachments, selectedIndex })}
           />
 
@@ -1655,6 +1770,10 @@ export function ChatPane({
           count={sheetState.count}
           onClose={() => setSheetState(null)}
         />
+      ) : null}
+
+      {sheetState?.type === "search_list" ? (
+        <SearchListSheet searches={sheetState.searches} onClose={() => setSheetState(null)} />
       ) : null}
 
       {imageViewerState ? (

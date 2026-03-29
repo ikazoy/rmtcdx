@@ -1421,6 +1421,10 @@ button {
   border-color: rgba(164, 211, 173, 0.1);
 }
 
+.summary-card--search {
+  border-color: rgba(99, 163, 208, 0.1);
+}
+
 .summary-card__head {
   display: flex;
   align-items: center;
@@ -1484,6 +1488,11 @@ button {
 .summary-card__icon--file {
   background: rgba(164, 211, 173, 0.14);
   color: #b9dfc0;
+}
+
+.summary-card__icon--search {
+  background: rgba(99, 163, 208, 0.14);
+  color: #9fd3f4;
 }
 
 .summary-card__row-copy {
@@ -2233,6 +2242,11 @@ button {
 .sheet-row__icon--file {
   background: rgba(164, 211, 173, 0.14);
   color: #b9dfc0;
+}
+
+.sheet-row__icon--search {
+  background: rgba(99, 163, 208, 0.14);
+  color: #9fd3f4;
 }
 
 .sheet-row__copy {

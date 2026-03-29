@@ -84,6 +84,10 @@ export type MessageMetadata =
   | {
       type: "file_change";
       changes: FileChangeEntry[];
+    }
+  | {
+      type: "web_search";
+      query: string;
     };
 
 export type FileChangeEntry = {
