@@ -433,6 +433,7 @@ export function App() {
             repos={repos}
             selectedRepoId={selectedRepoId}
             sessions={sessions}
+            isLoadingSessions={sessionsQuery.isLoading}
             selectedSessionId={selectedSessionId}
             search={search}
             filter={filter}
@@ -486,6 +487,7 @@ export function App() {
           <ChatPane
             detail={detail}
             isLoadingDetail={!isDraftSession && Boolean(selectedSessionId) && sessionDetailQuery.isLoading}
+            isLoadingMessages={!isDraftSession && Boolean(selectedSessionId) && messagesQuery.isLoading}
             messages={messages}
             streamingText={streamingText}
             liveActivities={liveActivities}

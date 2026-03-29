@@ -8,6 +8,7 @@ type Props = {
   repos: Repository[];
   selectedRepoId: string | null;
   sessions: SessionSummary[];
+  isLoadingSessions: boolean;
   selectedSessionId: string | null;
   search: string;
   filter: SessionFilter;
@@ -79,6 +80,7 @@ export function SidebarPane({
   repos,
   selectedRepoId,
   sessions,
+  isLoadingSessions,
   selectedSessionId,
   search,
   filter,
@@ -299,7 +301,11 @@ export function SidebarPane({
         </div>
 
         <div className="sidebar-scroll">
-          {repoGroups.length === 0 && singleRepoSessions.length === 0 ? (
+          {isLoadingSessions ? (
+            <SidebarSkeleton />
+          ) : null}
+
+          {!isLoadingSessions && repoGroups.length === 0 && singleRepoSessions.length === 0 ? (
             <div className="empty-state empty-state--sidebar">
               <strong>{search || filter !== "all" ? "No matching sessions" : "No sessions yet"}</strong>
               <p>
@@ -373,6 +379,26 @@ export function SidebarPane({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SidebarSkeleton() {
+  return (
+    <div className="repo-group__list sidebar-skeleton" aria-hidden="true">
+      {Array.from({ length: 5 }, (_, index) => (
+        <div key={index} className="session-row session-row--sidebar sidebar-skeleton__row">
+          <div className="session-row__head">
+            <div className="session-row__titleline sidebar-skeleton__titleline">
+              <span className="skeleton sidebar-skeleton__dot" />
+              <div className="skeleton skeleton--title sidebar-skeleton__title" />
+            </div>
+            <div className="skeleton skeleton--subtitle sidebar-skeleton__time" />
+          </div>
+          <div className="skeleton skeleton--subtitle sidebar-skeleton__preview" />
+          <div className="skeleton skeleton--subtitle sidebar-skeleton__meta" />
+        </div>
+      ))}
     </div>
   );
 }

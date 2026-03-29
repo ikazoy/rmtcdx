@@ -59,6 +59,7 @@ type ImageViewerState =
 type Props = {
   detail: SessionDetail | null | undefined;
   isLoadingDetail: boolean;
+  isLoadingMessages: boolean;
   messages: Message[];
   streamingText: string;
   liveActivities: LiveActivity[];
@@ -820,6 +821,7 @@ function FileChangeSheet({
 
 const ConversationTimeline = memo(function ConversationTimeline({
   messages,
+  isLoadingMessages,
   streamingText,
   liveActivities,
   optimisticMessage,
@@ -830,6 +832,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onOpenImageViewer
 }: {
   messages: Message[];
+  isLoadingMessages: boolean;
   streamingText: string;
   liveActivities: LiveActivity[];
   optimisticMessage?: OptimisticUserMessage | null;
@@ -843,6 +846,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const hasConfirmedOptimistic =
     Boolean(optimisticMessage) &&
     messages.some((message) => optimisticMessage ? messageMatchesOptimistic(message, optimisticMessage) : false);
+  const showTimelineSkeleton =
+    isLoadingMessages && messages.length === 0 && !streamingText && !optimisticMessage && !showPendingAssistant;
+  const showEmptyState =
+    !showTimelineSkeleton && messages.length === 0 && !streamingText && !optimisticMessage && !showPendingAssistant;
 
   return (
     <div ref={timelineRef} className="timeline-wrap">
@@ -939,7 +946,15 @@ const ConversationTimeline = memo(function ConversationTimeline({
           </article>
         ) : null}
 
-        {messages.length === 0 && !streamingText && !optimisticMessage && !showPendingAssistant ? (
+        {showTimelineSkeleton ? (
+          <>
+            <div className="skeleton skeleton--message skeleton--message-wide" />
+            <div className="skeleton skeleton--message" />
+            <div className="skeleton skeleton--message skeleton--message-wide" />
+          </>
+        ) : null}
+
+        {showEmptyState ? (
           <div className="empty-state empty-state--chat">
             <strong>No conversation yet</strong>
             <p>Start with a prompt and keep the session around for later follow-up work.</p>
@@ -973,6 +988,7 @@ function ChatSkeletonContent() {
 export function ChatPane({
   detail,
   isLoadingDetail,
+  isLoadingMessages,
   messages,
   streamingText,
   liveActivities,
@@ -1378,6 +1394,7 @@ export function ChatPane({
 
           <ConversationTimeline
             messages={messages}
+            isLoadingMessages={isLoadingMessages}
             streamingText={streamingText}
             liveActivities={liveActivities}
             optimisticMessage={optimisticMessage}

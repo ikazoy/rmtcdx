@@ -807,6 +807,48 @@ button {
   padding-left: 0;
 }
 
+.sidebar-skeleton {
+  gap: 0;
+}
+
+.sidebar-skeleton__row {
+  display: grid;
+  gap: 0.48rem;
+  pointer-events: none;
+}
+
+.sidebar-skeleton__titleline {
+  flex: 1;
+}
+
+.sidebar-skeleton__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.sidebar-skeleton__title {
+  width: 58%;
+  height: 0.9rem;
+  margin-bottom: 0;
+}
+
+.sidebar-skeleton__time {
+  width: 3.6rem;
+  height: 0.72rem;
+}
+
+.sidebar-skeleton__preview {
+  width: 82%;
+  height: 0.78rem;
+}
+
+.sidebar-skeleton__meta {
+  width: 38%;
+  height: 0.72rem;
+}
+
 .session-row {
   width: 100%;
   padding: 0.78rem 0.82rem;
