@@ -10,7 +10,7 @@ import type {
   MessageAttachment,
   SessionDetail
 } from "../../../../../packages/shared-types/src/index";
-import { formatClock, formatRelativeTime } from "../../components/formatters";
+import { formatRelativeTime } from "../../components/formatters";
 
 const MAX_IMAGE_ATTACHMENTS = 5;
 
@@ -390,7 +390,6 @@ function ImageIcon() {
 type SummaryCardProps = {
   tone: "command" | "file";
   title: string;
-  createdAt: string;
   rows: Array<{
     id: string;
     prefix: string;
@@ -404,7 +403,6 @@ type SummaryCardProps = {
 const SummaryCard = memo(function SummaryCard({
   tone,
   title,
-  createdAt,
   rows,
   extraCount,
   onClick
@@ -417,7 +415,6 @@ const SummaryCard = memo(function SummaryCard({
             <strong>{title}</strong>
             <span className="summary-card__chevron">›</span>
           </div>
-          <time>{formatClock(createdAt)}</time>
         </header>
         <div className="summary-card__list">
           {rows.map((row) => (
@@ -673,7 +670,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 key={entry.id}
                 tone="command"
                 title={formatCommandGroupTitle(entry.commands.length)}
-                createdAt={entry.createdAt}
                 rows={previewRows}
                 extraCount={Math.max(0, entry.commands.length - previewRows.length)}
                 onClick={() => onOpenCommands(entry.commands)}
@@ -694,7 +690,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 key={entry.id}
                 tone="file"
                 title={formatFileGroupTitle(entry.count)}
-                createdAt={entry.createdAt}
                 rows={previewRows}
                 extraCount={Math.max(0, entry.count - previewRows.length)}
                 onClick={() => onOpenFileChanges(entry.changes, entry.count)}
@@ -716,9 +711,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 ].join(" ")}
                 data-kind={message.kind}
               >
-                <header className="message-meta message-meta--time-only">
-                  <time>{formatClock(message.createdAt)}</time>
-                </header>
                 {message.attachments?.length ? <MessageAttachments attachments={message.attachments} /> : null}
                 {message.text ? <MessageBody text={message.text} /> : null}
               </div>
@@ -729,9 +721,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
         {optimisticMessage && !hasConfirmedOptimistic ? (
           <article className="message-row message-row--user">
             <div className="message-card message-card--user">
-              <header className="message-meta message-meta--time-only">
-                <span>just now</span>
-              </header>
               {optimisticMessage.attachments.length ? (
                 <MessageAttachments attachments={optimisticMessage.attachments} />
               ) : null}
@@ -743,9 +732,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
         {streamingText ? (
           <article className="message-row message-row--assistant">
             <div className="message-card message-card--assistant message-card--thinking message-card--streaming">
-              <header className="message-meta message-meta--time-only">
-                <span>live</span>
-              </header>
               <MessageBody text={streamingText} />
             </div>
           </article>
@@ -754,9 +740,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
         {!streamingText && showPendingAssistant ? (
           <article className="message-row message-row--assistant">
             <div className="message-card message-card--assistant message-card--thinking message-card--pending">
-              <header className="message-meta message-meta--time-only">
-                <span>now</span>
-              </header>
               <p className="thinking-text">Thinking...</p>
             </div>
           </article>
@@ -1251,14 +1234,11 @@ export function ChatPane({
                   </button>
                 )}
               </div>
-              <div className="composer-meta">
-                <span>
-                  {selectedImages.length > 0
-                    ? `${selectedImages.length} / ${MAX_IMAGE_ATTACHMENTS} images attached`
-                    : `Attach up to ${MAX_IMAGE_ATTACHMENTS} screenshots or diagrams`}
-                </span>
-                <span>⌘/Ctrl+Enter to send · Shift+Enter for newline</span>
-              </div>
+              {selectedImages.length > 0 ? (
+                <div className="composer-meta">
+                  <span>{selectedImages.length} / {MAX_IMAGE_ATTACHMENTS} images attached</span>
+                </div>
+              ) : null}
               {submitError ? <p className="composer-error">{submitError}</p> : null}
             </div>
           </div>
