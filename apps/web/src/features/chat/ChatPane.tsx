@@ -119,6 +119,18 @@ const MessageBody = memo(function MessageBody({ text }: { text: string }) {
   );
 });
 
+function CollapsibleBody({ text, label }: { text: string; label: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="collapsible-body" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary className="collapsible-body__toggle">
+        {open ? "Hide" : "Show"} {label} output
+      </summary>
+      <MessageBody text={text} />
+    </details>
+  );
+}
+
 const MessageAttachments = memo(function MessageAttachments({
   attachments
 }: {
@@ -231,7 +243,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 <time>{formatClock(message.createdAt)}</time>
               </header>
               {message.attachments?.length ? <MessageAttachments attachments={message.attachments} /> : null}
-              {message.text ? <MessageBody text={message.text} /> : null}
+              {message.text ? (
+                message.kind === "command_execution" ? (
+                  <CollapsibleBody text={message.text} label="terminal" />
+                ) : (
+                  <MessageBody text={message.text} />
+                )
+              ) : null}
             </div>
           </article>
           );
@@ -345,9 +363,10 @@ export function ChatPane({
 
   const activeRunState = detail?.activeRun?.status ?? null;
   const latestRunState = detail?.latestRun?.status ?? null;
-  const bannerRunState = activeRunState ?? (latestRunState === "error" ? "error" : null);
+  const sessionIsRunning = activeRunState === "running" || detail?.session.status === "running";
+  const bannerRunState = activeRunState ?? (sessionIsRunning ? "running" : null) ?? (latestRunState === "error" ? "error" : null);
   const showPendingAssistant =
-    !streamingText && (Boolean(optimisticMessage) || activeRunState === "running" || isSubmitting);
+    !streamingText && (Boolean(optimisticMessage) || sessionIsRunning || isSubmitting);
 
   useEffect(() => {
     selectedImagesRef.current = selectedImages;
@@ -518,7 +537,14 @@ export function ChatPane({
         </div>
         {detail ? (
           <div className="chat-toolbar__meta">
-            <span>{repoName}</span>
+            <span
+              className={[
+                "status-badge",
+                `status-badge--${bannerRunState ?? detail.session.status ?? "idle"}`
+              ].join(" ")}
+            >
+              {detail.session.status ?? "idle"}
+            </span>
           </div>
         ) : null}
       </div>
@@ -527,7 +553,15 @@ export function ChatPane({
         <>
           <div className="chat-head">
             <div>
-              <h2>{detail.session.title}</h2>
+              <h2>
+                <span
+                  className={[
+                    "status-dot",
+                    `status-dot--${bannerRunState ?? detail.session.status ?? "idle"}`
+                  ].join(" ")}
+                />
+                {detail.session.title}
+              </h2>
               <p className="subtle">
                 Updated {formatRelativeTime(detail.session.updatedAt)} · {repoName ?? "unknown workspace"}
               </p>
@@ -539,23 +573,16 @@ export function ChatPane({
             ) : null}
           </div>
 
-          {bannerRunState ? (
-            <div className={`run-banner run-banner--${bannerRunState}`}>
+          {bannerRunState === "error" ? (
+            <div className="run-banner run-banner--error">
               <div>
-                <strong>{bannerRunState === "running" ? "Run in progress" : "Run error"}</strong>
+                <strong>Run error</strong>
                 <p>
-                  {bannerRunState === "running"
-                    ? "Codex is still working on the current turn."
-                    : detail.latestRun?.finishedAt
-                      ? `Last run failed ${formatRelativeTime(detail.latestRun.finishedAt)}`
-                      : "The latest run failed."}
+                  {detail.latestRun?.finishedAt
+                    ? `Last run failed ${formatRelativeTime(detail.latestRun.finishedAt)}`
+                    : "The latest run failed."}
                 </p>
               </div>
-              {detail.activeRun ? (
-                <button className="ghost-button" onClick={() => void onInterrupt()} type="button">
-                  {isInterrupting ? "Stopping..." : "Interrupt"}
-                </button>
-              ) : null}
             </div>
           ) : null}
 
@@ -612,15 +639,27 @@ export function ChatPane({
                   onInput={autoResize}
                   rows={1}
                 />
-                <button
-                  className="composer-send"
-                  disabled={isSubmitting}
-                  onClick={() => void handleSubmit()}
-                  type="button"
-                  aria-label="Send"
-                >
-                  {isSubmitting ? "..." : "↑"}
-                </button>
+                {sessionIsRunning ? (
+                  <button
+                    className="composer-send composer-send--stop"
+                    disabled={isInterrupting}
+                    onClick={() => void onInterrupt()}
+                    type="button"
+                    aria-label="Stop"
+                  >
+                    {isInterrupting ? "..." : "■"}
+                  </button>
+                ) : (
+                  <button
+                    className="composer-send"
+                    disabled={isSubmitting}
+                    onClick={() => void handleSubmit()}
+                    type="button"
+                    aria-label="Send"
+                  >
+                    {isSubmitting ? "..." : "↑"}
+                  </button>
+                )}
               </div>
               <div className="composer-meta">
                 <span>
