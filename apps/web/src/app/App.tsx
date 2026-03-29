@@ -427,7 +427,7 @@ export function App() {
     <div className={`app-shell ${isResizingSidebar ? "is-resizing" : ""}`}>
       {backendBanner ? <div className="banner">{backendBanner}</div> : null}
 
-      <main className="workspace-shell" data-sidebar-hidden={!sidebarVisible} style={workspaceStyle}>
+      <main className="workspace-shell" data-sidebar-collapsed={!sidebarVisible} style={workspaceStyle}>
         <aside className="workspace-shell__sidebar" data-mobile-visible={mobilePane !== "chat"}>
           <SidebarPane
             repos={repos}
@@ -442,6 +442,7 @@ export function App() {
             onFilterChange={setFilter}
             onSelectRepo={selectRepo}
             onSelectSession={selectSession}
+            onToggleSidebar={toggleSidebarVisible}
             onHoverSession={(sessionId: string) => {
               void queryClient.prefetchQuery({
                 queryKey: queryKeys.session(sessionId),
@@ -467,17 +468,19 @@ export function App() {
           />
         </aside>
 
-        <div
-          className="workspace-shell__resizer"
-          onPointerDown={startSidebarResize}
-          role="separator"
-          aria-label="Resize sidebar"
-          aria-orientation="vertical"
-          aria-valuemin={280}
-          aria-valuemax={520}
-          aria-valuenow={sidebarWidth}
-          tabIndex={-1}
-        />
+        {sidebarVisible ? (
+          <div
+            className="workspace-shell__resizer"
+            onPointerDown={startSidebarResize}
+            role="separator"
+            aria-label="Resize sidebar"
+            aria-orientation="vertical"
+            aria-valuemin={280}
+            aria-valuemax={520}
+            aria-valuenow={sidebarWidth}
+            tabIndex={-1}
+          />
+        ) : null}
 
         <section className="workspace-shell__chat" data-mobile-visible={mobilePane === "chat"}>
           <ChatPane
@@ -491,7 +494,6 @@ export function App() {
             backendMode={healthQuery.data?.codex.mode}
             repoName={activeRepoName}
             onBack={() => setMobilePane("sidebar")}
-            onToggleSidebar={toggleSidebarVisible}
             onSubmit={async ({ prompt, files }) => {
               if (!selectedSessionId) {
                 return;

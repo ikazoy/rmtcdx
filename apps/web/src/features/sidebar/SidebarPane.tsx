@@ -19,6 +19,7 @@ type Props = {
   onFilterChange: (value: SessionFilter) => void;
   onSelectRepo: (repoId: string | null) => void;
   onSelectSession: (sessionId: string) => void;
+  onToggleSidebar: () => void;
   onHoverSession: (sessionId: string) => void;
   onCreateSession: () => void;
 };
@@ -87,6 +88,7 @@ export function SidebarPane({
   onFilterChange,
   onSelectRepo,
   onSelectSession,
+  onToggleSidebar,
   onHoverSession,
   onCreateSession
 }: Props) {
@@ -132,6 +134,11 @@ export function SidebarPane({
     setIsFilterMenuOpen(false);
   }
 
+  function handleToggleSidebar() {
+    closeFilterMenu();
+    onToggleSidebar();
+  }
+
   useEffect(() => {
     if (!isFilterMenuOpen) {
       return;
@@ -159,183 +166,239 @@ export function SidebarPane({
   }, [isFilterMenuOpen]);
 
   return (
-    <div className="sidebar-card">
-      <div className="sidebar-brand">
-        <div className="sidebar-brand__copy">
-          <h1>Threads</h1>
-          <p className="sidebar-toolbar__summary">{activeSummary}</p>
-        </div>
+    <div className="sidebar-shell">
+      <div className="sidebar-rail">
+        <button
+          className="sidebar-toggle sidebar-toggle--rail"
+          onClick={handleToggleSidebar}
+          type="button"
+          aria-label="Open sidebar"
+          title="Open sidebar"
+        >
+          <SidebarToggleIcon collapsed />
+        </button>
+      </div>
 
-        <div ref={filterMenuRef} className="sidebar-menu">
-          <button
-            className="sidebar-menu__trigger"
-            onClick={() => setIsFilterMenuOpen((current) => !current)}
-            type="button"
-            aria-expanded={isFilterMenuOpen}
-            aria-label="Open filters"
-          >
-            <span className="sr-only">Open filters</span>
-            <svg
-              className="sidebar-menu__trigger-icon"
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path d="M4 7H14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              <path d="M10 17H20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              <circle cx="17" cy="7" r="2.2" stroke="currentColor" strokeWidth="1.8" />
-              <circle cx="7" cy="17" r="2.2" stroke="currentColor" strokeWidth="1.8" />
-            </svg>
-          </button>
+      <div className="sidebar-card">
+        <div className="sidebar-brand">
+          <div className="sidebar-brand__lead">
+            <div className="sidebar-brand__copy">
+              <h1>Threads</h1>
+              <p className="sidebar-toolbar__summary">{activeSummary}</p>
+            </div>
+          </div>
 
-          {isFilterMenuOpen ? (
-            <div className="sidebar-menu__popover">
-              <section className="sidebar-menu__section">
-                <span className="sidebar-menu__section-title">State</span>
-                <div className="sidebar-menu__list">
-                  {SESSION_FILTERS.map((candidate) => {
-                    const isActive = candidate === filter;
-                    return (
-                      <button
-                        key={candidate}
-                        className={`sidebar-menu__item ${isActive ? "is-active" : ""}`}
-                        onClick={() => {
-                          onFilterChange(candidate);
+          <div className="sidebar-brand__actions">
+            <div ref={filterMenuRef} className="sidebar-menu">
+              <button
+                className="sidebar-menu__trigger"
+                onClick={() => setIsFilterMenuOpen((current) => !current)}
+                type="button"
+                aria-expanded={isFilterMenuOpen}
+                aria-label="Open filters"
+              >
+                <span className="sr-only">Open filters</span>
+                <svg
+                  className="sidebar-menu__trigger-icon"
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path d="M4 7H14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  <path d="M10 17H20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  <circle cx="17" cy="7" r="2.2" stroke="currentColor" strokeWidth="1.8" />
+                  <circle cx="7" cy="17" r="2.2" stroke="currentColor" strokeWidth="1.8" />
+                </svg>
+              </button>
+
+              {isFilterMenuOpen ? (
+                <div className="sidebar-menu__popover">
+                  <section className="sidebar-menu__section">
+                    <span className="sidebar-menu__section-title">State</span>
+                    <div className="sidebar-menu__list">
+                      {SESSION_FILTERS.map((candidate) => {
+                        const isActive = candidate === filter;
+                        return (
+                          <button
+                            key={candidate}
+                            className={`sidebar-menu__item ${isActive ? "is-active" : ""}`}
+                            onClick={() => {
+                              onFilterChange(candidate);
+                              closeFilterMenu();
+                            }}
+                            type="button"
+                          >
+                            <span>{filterLabel(candidate)}</span>
+                            <span
+                              className={`sidebar-menu__check ${isActive ? "is-visible" : ""}`}
+                              aria-hidden="true"
+                            />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  <section className="sidebar-menu__section">
+                    <label className="workspace-picker">
+                      <span>Workspace</span>
+                      <select
+                        value={selectedRepoId ?? ""}
+                        onChange={(event) => {
+                          onSelectRepo(event.target.value || null);
                           closeFilterMenu();
                         }}
-                        type="button"
                       >
-                        <span>{filterLabel(candidate)}</span>
-                        <span className={`sidebar-menu__check ${isActive ? "is-visible" : ""}`} aria-hidden="true" />
-                      </button>
-                    );
-                  })}
+                        <option value="">All projects</option>
+                        {orderedRepos.map((repo) => (
+                          <option key={repo.id} value={repo.id}>
+                            {formatRepoLabel(repo)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </section>
+
+                  <section className="sidebar-menu__section">
+                    <label className="search-field search-field--sidebar">
+                      <span>Search threads</span>
+                      <div className="search-field__wrapper">
+                        <input
+                          placeholder="Search..."
+                          value={search}
+                          onChange={(event) => onSearchChange(event.target.value)}
+                        />
+                        {search ? (
+                          <button
+                            className="search-field__clear"
+                            onClick={() => onSearchChange("")}
+                            type="button"
+                            aria-label="Clear search"
+                          >
+                            ×
+                          </button>
+                        ) : null}
+                      </div>
+                    </label>
+                  </section>
                 </div>
-              </section>
+              ) : null}
+            </div>
 
-              <section className="sidebar-menu__section">
-                <label className="workspace-picker">
-                  <span>Workspace</span>
-                  <select
-                    value={selectedRepoId ?? ""}
-                    onChange={(event) => {
-                      onSelectRepo(event.target.value || null);
-                      closeFilterMenu();
-                    }}
-                  >
-                    <option value="">All projects</option>
-                    {orderedRepos.map((repo) => (
-                      <option key={repo.id} value={repo.id}>
-                        {formatRepoLabel(repo)}
-                      </option>
+            <button
+              className="sidebar-toggle"
+              onClick={handleToggleSidebar}
+              type="button"
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+            >
+              <SidebarToggleIcon />
+            </button>
+          </div>
+        </div>
+
+        <div className="sidebar-scroll">
+          {repoGroups.length === 0 && singleRepoSessions.length === 0 ? (
+            <div className="empty-state empty-state--sidebar">
+              <strong>{search || filter !== "all" ? "No matching sessions" : "No sessions yet"}</strong>
+              <p>
+                {search || filter !== "all"
+                  ? "Try a different search term or filter."
+                  : selectedRepo
+                    ? "Create a session and start a run."
+                    : "Pick a project to start a new thread."}
+              </p>
+            </div>
+          ) : null}
+
+          {/* All projects: group by repo */}
+          {repoGroups.map((group) => {
+            const isCollapsed = collapsedRepos.has(group.repoName);
+            return (
+              <section key={group.repoName} className="repo-group">
+                <button
+                  className="repo-group__header"
+                  onClick={() => toggleRepoCollapsed(group.repoName)}
+                  type="button"
+                >
+                  <span className={`repo-group__chevron ${isCollapsed ? "is-collapsed" : ""}`}>▾</span>
+                  <span className="repo-group__name">{group.repoName}</span>
+                  <span className="repo-group__count">{group.sessions.length}</span>
+                </button>
+                {!isCollapsed ? (
+                  <div className="repo-group__list">
+                    {group.sessions.map((session) => (
+                      <SessionRow
+                        key={session.id}
+                        session={session}
+                        isActive={selectedSessionId === session.id}
+                        onSelect={onSelectSession}
+                        onHover={onHoverSession}
+                        showRepo={false}
+                      />
                     ))}
-                  </select>
-                </label>
-              </section>
-
-              <section className="sidebar-menu__section">
-                <label className="search-field search-field--sidebar">
-                  <span>Search threads</span>
-                  <div className="search-field__wrapper">
-                    <input
-                      placeholder="Search..."
-                      value={search}
-                      onChange={(event) => onSearchChange(event.target.value)}
-                    />
-                    {search ? (
-                      <button
-                        className="search-field__clear"
-                        onClick={() => onSearchChange("")}
-                        type="button"
-                        aria-label="Clear search"
-                      >
-                        ×
-                      </button>
-                    ) : null}
                   </div>
-                </label>
+                ) : null}
               </section>
+            );
+          })}
+
+          {/* Single repo selected: flat list */}
+          {singleRepoSessions.length > 0 ? (
+            <div className="repo-group__list">
+              {singleRepoSessions.map((session) => (
+                <SessionRow
+                  key={session.id}
+                  session={session}
+                  isActive={selectedSessionId === session.id}
+                  onSelect={onSelectSession}
+                  onHover={onHoverSession}
+                  showRepo={false}
+                />
+              ))}
             </div>
           ) : null}
         </div>
-      </div>
 
-      <div className="sidebar-scroll">
-        {repoGroups.length === 0 && singleRepoSessions.length === 0 ? (
-          <div className="empty-state empty-state--sidebar">
-            <strong>{search || filter !== "all" ? "No matching sessions" : "No sessions yet"}</strong>
-            <p>
-              {search || filter !== "all"
-                ? "Try a different search term or filter."
-                : selectedRepo
-                  ? "Create a session and start a run."
-                  : "Pick a project to start a new thread."}
-            </p>
-          </div>
-        ) : null}
-
-        {/* All projects: group by repo */}
-        {repoGroups.map((group) => {
-          const isCollapsed = collapsedRepos.has(group.repoName);
-          return (
-            <section key={group.repoName} className="repo-group">
-              <button
-                className="repo-group__header"
-                onClick={() => toggleRepoCollapsed(group.repoName)}
-                type="button"
-              >
-                <span className={`repo-group__chevron ${isCollapsed ? "is-collapsed" : ""}`}>▾</span>
-                <span className="repo-group__name">{group.repoName}</span>
-                <span className="repo-group__count">{group.sessions.length}</span>
-              </button>
-              {!isCollapsed ? (
-                <div className="repo-group__list">
-                  {group.sessions.map((session) => (
-                    <SessionRow
-                      key={session.id}
-                      session={session}
-                      isActive={selectedSessionId === session.id}
-                      onSelect={onSelectSession}
-                      onHover={onHoverSession}
-                      showRepo={false}
-                    />
-                  ))}
-                </div>
-              ) : null}
-            </section>
-          );
-        })}
-
-        {/* Single repo selected: flat list */}
-        {singleRepoSessions.length > 0 ? (
-          <div className="repo-group__list">
-            {singleRepoSessions.map((session) => (
-              <SessionRow
-                key={session.id}
-                session={session}
-                isActive={selectedSessionId === session.id}
-                onSelect={onSelectSession}
-                onHover={onHoverSession}
-                showRepo={false}
-              />
-            ))}
-          </div>
-        ) : null}
-      </div>
-
-      <div className="sidebar-footer">
-        <button
-          className="sidebar-fab"
-          disabled={!canCreateSession || isCreatingSession}
-          onClick={onCreateSession}
-          type="button"
-          title={canCreateSession ? "Create a new session" : "No workspace available"}
-        >
-          {isCreatingSession ? "Creating..." : "+ New session"}
-        </button>
+        <div className="sidebar-footer">
+          <button
+            className="sidebar-fab"
+            disabled={!canCreateSession || isCreatingSession}
+            onClick={onCreateSession}
+            type="button"
+            title={canCreateSession ? "Create a new session" : "No workspace available"}
+          >
+            {isCreatingSession ? "Creating..." : "+ New session"}
+          </button>
+        </div>
       </div>
     </div>
+  );
+}
+
+function SidebarToggleIcon({ collapsed = false }: { collapsed?: boolean }) {
+  return (
+    <svg
+      className="sidebar-toggle__icon"
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M5 4.25V15.75" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      {collapsed ? (
+        <path d="M8 6.5L11.75 10L8 13.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      ) : (
+        <path
+          d="M12 6.5L8.25 10L12 13.5"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+    </svg>
   );
 }
 

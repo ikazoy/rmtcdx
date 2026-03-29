@@ -67,7 +67,6 @@ type Props = {
   backendMode: "real" | "mock" | undefined;
   repoName?: string;
   onBack: () => void;
-  onToggleSidebar: () => void;
   onSubmit: (payload: { prompt: string; files: File[] }) => Promise<void>;
   onInterrupt: () => Promise<void>;
   onRename: () => Promise<void>;
@@ -292,12 +291,12 @@ function fileChangeVerb(change: FileChangeEntry) {
 
 const MessageBody = memo(function MessageBody({
   text,
-  streaming = false
+  repairIncompleteMarkdown = false
 }: {
   text: string;
-  streaming?: boolean;
+  repairIncompleteMarkdown?: boolean;
 }) {
-  const markdown = streaming ? remend(text, { linkMode: "text-only" }) : text;
+  const markdown = repairIncompleteMarkdown ? remend(text, { linkMode: "text-only" }) : text;
 
   return (
     <div className="message-markdown">
@@ -907,7 +906,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 {message.attachments?.length ? (
                   <MessageAttachments attachments={message.attachments} onOpen={onOpenImageViewer} />
                 ) : null}
-                {message.text ? <MessageBody text={message.text} /> : null}
+                {message.text ? <MessageBody text={message.text} repairIncompleteMarkdown={message.role !== "user"} /> : null}
               </div>
             </article>
           );
@@ -927,7 +926,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
         {streamingText ? (
           <article className="message-row message-row--assistant">
             <div className="message-card message-card--assistant message-card--thinking message-card--streaming">
-              <MessageBody text={streamingText} streaming />
+              <MessageBody text={streamingText} repairIncompleteMarkdown />
             </div>
           </article>
         ) : null}
@@ -982,7 +981,6 @@ export function ChatPane({
   backendMode,
   repoName,
   onBack,
-  onToggleSidebar,
   onSubmit,
   onInterrupt,
   onRename,
@@ -1297,14 +1295,6 @@ export function ChatPane({
                 >
                   <SheetBackIcon />
                 </button>
-                <button
-                  className="ghost-button ghost-button--toggle"
-                  onClick={onToggleSidebar}
-                  type="button"
-                  aria-label="Toggle sidebar"
-                >
-                  ☰
-                </button>
               </div>
               <div className="chat-head__copy">
                 <h2>
@@ -1426,44 +1416,48 @@ export function ChatPane({
                 </div>
               ) : null}
               <div className="composer-input-row">
-                <button
-                  className="composer-attach"
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  aria-label="Attach images"
-                  disabled={isSubmitting || selectedImages.length >= MAX_IMAGE_ATTACHMENTS}
-                >
-                  <span className="sr-only">Attach images</span>
-                  <ImageIcon />
-                </button>
-                <textarea
-                  ref={composerRef}
-                  placeholder="Describe a task or ask a question..."
-                  onKeyDown={handleComposerKeyDown}
-                  onInput={autoResize}
-                  rows={1}
-                />
-                {sessionIsRunning ? (
-                  <button
-                    className="composer-send composer-send--stop"
-                    disabled={isInterrupting}
-                    onClick={() => void onInterrupt()}
-                    type="button"
-                    aria-label="Stop"
-                  >
-                    {isInterrupting ? "..." : "■"}
-                  </button>
-                ) : (
-                  <button
-                    className="composer-send"
-                    disabled={isSubmitting}
-                    onClick={() => void handleSubmit()}
-                    type="button"
-                    aria-label="Send"
-                  >
-                    {isSubmitting ? "..." : "↑"}
-                  </button>
-                )}
+                <div className="composer-field">
+                  <textarea
+                    ref={composerRef}
+                    placeholder="Describe a task or ask a question..."
+                    onKeyDown={handleComposerKeyDown}
+                    onInput={autoResize}
+                    rows={1}
+                  />
+                  <div className="composer-actions">
+                    <button
+                      className="composer-attach"
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      aria-label="Attach images"
+                      disabled={isSubmitting || selectedImages.length >= MAX_IMAGE_ATTACHMENTS}
+                    >
+                      <span className="sr-only">Attach images</span>
+                      <ImageIcon />
+                    </button>
+                    {sessionIsRunning ? (
+                      <button
+                        className="composer-send composer-send--stop"
+                        disabled={isInterrupting}
+                        onClick={() => void onInterrupt()}
+                        type="button"
+                        aria-label="Stop"
+                      >
+                        {isInterrupting ? "..." : "■"}
+                      </button>
+                    ) : (
+                      <button
+                        className="composer-send"
+                        disabled={isSubmitting}
+                        onClick={() => void handleSubmit()}
+                        type="button"
+                        aria-label="Send"
+                      >
+                        {isSubmitting ? "..." : "↑"}
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
               {selectedImages.length > 0 ? (
                 <div className="composer-meta">
