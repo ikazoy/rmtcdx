@@ -1,4 +1,4 @@
-import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -200,19 +200,19 @@ export function App() {
           ? { repoId: selectedRepoId!, prompt, attachments }
           : { sessionId: selectedSessionId!, prompt, attachments }
       ),
-    onSuccess: async (data, variables) => {
+    onSuccess: (data, variables) => {
       setOptimisticMessage((current) =>
         current && current.sessionId === variables.clientSessionId
           ? { ...current, sessionId: data.run.sessionId }
           : current
       );
-      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.session(data.run.sessionId) });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.messages(data.run.sessionId) });
-      startTransition(() => {
-        setSelectedSessionId(data.run.sessionId);
-        setMobilePane("chat");
-      });
+      setSelectedSessionId(data.run.sessionId);
+      setMobilePane("chat");
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.session(data.run.sessionId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.messages(data.run.sessionId) })
+      ]);
     },
     onError: () => {
       setOptimisticMessage((current) => {
@@ -286,18 +286,14 @@ export function App() {
   }, [messages, optimisticMessageForSession]);
 
   const selectRepo = (repoId: string | null) => {
-    startTransition(() => {
-      setSelectedRepoId(repoId);
-      setSelectedSessionId(null);
-      setMobilePane("sidebar");
-    });
+    setSelectedRepoId(repoId);
+    setSelectedSessionId(null);
+    setMobilePane("sidebar");
   };
 
   const selectSession = (sessionId: string) => {
-    startTransition(() => {
-      setSelectedSessionId(sessionId);
-      setMobilePane("chat");
-    });
+    setSelectedSessionId(sessionId);
+    setMobilePane("chat");
   };
 
   const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -347,15 +343,25 @@ export function App() {
             onFilterChange={setFilter}
             onSelectRepo={selectRepo}
             onSelectSession={selectSession}
+            onHoverSession={(sessionId: string) => {
+              void queryClient.prefetchQuery({
+                queryKey: queryKeys.session(sessionId),
+                queryFn: () => api.session(sessionId),
+                staleTime: 30_000
+              });
+              void queryClient.prefetchQuery({
+                queryKey: queryKeys.messages(sessionId),
+                queryFn: () => api.messages(sessionId),
+                staleTime: 30_000
+              });
+            }}
             isCreatingSession={false}
             onCreateSession={() => {
               if (!selectedRepoId) {
                 return;
               }
-              startTransition(() => {
-                setSelectedSessionId(`draft:${selectedRepoId}:${Date.now()}`);
-                setMobilePane("chat");
-              });
+              setSelectedSessionId(`draft:${selectedRepoId}:${Date.now()}`);
+              setMobilePane("chat");
             }}
           />
         </aside>
@@ -375,6 +381,7 @@ export function App() {
         <section className="workspace-shell__chat" data-mobile-visible={mobilePane === "chat"}>
           <ChatPane
             detail={detail}
+            isLoadingDetail={!isDraftSession && Boolean(selectedSessionId) && sessionDetailQuery.isLoading}
             messages={messages}
             streamingText={streamingText}
             liveActivities={liveActivities}
@@ -389,6 +396,16 @@ export function App() {
                 return;
               }
 
+              // Show optimistic message immediately — before any async work.
+              setOptimisticMessage((current) => {
+                revokeOptimisticAttachments(current);
+                return {
+                  sessionId: selectedSessionId,
+                  prompt,
+                  attachments: createOptimisticAttachments(files)
+                };
+              });
+
               const attachments = await Promise.all(
                 files.map(async (file) => {
                   const dataUrl = await readFileAsDataUrl(file);
@@ -400,15 +417,6 @@ export function App() {
                   } satisfies ImageAttachmentInput;
                 })
               );
-
-              setOptimisticMessage((current) => {
-                revokeOptimisticAttachments(current);
-                return {
-                  sessionId: selectedSessionId,
-                  prompt,
-                  attachments: createOptimisticAttachments(files)
-                };
-              });
 
               await runMutation.mutateAsync({
                 prompt,

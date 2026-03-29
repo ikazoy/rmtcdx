@@ -17,6 +17,7 @@ type Props = {
   onFilterChange: (value: SessionFilter) => void;
   onSelectRepo: (repoId: string | null) => void;
   onSelectSession: (sessionId: string) => void;
+  onHoverSession: (sessionId: string) => void;
   onCreateSession: () => void;
 };
 
@@ -83,6 +84,7 @@ export function SidebarPane({
   onFilterChange,
   onSelectRepo,
   onSelectSession,
+  onHoverSession,
   onCreateSession
 }: Props) {
   const collapsedRepos = useUiStore((state) => state.collapsedRepos);
@@ -218,6 +220,7 @@ export function SidebarPane({
                       session={session}
                       isActive={selectedSessionId === session.id}
                       onSelect={onSelectSession}
+                      onHover={onHoverSession}
                       showRepo={false}
                     />
                   ))}
@@ -236,6 +239,7 @@ export function SidebarPane({
                 session={session}
                 isActive={selectedSessionId === session.id}
                 onSelect={onSelectSession}
+                onHover={onHoverSession}
                 showRepo={false}
               />
             ))}
@@ -250,17 +254,20 @@ function SessionRow({
   session,
   isActive,
   onSelect,
+  onHover,
   showRepo
 }: {
   session: SessionSummary;
   isActive: boolean;
   onSelect: (id: string) => void;
+  onHover: (id: string) => void;
   showRepo: boolean;
 }) {
   return (
     <button
       className={`session-row session-row--sidebar ${isActive ? "is-active" : ""}`}
       onClick={() => onSelect(session.id)}
+      onMouseEnter={() => onHover(session.id)}
       type="button"
     >
       <div className="session-row__head">

@@ -24,6 +24,7 @@ type ComposerImage = {
 
 type Props = {
   detail: SessionDetail | null | undefined;
+  isLoadingDetail: boolean;
   messages: Message[];
   streamingText: string;
   liveActivities: LiveActivity[];
@@ -292,8 +293,29 @@ const ConversationTimeline = memo(function ConversationTimeline({
   );
 });
 
+function ChatSkeletonContent() {
+  return (
+    <>
+      <div className="chat-head">
+        <div>
+          <div className="skeleton skeleton--title" />
+          <div className="skeleton skeleton--subtitle" />
+        </div>
+      </div>
+      <div className="timeline-wrap">
+        <div className="timeline">
+          <div className="skeleton skeleton--message skeleton--message-wide" />
+          <div className="skeleton skeleton--message" />
+          <div className="skeleton skeleton--message skeleton--message-wide" />
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function ChatPane({
   detail,
+  isLoadingDetail,
   messages,
   streamingText,
   liveActivities,
@@ -405,22 +427,23 @@ export function ChatPane({
     return () => window.cancelAnimationFrame(frame);
   }, [messages, streamingText]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     const prompt = composerRef.current?.value.trim() ?? "";
     if (!prompt && selectedImages.length === 0) {
       return;
     }
 
-    await onSubmit({
-      prompt,
-      files: selectedImages.map((image) => image.file)
-    });
+    const files = selectedImages.map((image) => image.file);
 
+    // Clear composer immediately for snappy feedback — the optimistic message
+    // already reflects the user's input in the timeline.
     if (composerRef.current) {
       composerRef.current.value = "";
       composerRef.current.style.height = "auto";
     }
     clearSelectedImages();
+
+    void onSubmit({ prompt, files });
   };
 
   const autoResize = () => {
@@ -610,6 +633,8 @@ export function ChatPane({
             </div>
           </div>
         </>
+      ) : isLoadingDetail ? (
+        <ChatSkeletonContent />
       ) : (
         <div className="empty-state empty-state--chat">
           <strong>Select a thread</strong>

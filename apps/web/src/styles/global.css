@@ -1547,3 +1547,38 @@ button {
     grid-column: 1;
   }
 }
+
+/* ───────────────────── Skeleton placeholders ───────────────────── */
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.12; }
+  50% { opacity: 0.22; }
+}
+
+.skeleton {
+  background: var(--color-text);
+  border-radius: 4px;
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton--title {
+  width: 40%;
+  height: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.skeleton--subtitle {
+  width: 55%;
+  height: 0.75rem;
+}
+
+.skeleton--message {
+  width: 60%;
+  height: 3.5rem;
+  margin-bottom: 0.75rem;
+  border-radius: 8px;
+}
+
+.skeleton--message-wide {
+  width: 80%;
+}
