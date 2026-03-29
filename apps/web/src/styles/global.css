@@ -1479,6 +1479,7 @@ button {
 }
 
 .message-meta--time-only {
+  justify-content: flex-end;
   margin-bottom: 0.18rem;
 }
 
@@ -1486,87 +1487,13 @@ button {
   color: rgba(255, 255, 255, 0.52);
 }
 
-.message-card--user .message-meta__title strong {
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  font-size: 0.68rem;
-  color: rgba(255, 255, 255, 0.74);
-}
-
-.message-meta__title {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-width: 0;
-}
-
-.message-status {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.16rem 0.42rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: inherit;
-  font-size: 0.72rem;
-  text-transform: lowercase;
-}
-
-.message-card--user .message-status {
-  background: rgba(255, 255, 255, 0.14);
-}
-
 .message-card--assistant:not(.message-card--thinking) .message-meta {
   margin-bottom: 0.22rem;
   color: #80847d;
 }
 
-.message-card--assistant:not(.message-card--thinking) .message-meta__title strong {
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  font-size: 0.68rem;
-  color: #777b74;
-}
-
-.message-card--thinking .message-meta__title strong {
-  color: #989b94;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  font-size: 0.64rem;
-}
-
-.message-card--command .message-meta__title strong {
-  color: #90b7ff;
-}
-
-.message-card--tool .message-meta__title strong {
-  color: #82d1be;
-}
-
-.message-card--artifact .message-meta__title strong {
-  color: #a4d3ad;
-}
-
-.message-card--search .message-meta__title strong {
-  color: #8ac9ee;
-}
-
-.message-card--review .message-meta__title strong {
-  color: #e4c781;
-}
-
-.message-card--error .message-meta__title strong {
-  color: #ffb6a9;
-}
-
 .message-card--note .message-meta {
   margin: 0;
-  color: #7f827b;
-}
-
-.message-card--note .message-meta__title strong {
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-size: 0.7rem;
   color: #7f827b;
 }
 

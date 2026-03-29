@@ -95,43 +95,33 @@ function messageMatchesOptimistic(message: Message, optimistic: OptimisticUserMe
 function messagePresentation(message: Message) {
   switch (message.kind) {
     case "user_message":
-      return { rowRole: "user", label: "user", tone: "user" };
+      return { rowRole: "user", tone: "user" };
     case "assistant_thinking":
-      return { rowRole: "assistant", label: null, tone: "thinking" };
+      return { rowRole: "assistant", tone: "thinking" };
     case "plan":
-      return { rowRole: "assistant", label: "plan", tone: "thinking" };
+      return { rowRole: "assistant", tone: "thinking" };
     case "reasoning":
-      return { rowRole: "assistant", label: "reasoning", tone: "thinking" };
+      return { rowRole: "assistant", tone: "thinking" };
     case "mcp_tool_call":
     case "dynamic_tool_call":
     case "collab_agent_tool_call":
-      return { rowRole: "system", label: "tool", tone: "tool" };
+      return { rowRole: "system", tone: "tool" };
     case "web_search":
-      return { rowRole: "system", label: "search", tone: "search" };
+      return { rowRole: "system", tone: "search" };
     case "image_view":
     case "image_generation":
-      return { rowRole: "system", label: "image", tone: "artifact" };
+      return { rowRole: "system", tone: "artifact" };
     case "review_mode_entered":
     case "review_mode_exited":
-      return { rowRole: "system", label: "review", tone: "review" };
+      return { rowRole: "system", tone: "review" };
     case "context_compaction":
-      return { rowRole: "system", label: "system", tone: "note" };
+      return { rowRole: "system", tone: "note" };
     case "run_error":
-      return { rowRole: "system", label: "error", tone: "error" };
+      return { rowRole: "system", tone: "error" };
     case "assistant_message":
     default:
-      return { rowRole: "assistant", label: "assistant", tone: "assistant" };
+      return { rowRole: "assistant", tone: "assistant" };
   }
-}
-
-function shouldShowMessageStatus(message: Message) {
-  return (
-    message.kind === "mcp_tool_call" ||
-    message.kind === "dynamic_tool_call" ||
-    message.kind === "collab_agent_tool_call" ||
-    message.kind === "image_generation" ||
-    message.kind === "run_error"
-  );
 }
 
 function extractFencedBlock(text: string, language: string) {
@@ -714,8 +704,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
 
           const { message } = entry;
           const presentation = messagePresentation(message);
-          const showLabel = Boolean(presentation.label);
-          const showStatus = Boolean(message.status && shouldShowMessageStatus(message));
 
           return (
             <article key={message.id} className={`message-row message-row--${presentation.rowRole}`}>
@@ -728,15 +716,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 ].join(" ")}
                 data-kind={message.kind}
               >
-                <header className={`message-meta ${!showLabel && !showStatus ? "message-meta--time-only" : ""}`}>
-                  {showLabel || showStatus ? (
-                    <div className="message-meta__title">
-                      {showLabel ? <strong>{presentation.label}</strong> : null}
-                      {showStatus ? <span className="message-status">{message.status}</span> : null}
-                    </div>
-                  ) : (
-                    <span />
-                  )}
+                <header className="message-meta message-meta--time-only">
                   <time>{formatClock(message.createdAt)}</time>
                 </header>
                 {message.attachments?.length ? <MessageAttachments attachments={message.attachments} /> : null}
@@ -749,8 +729,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
         {optimisticMessage && !hasConfirmedOptimistic ? (
           <article className="message-row message-row--user">
             <div className="message-card message-card--user">
-              <header className="message-meta">
-                <strong>user</strong>
+              <header className="message-meta message-meta--time-only">
                 <span>just now</span>
               </header>
               {optimisticMessage.attachments.length ? (
@@ -764,11 +743,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
         {streamingText ? (
           <article className="message-row message-row--assistant">
             <div className="message-card message-card--assistant message-card--thinking message-card--streaming">
-              <header className="message-meta">
-                <div className="message-meta__title">
-                  <strong>thinking</strong>
-                  <span className="message-status">streaming</span>
-                </div>
+              <header className="message-meta message-meta--time-only">
                 <span>live</span>
               </header>
               <MessageBody text={streamingText} />
@@ -779,11 +754,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
         {!streamingText && showPendingAssistant ? (
           <article className="message-row message-row--assistant">
             <div className="message-card message-card--assistant message-card--thinking message-card--pending">
-              <header className="message-meta">
-                <div className="message-meta__title">
-                  <strong>thinking</strong>
-                  <span className="message-status">pending</span>
-                </div>
+              <header className="message-meta message-meta--time-only">
                 <span>now</span>
               </header>
               <p className="thinking-text">Thinking...</p>
