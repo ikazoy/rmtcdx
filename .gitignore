@@ -8,6 +8,7 @@ repos.json
 *.tsbuildinfo
 apps/web/src/**/*.js
 apps/web/src/**/*.d.ts
+!apps/web/src/vite-env.d.ts
 packages/shared-types/src/**/*.js
 packages/shared-types/src/**/*.d.ts
 apps/web/dist
