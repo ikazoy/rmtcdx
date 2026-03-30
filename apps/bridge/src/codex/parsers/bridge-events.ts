@@ -95,6 +95,33 @@ export function parseBridgeNotification(
     };
   }
 
+  if (method === "item/fileChange/outputDelta") {
+    const turnId = stringField(payload, "turnId");
+    const itemId = stringField(payload, "itemId");
+    const delta = stringField(payload, "delta");
+    if (!turnId || !itemId || delta === undefined) {
+      return emptyParseResult();
+    }
+    const mapping = runByTurn.get(turnId);
+    if (!mapping) {
+      return emptyParseResult();
+    }
+    return {
+      events: [
+        {
+          type: "activity.updated",
+          sessionId: mapping.sessionId,
+          runId: mapping.runId,
+          turnId,
+          itemId,
+          delta
+        }
+      ],
+      debugEntries: [],
+      finishedTurn: null
+    };
+  }
+
   if (method === "item/started") {
     const turnId = stringField(payload, "turnId");
     const item = notificationItem(payload.item);
@@ -314,6 +341,68 @@ export function parseBridgeNotification(
     };
   }
 
+  if (method === "thread/started") {
+    const thread = asObject(payload.thread);
+    return debugOnly("thread.started", {
+      threadId: stringField(thread, "id") ?? null,
+      cwd: stringField(thread, "cwd") ?? null,
+      path: stringField(thread, "path") ?? null,
+      status: stringField(asObject(thread?.status), "type") ?? null
+    });
+  }
+
+  if (method === "thread/status/changed") {
+    return debugOnly("thread.status.changed", {
+      threadId: stringField(payload, "threadId") ?? null,
+      status: stringField(asObject(payload.status), "type") ?? null,
+      activeFlags: stringArrayField(asObject(payload.status), "activeFlags")
+    });
+  }
+
+  if (method === "turn/started") {
+    const turn = asObject(payload.turn);
+    return debugOnly("turn.started", {
+      threadId: stringField(payload, "threadId") ?? null,
+      turnId: stringField(turn, "id") ?? null,
+      status: stringField(turn, "status") ?? null
+    });
+  }
+
+  if (method === "turn/diff/updated") {
+    const diff = stringField(payload, "diff");
+    return debugOnly("turn.diff.updated", {
+      threadId: stringField(payload, "threadId") ?? null,
+      turnId: stringField(payload, "turnId") ?? null,
+      diffLength: diff?.length ?? 0,
+      diffLineCount: diff ? diff.split("\n").length : 0
+    });
+  }
+
+  if (method === "thread/tokenUsage/updated") {
+    const tokenUsage = asObject(payload.tokenUsage);
+    const total = asObject(tokenUsage?.total);
+    const last = asObject(tokenUsage?.last);
+    return debugOnly("thread.token_usage.updated", {
+      threadId: stringField(payload, "threadId") ?? null,
+      turnId: stringField(payload, "turnId") ?? null,
+      totalTokens: numberField(total, "totalTokens"),
+      lastTokens: numberField(last, "totalTokens"),
+      modelContextWindow: numberField(tokenUsage, "modelContextWindow")
+    });
+  }
+
+  if (method === "account/rateLimits/updated") {
+    const rateLimits = asObject(payload.rateLimits);
+    const primary = asObject(rateLimits?.primary);
+    const secondary = asObject(rateLimits?.secondary);
+    return debugOnly("account.rate_limits.updated", {
+      limitId: stringField(rateLimits, "limitId") ?? null,
+      planType: stringField(rateLimits, "planType") ?? null,
+      primaryUsedPercent: numberField(primary, "usedPercent"),
+      secondaryUsedPercent: numberField(secondary, "usedPercent")
+    });
+  }
+
   return {
     events: [],
     debugEntries: [
@@ -399,6 +488,14 @@ function emptyParseResult(): ParsedBridgeNotification {
   };
 }
 
+function debugOnly(event: string, fields: Record<string, unknown>): ParsedBridgeNotification {
+  return {
+    events: [],
+    debugEntries: [{ event, fields }],
+    finishedTurn: null
+  };
+}
+
 function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
@@ -406,6 +503,20 @@ function asObject(value: unknown): Record<string, unknown> | null {
 function stringField(record: Record<string, unknown> | null, key: string) {
   const value = record?.[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function numberField(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+  return typeof value === "number" ? value : null;
+}
+
+function stringArrayField(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const strings = value.filter((entry): entry is string => typeof entry === "string");
+  return strings.length === value.length ? strings : null;
 }
 
 function notificationItem(value: unknown): NotificationItem | null {

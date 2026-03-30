@@ -775,24 +775,52 @@ Layer A/B/C までを必須にし、
 
 という二層構成にするのが最も現実的である。
 
-## 15. 今後追加すべき仕組み
+## 15. 現在の実装状況
 
-この方針を実運用にするには、
+2026-03-30 時点で、
+以下は実装済みである。
+
+- real Codex canary runner
+- `codex-app-server.jsonl` から notification inventory を出す report 生成
+- real Codex canary artifact の保存
+- 実機 canary で観測した notification method を parser / test に反映する運用
+
+実装済みの入口は以下。
+
+- `npm run compat:canary -w remote-control-codex`
+- `apps/bridge/scripts/run-real-codex-canary.ts`
+- `apps/bridge/src/compat/canary-report.ts`
+
+実機確認としては、
+`codex-cli 0.116.0` に対して
+`basic-text`、
+`tool-edit`、
+`interrupt`
+の 3 scenario を実行し、
+`report.json` に `notificationInventory.unhandledMethods: []`
+を確認済みである。
+
+直近の artifact 例:
+
+- `data/compat/real-codex-canary/2026-03-30T19-37-35-764Z/report.json`
+
+## 16. 今後追加すべき仕組み
+
+この方針をさらに実運用へ寄せるには、
 少なくとも以下を追加する必要がある。
 
 - fixture replay backend
-- real Codex canary runner
-- `codex-app-server.jsonl` から inventory を作る script
 - sanitize 済み fixture を生成する workflow
-- canary 結果を保存する artifact ルール
+- fixture replay backend の API smoke test
+- `reasoning-plan`、`request-surface` など未実装 scenario の拡張
 
-実装優先度は以下がよい。
+次の実装優先度は以下がよい。
 
-1. real Codex canary runner
-2. inventory 抽出
-3. sanitize workflow
-4. fixture replay backend の API smoke test
+1. sanitize workflow
+2. fixture replay backend の API smoke test
+3. 実機 artifact から replay fixture への昇格
+4. scenario matrix の拡張
 
 この順なら、
-まず unseen drift の検知能力を手に入れ、
-次にその drift を回帰テストへ落とす土台を整えられる。
+既に手に入れた unseen drift の検知能力を
+安価な回帰テストへ変換しやすい。
