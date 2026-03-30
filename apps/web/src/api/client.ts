@@ -1,10 +1,14 @@
 import type {
+  AccountRateLimitsResponse,
   CreateRunRequest,
   CreateSessionRequest,
+  DeletePushSubscriptionRequest,
   HealthResponse,
   MessagesResponse,
+  NotificationsConfigResponse,
   ReposResponse,
   RunResponse,
+  SavePushSubscriptionRequest,
   SessionDetail,
   SessionsResponse,
   UpdateSessionRequest
@@ -31,6 +35,8 @@ async function request<T>(input: string, init?: RequestInit) {
 
 export const api = {
   health: () => request<HealthResponse>("/healthz"),
+  accountRateLimits: () => request<AccountRateLimitsResponse>("/api/account/rate-limits"),
+  notificationsConfig: () => request<NotificationsConfigResponse>("/api/notifications/config"),
   repos: () => request<ReposResponse>("/api/repos"),
   sessions: (repoId: string | null, search: string, filter: string) => {
     const query = new URLSearchParams();
@@ -59,7 +65,11 @@ export const api = {
       body: JSON.stringify(payload)
     }),
   archiveSession: (sessionId: string) =>
-    request<{ ok: true }>(`/api/sessions/${sessionId}/archive`, {
+    request<SessionDetail>(`/api/sessions/${sessionId}/archive`, {
+      method: "POST"
+    }),
+  restoreSession: (sessionId: string) =>
+    request<SessionDetail>(`/api/sessions/${sessionId}/restore`, {
       method: "POST"
     }),
   markRead: (sessionId: string) =>
@@ -74,5 +84,15 @@ export const api = {
   interruptRun: (runId: string) =>
     request<{ ok: true }>(`/api/runs/${runId}/interrupt`, {
       method: "POST"
+    }),
+  savePushSubscription: (payload: SavePushSubscriptionRequest) =>
+    request<{ ok: true }>("/api/notifications/subscriptions", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  deletePushSubscription: (payload: DeletePushSubscriptionRequest) =>
+    request<{ ok: true }>("/api/notifications/subscriptions", {
+      method: "DELETE",
+      body: JSON.stringify(payload)
     })
 };

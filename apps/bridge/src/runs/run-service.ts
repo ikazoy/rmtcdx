@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { FastifyBaseLogger } from "fastify";
+
 import type {
   CreateRunRequest,
   LiveActivity,
@@ -11,6 +13,7 @@ import type {
 import type { AppConfig } from "../config/env";
 import type { CodexBackend, CodexBridgeEvent } from "../codex/types";
 import { LiveCatalogService } from "../catalog/live-catalog-service";
+import { PushNotificationService } from "../notifications/push-notification-service";
 import { RealtimeGateway } from "../realtime/realtime-gateway";
 import { ImageUploadService } from "../uploads/image-upload-service";
 import { nowIso } from "../utils/time";
@@ -25,7 +28,9 @@ export class RunService {
     private readonly catalog: LiveCatalogService,
     private readonly realtime: RealtimeGateway,
     private readonly codex: CodexBackend,
-    private readonly uploads: ImageUploadService
+    private readonly uploads: ImageUploadService,
+    private readonly pushNotifications: PushNotificationService,
+    private readonly logger: FastifyBaseLogger
   ) {
     this.codex.on("event", (event: CodexBridgeEvent) => {
       void this.handleBackendEvent(event);
@@ -54,6 +59,13 @@ export class RunService {
     let threadId: string | undefined;
 
     if (sessionId) {
+      const detail = await this.catalog.getSessionDetail(sessionId);
+      if (!detail) {
+        throw new Error(`Session not found: ${sessionId}`);
+      }
+      if (detail.session.isArchived) {
+        throw new Error("Restore this thread before starting a run.");
+      }
       const thread = await this.catalog.getThread(sessionId);
       cwd = thread.cwd;
       threadId = thread.id;
@@ -241,6 +253,22 @@ export class RunService {
     this.activeRunBySession.delete(event.sessionId);
     this.latestRunBySession.set(event.sessionId, event.runId);
     this.realtime.broadcastRun(event.type, next);
+
+    if (event.type === "run.completed" || event.type === "run.error") {
+      try {
+        const detail = await this.catalog.getSessionDetail(event.sessionId);
+        await this.pushNotifications.notifyRun(this.presentSessionDetail(detail), next);
+      } catch (error) {
+        this.logger.warn(
+          {
+            err: error,
+            runId: next.id,
+            sessionId: next.sessionId
+          },
+          "Unable to send push notification for run event"
+        );
+      }
+    }
   }
 
   private toTime(value: string) {

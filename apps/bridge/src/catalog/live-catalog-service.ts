@@ -23,6 +23,7 @@ const execFileAsync = promisify(execFile);
 type ThreadContext = {
   thread: CodexThread;
   repo: Repository;
+  isArchived: boolean;
 };
 
 export class LiveCatalogService {
@@ -38,8 +39,14 @@ export class LiveCatalogService {
   }
 
   async listRepos() {
-    const threads = await this.codex.listThreads({ archived: false });
-    const contexts = await this.enrichThreads(threads);
+    const [threads, archivedThreads] = await Promise.all([
+      this.codex.listThreads({ archived: false }),
+      this.codex.listThreads({ archived: true })
+    ]);
+    const contexts = [
+      ...(await this.enrichThreads(threads, false)),
+      ...(await this.enrichThreads(archivedThreads, true))
+    ];
     const grouped = new Map<string, { repo: Repository; threads: ThreadContext[] }>();
 
     for (const context of contexts) {
@@ -50,12 +57,12 @@ export class LiveCatalogService {
           new Date(context.repo.updatedAt) > new Date(entry.repo.updatedAt)
             ? context.repo.updatedAt
             : entry.repo.updatedAt;
-        entry.repo.runningSessionCount += context.thread.status.type === "active" ? 1 : 0;
+        entry.repo.runningSessionCount += !context.isArchived && context.thread.status.type === "active" ? 1 : 0;
       } else {
         grouped.set(context.repo.id, {
           repo: {
             ...context.repo,
-            runningSessionCount: context.thread.status.type === "active" ? 1 : 0
+            runningSessionCount: !context.isArchived && context.thread.status.type === "active" ? 1 : 0
           },
           threads: [context]
         });
@@ -101,11 +108,12 @@ export class LiveCatalogService {
 
   async listSessions(repoId?: string, options?: { search?: string; filter?: SessionFilter }) {
     const search = options?.search?.trim();
+    const archived = options?.filter === "archived";
     const threads = await this.codex.listThreads({
-      archived: false,
+      archived,
       searchTerm: search || undefined
     });
-    const contexts = await this.enrichThreads(threads);
+    const contexts = await this.enrichThreads(threads, archived);
 
     return contexts
       .filter((context) => !repoId || context.repo.id === repoId)
@@ -119,7 +127,7 @@ export class LiveCatalogService {
 
   async getSessionDetail(sessionId: string, runOverride?: { activeRun: Run | null; latestRun: Run | null }) {
     const thread = await this.readThreadWithFallback(sessionId, true);
-    const context = await this.enrichThread(thread);
+    const context = await this.enrichThread(thread, await this.isThreadArchived(thread.id, thread.cwd));
     const derivedRuns = this.deriveRuns(thread);
 
     return {
@@ -160,8 +168,14 @@ export class LiveCatalogService {
     await this.codex.archiveThread(sessionId);
   }
 
+  async restoreSession(sessionId: string) {
+    await this.readThreadWithFallback(sessionId, false);
+    await this.codex.unarchiveThread(sessionId);
+    return this.getSessionDetail(sessionId);
+  }
+
   async getThread(sessionId: string) {
-    return this.codex.readThread(sessionId, { includeTurns: false });
+    return this.readThreadWithFallback(sessionId, false);
   }
 
   private matchesFilter(session: SessionSummary, filter?: SessionFilter) {
@@ -170,6 +184,9 @@ export class LiveCatalogService {
     }
     if (filter === "unread") {
       return session.hasUnreadCompletion || session.hasUnreadError;
+    }
+    if (filter === "archived") {
+      return session.isArchived;
     }
     return session.status === filter;
   }
@@ -182,11 +199,11 @@ export class LiveCatalogService {
     return session.title.toLocaleLowerCase().includes(search.toLocaleLowerCase());
   }
 
-  private async enrichThreads(threads: CodexThread[]) {
-    return Promise.all(threads.map((thread) => this.enrichThread(thread)));
+  private async enrichThreads(threads: CodexThread[], isArchived: boolean) {
+    return Promise.all(threads.map((thread) => this.enrichThread(thread, isArchived)));
   }
 
-  private async enrichThread(thread: CodexThread): Promise<ThreadContext> {
+  private async enrichThread(thread: CodexThread, isArchived: boolean): Promise<ThreadContext> {
     const repoResolution = await this.resolveRepo(thread.cwd, thread.gitInfo?.branch ?? undefined);
     const override = this.repoOverrideByPath.get(repoResolution.rootPath);
     const repoId = this.repoIdForPath(repoResolution.rootPath, override);
@@ -205,7 +222,8 @@ export class LiveCatalogService {
         runningSessionCount: 0,
         createdAt,
         updatedAt
-      }
+      },
+      isArchived
     };
   }
 
@@ -226,6 +244,7 @@ export class LiveCatalogService {
       summary,
       codexThreadId: context.thread.id,
       status,
+      isArchived: context.isArchived,
       unreadCount: 0,
       lastEventSeq: 0,
       lastReadEventSeq: 0,
@@ -238,6 +257,16 @@ export class LiveCatalogService {
       createdAt,
       updatedAt
     };
+  }
+
+  private async isThreadArchived(threadId: string, cwd: string) {
+    const activeThreads = await this.codex.listThreads({ archived: false, cwd });
+    if (activeThreads.some((thread) => thread.id === threadId)) {
+      return false;
+    }
+
+    const archivedThreads = await this.codex.listThreads({ archived: true, cwd });
+    return archivedThreads.some((thread) => thread.id === threadId);
   }
 
   private mapMessages(thread: CodexThread) {
@@ -623,6 +652,12 @@ export class LiveCatalogService {
     try {
       return await this.codex.readThread(threadId, { includeTurns });
     } catch (error) {
+      if (this.isThreadNotLoadedError(error)) {
+        const resumed = await this.resumeArchivedThread(threadId, includeTurns);
+        if (resumed) {
+          return resumed;
+        }
+      }
       if (includeTurns && this.isTurnsUnavailableError(error)) {
         return this.codex.readThread(threadId, { includeTurns: false });
       }
@@ -630,8 +665,39 @@ export class LiveCatalogService {
     }
   }
 
+  private async resumeArchivedThread(threadId: string, includeTurns: boolean) {
+    const archivedThread = await this.findArchivedThread(threadId);
+    if (!archivedThread?.path) {
+      return null;
+    }
+
+    await this.codex.ensureThread({
+      threadId,
+      cwd: archivedThread.cwd,
+      path: archivedThread.path
+    });
+
+    try {
+      return await this.codex.readThread(threadId, { includeTurns });
+    } catch (error) {
+      if (includeTurns && this.isTurnsUnavailableError(error)) {
+        return this.codex.readThread(threadId, { includeTurns: false });
+      }
+      throw error;
+    }
+  }
+
+  private async findArchivedThread(threadId: string) {
+    const archivedThreads = await this.codex.listThreads({ archived: true });
+    return archivedThreads.find((thread) => thread.id === threadId) ?? null;
+  }
+
   private isTurnsUnavailableError(error: unknown) {
     return error instanceof Error && error.message.includes("includeTurns is unavailable before first user message");
+  }
+
+  private isThreadNotLoadedError(error: unknown) {
+    return error instanceof Error && error.message.includes("thread not loaded:");
   }
 
   private repoIdForPath(rootPath: string, override?: RepoConfig) {

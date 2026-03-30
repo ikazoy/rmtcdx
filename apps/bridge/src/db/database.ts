@@ -224,7 +224,7 @@ export class Database {
   }
 
   listSessions(repoId: string, options?: { search?: string; filter?: SessionFilter }) {
-    const clauses = ["repo_id = ?", "status != 'archived'"];
+    const clauses = ["repo_id = ?"];
     const params: Array<string | number> = [repoId];
 
     const search = options?.search?.trim();
@@ -245,7 +245,11 @@ export class Database {
         clauses.push("status = 'completed'");
       } else if (options.filter === "error") {
         clauses.push("status = 'error'");
+      } else if (options.filter === "archived") {
+        clauses.push("status = 'archived'");
       }
+    } else {
+      clauses.push("status != 'archived'");
     }
 
     const sql = `
@@ -542,6 +546,7 @@ export class Database {
       summary: row.summary,
       codexThreadId: row.codex_thread_id ?? undefined,
       status: row.status,
+      isArchived: row.status === "archived",
       unreadCount: row.unread_count,
       lastEventSeq: row.last_event_seq,
       lastReadEventSeq: row.last_read_event_seq,

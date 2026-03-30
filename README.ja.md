@@ -27,15 +27,15 @@ cd remote-control-codex
 cp repos.example.json repos.json
 npm install
 npm run build
-npm run start
+PORT=3210 npm run start
 ```
 
 `npm run start` は既定で `CODEX_MODE=auto` を使います。`codex` CLI が利用できれば bridge はそれに接続し、利用できない場合は自動で mock mode にフォールバックします。
 
 起動後:
 
-- App: [http://127.0.0.1:3000](http://127.0.0.1:3000)
-- Health check: [http://127.0.0.1:3000/healthz](http://127.0.0.1:3000/healthz)
+- App: [http://127.0.0.1:3210](http://127.0.0.1:3210)
+- Health check: [http://127.0.0.1:3210/healthz](http://127.0.0.1:3210/healthz)
 
 ## Tailscale 経由で別ネットワークから使う
 
@@ -43,8 +43,8 @@ npm run start
 
 ```bash
 npm run build
-npm run start
-tailscale serve --bg 3000
+PORT=3210 npm run start &
+tailscale serve --bg 3210
 ```
 
 その後、この node の Serve URL を開きます。例:
@@ -61,9 +61,9 @@ tailscale serve off
 ポイント:
 
 - このアプリは `/api` と `/ws` を相対パスで使うので、同じ Serve URL 経由で UI と WebSocket の両方が動きます
-- `tailscale serve --bg 3000` は、停止するまで reboot や Tailscale 再起動後も維持されます
+- `tailscale serve --bg 3210` は、停止するまで reboot や Tailscale 再起動後も維持されます
 - 初回に `Serve is not enabled on your tailnet` と出た場合は、コマンドが表示する admin URL を一度開いて node で Serve を有効化し、その後で再実行してください
-- `HOST=0.0.0.0` で bridge を直接公開すると LAN からも到達可能になるため、意図がない限り避けてください
+- ポート 3000 は開発サーバー (`npm run dev`) 用に予約されています
 
 ## `repos.json` を準備する
 
@@ -118,13 +118,28 @@ Codex CLI を使わずに UI や bridge の動作確認をしたい場合は moc
 CODEX_MODE=mock npm run start
 ```
 
+### Codex app-server デバッグログ
+
+real backend のライフサイクル調査用に、bridge は `codex app-server` 子プロセスのローカル JSONL ログを書き出します。既定の出力先は `data/codex-app-server.jsonl` で、`CODEX_DEBUG_LOG_FILE` で変更できます。
+
+各行には bridge インスタンス識別用の `bridgePid` と `listenPort` も入るので、複数 bridge が同じファイルへ書いていても切り分けできます。このログには `child.spawn`、`child.stderr`、`child.exit`、`child.restart.scheduled`、`turn.start.result`、`turn.finished` などのイベントが記録されます。
+
+よく使う確認コマンド:
+
+```bash
+tail -f data/codex-app-server.jsonl
+rg '"event":"child.exit"|"event":"child.stderr"|"event":"turn.finished"' data/codex-app-server.jsonl
+rg '"listenPort":3210|"listenPort":3000' data/codex-app-server.jsonl
+```
+
 ## 主な環境変数
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `CODEX_MODE` | `auto` | 既定の起動モード。UI / backend 単体確認では `mock` を使う |
+| `CODEX_DEBUG_LOG_FILE` | `<workspace>/data/codex-app-server.jsonl` | Codex app-server のライフサイクルを記録する JSONL デバッグログ |
 | `HOST` | `127.0.0.1` | bridge の listen host |
-| `PORT` | `3000` | bridge の listen port |
+| `PORT` | `3210` | bridge の listen port |
 | `REPO_CONFIG_PATH` | `<workspace>/repos.json` | repo 一覧ファイル |
 | `DATA_DIR` | `<workspace>/data` | アプリデータの保存先 |
 | `DB_FILE` | `<workspace>/data/remote-control.db` | SQLite DB ファイル |
@@ -135,17 +150,11 @@ CODEX_MODE=mock npm run start
 | `MAX_IMAGE_ATTACHMENTS` | `5` | 1 run あたりの最大画像数 |
 | `MAX_IMAGE_ATTACHMENT_BYTES` | `10485760` | 画像 1 枚あたりの最大バイト数 |
 
-例:
-
-```bash
-PORT=3100 npm run start
-```
-
 ## 動作確認
 
 ```bash
-curl http://127.0.0.1:3000/healthz
-curl http://127.0.0.1:3000/api/repos
+curl http://127.0.0.1:3210/healthz
+curl http://127.0.0.1:3210/api/repos
 ```
 
 最低限の確認ポイント:

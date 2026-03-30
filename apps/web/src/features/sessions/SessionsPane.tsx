@@ -1,6 +1,7 @@
 import type { SessionFilter, SessionSummary } from "../../../../../packages/shared-types/src/index";
 import { SESSION_FILTERS } from "../../../../../packages/shared-types/src/index";
 import { formatRelativeTime } from "../../components/formatters";
+import { sessionDisplayStatus } from "./session-state";
 
 type Props = {
   sessions: SessionSummary[];
@@ -76,13 +77,13 @@ export function SessionsPane({
             type="button"
           >
             <div className="session-row__titleline">
-              <span className={`session-dot session-dot--${session.status}`} />
+              <span className={`session-dot session-dot--${sessionDisplayStatus(session)}`} />
               <strong>{session.title}</strong>
               {session.unreadCount > 0 ? <span className="badge">{session.unreadCount}</span> : null}
             </div>
             <p>{session.summary}</p>
             <div className="session-row__meta">
-              <span>{session.status}</span>
+              <span>{sessionDisplayStatus(session)}</span>
               <span>{formatRelativeTime(sessionSortAt(session))}</span>
             </div>
           </button>

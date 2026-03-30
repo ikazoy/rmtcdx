@@ -1,5 +1,11 @@
 # Thread List Native Pull-to-Refresh
 
+> Note:
+> This document records the sidebar-first approach.
+> The current target direction for mobile is
+> [App-Wide Native Pull-to-Refresh](./app-wide-native-pull-to-refresh.md),
+> which unifies scroll behavior across sidebar and chat.
+
 ## 1. 目的
 
 本書は、モバイルのスレッド一覧で pull-to-refresh を

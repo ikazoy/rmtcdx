@@ -86,6 +86,7 @@ export function useRealtime() {
             void queryClient.invalidateQueries({ queryKey: queryKeys.messages(event.sessionId) });
             void queryClient.invalidateQueries({ queryKey: queryKeys.session(event.sessionId) });
             void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.accountRateLimits });
             return;
           case "activity.started":
             upsertActivity(event.activity);
@@ -103,11 +104,14 @@ export function useRealtime() {
             clearActivities(event.run.sessionId);
             void queryClient.invalidateQueries({ queryKey: queryKeys.session(event.run.sessionId) });
             void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.accountRateLimits });
             return;
           case "backend.degraded":
             setBackendBanner(event.reason);
             return;
           case "hello":
+            void queryClient.invalidateQueries({ queryKey: queryKeys.accountRateLimits });
+            return;
           case "notification.unread":
           case "pong":
             return;

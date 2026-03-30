@@ -27,15 +27,15 @@ cd remote-control-codex
 cp repos.example.json repos.json
 npm install
 npm run build
-npm run start
+PORT=3210 npm run start
 ```
 
 `npm run start` uses `CODEX_MODE=auto` by default. If the `codex` CLI is available, the bridge connects to it. If not, it falls back to mock mode.
 
 After startup:
 
-- App: [http://127.0.0.1:3000](http://127.0.0.1:3000)
-- Health check: [http://127.0.0.1:3000/healthz](http://127.0.0.1:3000/healthz)
+- App: [http://127.0.0.1:3210](http://127.0.0.1:3210)
+- Health check: [http://127.0.0.1:3210/healthz](http://127.0.0.1:3210/healthz)
 
 ## Remote Access over Tailscale
 
@@ -43,8 +43,8 @@ For access from another network, keep the bridge bound to localhost and publish 
 
 ```bash
 npm run build
-npm run start
-tailscale serve --bg 3000
+PORT=3210 npm run start &
+tailscale serve --bg 3210
 ```
 
 Then open the Serve URL for this device, for example:
@@ -61,9 +61,9 @@ tailscale serve off
 Notes:
 
 - This app uses relative `/api` and `/ws` paths, so the UI and WebSocket updates work through the same Serve URL
-- `tailscale serve --bg 3000` persists across reboots and Tailscale restarts until you turn it off
+- `tailscale serve --bg 3210` persists across reboots and Tailscale restarts until you turn it off
 - If Tailscale prints `Serve is not enabled on your tailnet`, open the admin URL shown by the command once, enable Serve for the node, and run the command again
-- Avoid exposing the bridge with `HOST=0.0.0.0` unless you intentionally want to make it reachable from your local LAN
+- Port 3000 is reserved for the dev server (`npm run dev`)
 
 ## Configure `repos.json`
 
@@ -118,13 +118,28 @@ Use mock mode when you want to work on the UI or bridge without a working Codex 
 CODEX_MODE=mock npm run start
 ```
 
+### Codex app-server Debug Log
+
+For real-backend lifecycle debugging, the bridge writes a local JSONL log for the `codex app-server` child process. The default path is `data/codex-app-server.jsonl`, and you can override it with `CODEX_DEBUG_LOG_FILE`.
+
+Each line includes the bridge instance metadata (`bridgePid`, `listenPort`) so mixed logs from multiple bridge processes can be separated. The log records lifecycle and correlation events such as `child.spawn`, `child.stderr`, `child.exit`, `child.restart.scheduled`, `turn.start.result`, and `turn.finished`.
+
+Useful commands:
+
+```bash
+tail -f data/codex-app-server.jsonl
+rg '"event":"child.exit"|"event":"child.stderr"|"event":"turn.finished"' data/codex-app-server.jsonl
+rg '"listenPort":3210|"listenPort":3000' data/codex-app-server.jsonl
+```
+
 ## Key Environment Variables
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `CODEX_MODE` | `auto` | Default startup mode. Set `mock` for UI/backend-only development |
+| `CODEX_DEBUG_LOG_FILE` | `<workspace>/data/codex-app-server.jsonl` | JSONL debug log for Codex app-server lifecycle |
 | `HOST` | `127.0.0.1` | Bridge listen host |
-| `PORT` | `3000` | Bridge listen port |
+| `PORT` | `3210` | Bridge listen port |
 | `REPO_CONFIG_PATH` | `<workspace>/repos.json` | Repository list file |
 | `DATA_DIR` | `<workspace>/data` | Application data directory |
 | `DB_FILE` | `<workspace>/data/remote-control.db` | SQLite database file |
@@ -135,17 +150,11 @@ CODEX_MODE=mock npm run start
 | `MAX_IMAGE_ATTACHMENTS` | `5` | Maximum images per run |
 | `MAX_IMAGE_ATTACHMENT_BYTES` | `10485760` | Maximum size in bytes for a single image |
 
-Example:
-
-```bash
-PORT=3100 npm run start
-```
-
 ## Verify The Bridge
 
 ```bash
-curl http://127.0.0.1:3000/healthz
-curl http://127.0.0.1:3000/api/repos
+curl http://127.0.0.1:3210/healthz
+curl http://127.0.0.1:3210/api/repos
 ```
 
 You should see:

@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import type { Repository, SessionFilter, SessionSummary } from "../../../../../packages/shared-types/src/index";
 import { SESSION_FILTERS } from "../../../../../packages/shared-types/src/index";
 import { formatRelativeTime } from "../../components/formatters";
+import { StatusMenu } from "../status/StatusMenu";
+import { sessionDisplayStatus } from "../sessions/session-state";
 import { useUiStore } from "../../store/ui-store";
 
 type Props = {
   repos: Repository[];
+  isMobileViewport: boolean;
   selectedRepoId: string | null;
   sessions: SessionSummary[];
   isLoadingSessions: boolean;
@@ -51,7 +54,17 @@ function filterLabel(filter: SessionFilter) {
       return "Completed";
     case "error":
       return "Error";
+    case "archived":
+      return "Archived";
   }
+}
+
+function filterChipLabel(filter: SessionFilter) {
+  if (filter === "all") {
+    return "All";
+  }
+
+  return filterLabel(filter);
 }
 
 function groupByRepo(sessions: SessionSummary[]): RepoGroup[] {
@@ -82,6 +95,7 @@ function groupByRepo(sessions: SessionSummary[]): RepoGroup[] {
 
 export function SidebarPane({
   repos,
+  isMobileViewport,
   selectedRepoId,
   sessions,
   isLoadingSessions,
@@ -98,10 +112,12 @@ export function SidebarPane({
   onHoverSession,
   onCreateSession
 }: Props) {
-  const filterMenuRef = useRef<HTMLDivElement | null>(null);
-  const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
+  const listMenuRef = useRef<HTMLDivElement | null>(null);
+  const [isListMenuOpen, setIsListMenuOpen] = useState(false);
   const collapsedRepos = useUiStore((state) => state.collapsedRepos);
   const toggleRepoCollapsed = useUiStore((state) => state.toggleRepoCollapsed);
+  const collapseRepos = useUiStore((state) => state.collapseRepos);
+  const expandRepos = useUiStore((state) => state.expandRepos);
 
   const orderedRepos = [...repos].sort((left, right) => {
     if (left.pinned !== right.pinned) {
@@ -128,6 +144,8 @@ export function SidebarPane({
   const selectedRepo = orderedRepos.find((repo) => repo.id === selectedRepoId) ?? null;
   const repoGroups = selectedRepoId ? [] : groupByRepo(sessions);
   const singleRepoSessions = selectedRepoId ? sessions : [];
+  const repoGroupNames = repoGroups.map((group) => group.repoName);
+  const collapsedGroupCount = repoGroupNames.filter((repoName) => collapsedRepos.has(repoName)).length;
   const activeSummary = [
     selectedRepo ? formatRepoLabel(selectedRepo) : "All projects",
     filterLabel(filter),
@@ -136,29 +154,29 @@ export function SidebarPane({
     .filter(Boolean)
     .join(" · ");
 
-  function closeFilterMenu() {
-    setIsFilterMenuOpen(false);
+  function closeListMenu() {
+    setIsListMenuOpen(false);
   }
 
   function handleToggleSidebar() {
-    closeFilterMenu();
+    closeListMenu();
     onToggleSidebar();
   }
 
   useEffect(() => {
-    if (!isFilterMenuOpen) {
+    if (!isListMenuOpen) {
       return;
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (!filterMenuRef.current?.contains(event.target as Node)) {
-        closeFilterMenu();
+      if (!listMenuRef.current?.contains(event.target as Node)) {
+        closeListMenu();
       }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        closeFilterMenu();
+        closeListMenu();
       }
     };
 
@@ -169,7 +187,7 @@ export function SidebarPane({
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isFilterMenuOpen]);
+  }, [isListMenuOpen]);
 
   return (
     <div className="sidebar-shell">
@@ -191,19 +209,37 @@ export function SidebarPane({
             <div className="sidebar-brand__copy">
               <h1>Threads</h1>
               <p className="sidebar-toolbar__summary">{activeSummary}</p>
+              <div className="sidebar-filter-row" aria-label="Thread filters">
+                {SESSION_FILTERS.map((candidate) => {
+                  const isActive = candidate === filter;
+                  return (
+                    <button
+                      key={candidate}
+                      className={`filter-chip ${isActive ? "is-active" : ""}`}
+                      onClick={() => onFilterChange(candidate)}
+                      type="button"
+                      aria-pressed={isActive}
+                    >
+                      {filterChipLabel(candidate)}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
           <div className="sidebar-brand__actions">
-            <div ref={filterMenuRef} className="sidebar-menu">
+            <StatusMenu isMobileViewport={isMobileViewport} />
+
+            <div ref={listMenuRef} className="sidebar-menu">
               <button
                 className="sidebar-menu__trigger"
-                onClick={() => setIsFilterMenuOpen((current) => !current)}
+                onClick={() => setIsListMenuOpen((current) => !current)}
                 type="button"
-                aria-expanded={isFilterMenuOpen}
-                aria-label="Open filters"
+                aria-expanded={isListMenuOpen}
+                aria-label="Open list options"
               >
-                <span className="sr-only">Open filters</span>
+                <span className="sr-only">Open list options</span>
                 <svg
                   className="sidebar-menu__trigger-icon"
                   aria-hidden="true"
@@ -218,7 +254,7 @@ export function SidebarPane({
                 </svg>
               </button>
 
-              {isFilterMenuOpen ? (
+              {isListMenuOpen ? (
                 <div className="sidebar-menu__popover">
                   <section className="sidebar-menu__section">
                     <span className="sidebar-menu__section-title">State</span>
@@ -231,7 +267,7 @@ export function SidebarPane({
                             className={`sidebar-menu__item ${isActive ? "is-active" : ""}`}
                             onClick={() => {
                               onFilterChange(candidate);
-                              closeFilterMenu();
+                              closeListMenu();
                             }}
                             type="button"
                           >
@@ -253,7 +289,7 @@ export function SidebarPane({
                         value={selectedRepoId ?? ""}
                         onChange={(event) => {
                           onSelectRepo(event.target.value || null);
-                          closeFilterMenu();
+                          closeListMenu();
                         }}
                       >
                         <option value="">All projects</option>
@@ -288,6 +324,36 @@ export function SidebarPane({
                       </div>
                     </label>
                   </section>
+
+                  {!selectedRepoId && repoGroupNames.length > 0 ? (
+                    <section className="sidebar-menu__section">
+                      <span className="sidebar-menu__section-title">Repositories</span>
+                      <div className="sidebar-menu__list">
+                        <button
+                          className="sidebar-menu__item"
+                          onClick={() => {
+                            collapseRepos(repoGroupNames);
+                            closeListMenu();
+                          }}
+                          type="button"
+                          disabled={collapsedGroupCount === repoGroupNames.length}
+                        >
+                          <span>Collapse all repos</span>
+                        </button>
+                        <button
+                          className="sidebar-menu__item"
+                          onClick={() => {
+                            expandRepos(repoGroupNames);
+                            closeListMenu();
+                          }}
+                          type="button"
+                          disabled={collapsedGroupCount === 0}
+                        >
+                          <span>Expand all repos</span>
+                        </button>
+                      </div>
+                    </section>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -454,7 +520,7 @@ function SessionRow({
     >
       <div className="session-row__head">
         <div className="session-row__titleline">
-          <span className={`session-dot session-dot--${session.status}`} />
+          <span className={`session-dot session-dot--${sessionDisplayStatus(session)}`} />
           <strong>{session.title}</strong>
         </div>
         <span className="session-row__time">{formatRelativeTime(sessionSortAt(session))}</span>

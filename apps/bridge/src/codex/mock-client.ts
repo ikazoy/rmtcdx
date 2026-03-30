@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
 import type {
+  CodexAccountRateLimits,
   CodexBackend,
   CodexRuntimeState,
   CodexThread,
@@ -89,6 +90,10 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
     return thread;
   }
 
+  async readAccountRateLimits(): Promise<CodexAccountRateLimits | null> {
+    return null;
+  }
+
   async setThreadName(threadId: string, name: string) {
     this.updateThread(threadId, {
       name
@@ -101,6 +106,14 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
     }
 
     this.archivedThreadIds.add(threadId);
+  }
+
+  async unarchiveThread(threadId: string) {
+    if (!this.threads.has(threadId)) {
+      throw new Error(`Unknown mock thread: ${threadId}`);
+    }
+
+    this.archivedThreadIds.delete(threadId);
   }
 
   async ensureThread(params: EnsureThreadParams) {

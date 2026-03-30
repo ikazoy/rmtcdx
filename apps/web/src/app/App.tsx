@@ -307,23 +307,6 @@ export function App() {
     persistThreadFilters(search, filter);
   }, [filter, search]);
 
-  useEffect(() => {
-    if (typeof document === "undefined") {
-      return;
-    }
-
-    if (!isMobileViewport) {
-      delete document.body.dataset.mobilePane;
-      return;
-    }
-
-    document.body.dataset.mobilePane = mobilePane;
-
-    return () => {
-      delete document.body.dataset.mobilePane;
-    };
-  }, [isMobileViewport, mobilePane]);
-
   const runMutation = useMutation({
     mutationFn: ({
       prompt,
@@ -356,7 +339,8 @@ export function App() {
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sessions"] }),
         queryClient.invalidateQueries({ queryKey: queryKeys.session(data.run.sessionId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.messages(data.run.sessionId) })
+        queryClient.invalidateQueries({ queryKey: queryKeys.messages(data.run.sessionId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.accountRateLimits })
       ]);
     },
     onError: () => {
@@ -416,6 +400,17 @@ export function App() {
     }
   });
 
+  const restoreMutation = useMutation({
+    mutationFn: (sessionId: string) => api.restoreSession(sessionId),
+    onSuccess: async (detail) => {
+      queryClient.setQueryData(queryKeys.session(detail.session.id), detail);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.repos })
+      ]);
+    }
+  });
+
   const repos = reposQuery.data?.repos ?? [];
   const sessions = sessionsQuery.data?.sessions ?? [];
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
@@ -437,6 +432,7 @@ export function App() {
             title: "New session",
             summary: `Start a conversation in ${selectedRepo.name}`,
             status: "idle",
+            isArchived: false,
             unreadCount: 0,
             lastEventSeq: 0,
             lastReadEventSeq: 0,
@@ -546,6 +542,7 @@ export function App() {
         <aside className="workspace-shell__sidebar" data-mobile-visible={mobilePane !== "chat"}>
           <SidebarPane
             repos={repos}
+            isMobileViewport={isMobileViewport}
             selectedRepoId={selectedRepoId}
             sessions={sessions}
             isLoadingSessions={sessionsQuery.isLoading}
@@ -612,6 +609,7 @@ export function App() {
             messages={messages}
             streamingText={streamingText}
             liveActivities={liveActivities}
+            isMobileViewport={isMobileViewport}
             optimisticMessage={optimisticMessageForSession}
             wsState={wsState}
             backendMode={healthQuery.data?.codex.mode}
@@ -694,12 +692,30 @@ export function App() {
                 window.alert(error instanceof Error ? error.message : "Unable to archive session.");
               }
             }}
+            onRestore={async () => {
+              if (!detail || isDraftSession) {
+                return;
+              }
+
+              const confirmed = window.confirm(`Restore "${detail.session.title}"?`);
+              if (!confirmed) {
+                return;
+              }
+
+              try {
+                await restoreMutation.mutateAsync(detail.session.id);
+              } catch (error) {
+                window.alert(error instanceof Error ? error.message : "Unable to restore session.");
+              }
+            }}
             isSubmitting={runMutation.isPending}
             isInterrupting={interruptMutation.isPending}
             isRenaming={renameMutation.isPending}
             isArchiving={archiveMutation.isPending}
+            isRestoring={restoreMutation.isPending}
             canRename={!isDraftSession}
-            canArchive={!isDraftSession}
+            canArchive={!isDraftSession && !Boolean(detail?.session.isArchived)}
+            canRestore={!isDraftSession && Boolean(detail?.session.isArchived)}
           />
         </section>
       </main>

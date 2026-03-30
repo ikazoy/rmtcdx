@@ -90,6 +90,34 @@ export type CodexRuntimeState = {
   lastError?: string;
 };
 
+export type CodexRateLimitWindow = {
+  usedPercent: number;
+  windowDurationMins: number | null;
+  resetsAt: number | null;
+};
+
+export type CodexRateLimitCredits = {
+  hasCredits: boolean;
+  unlimited: boolean;
+  balance: string | null;
+};
+
+export type CodexPlanType = "free" | "go" | "plus" | "pro" | "team" | "business" | "enterprise" | "edu" | "unknown";
+
+export type CodexRateLimitSnapshot = {
+  limitId: string | null;
+  limitName: string | null;
+  primary: CodexRateLimitWindow | null;
+  secondary: CodexRateLimitWindow | null;
+  credits: CodexRateLimitCredits | null;
+  planType: CodexPlanType | null;
+};
+
+export type CodexAccountRateLimits = {
+  rateLimits: CodexRateLimitSnapshot;
+  rateLimitsByLimitId: Record<string, CodexRateLimitSnapshot> | null;
+};
+
 export type CodexBridgeEvent =
   | { type: "message.delta"; sessionId: string; runId: string; turnId: string; text: string }
   | { type: "message.final"; sessionId: string; runId: string; turnId: string; text: string; countsUnread: boolean }
@@ -128,6 +156,7 @@ export type EnsureThreadParams = {
   sessionId?: string;
   cwd: string;
   threadId?: string;
+  path?: string;
 };
 
 export type StartRunParams = {
@@ -149,8 +178,10 @@ export interface CodexBackend extends EventEmitter {
   createThread(cwd: string): Promise<{ threadId: string }>;
   listThreads(params?: ListThreadsParams): Promise<CodexThread[]>;
   readThread(threadId: string, options?: { includeTurns?: boolean }): Promise<CodexThread>;
+  readAccountRateLimits(): Promise<CodexAccountRateLimits | null>;
   setThreadName(threadId: string, name: string): Promise<void>;
   archiveThread(threadId: string): Promise<void>;
+  unarchiveThread(threadId: string): Promise<void>;
   ensureThread(params: EnsureThreadParams): Promise<{ threadId: string }>;
   startRun(params: StartRunParams): Promise<StartRunResult>;
   interruptRun(runId: string, threadId: string, turnId: string): Promise<void>;

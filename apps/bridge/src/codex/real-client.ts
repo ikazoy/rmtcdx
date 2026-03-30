@@ -2,8 +2,13 @@ import { EventEmitter } from "node:events";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 import type {
+  CodexAccountRateLimits,
   CodexBackend,
   CodexBridgeEvent,
+  CodexPlanType,
+  CodexRateLimitCredits,
+  CodexRateLimitSnapshot,
+  CodexRateLimitWindow,
   CodexRuntimeState,
   CodexThread,
   EnsureThreadParams,
@@ -11,6 +16,7 @@ import type {
   LoggerLike,
   StartRunParams
 } from "./types";
+import type { CodexDebugLog } from "../observability/codex-debug-log";
 
 type JsonRpcMessage = {
   id?: number | string;
@@ -38,27 +44,42 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
   private readonly pending = new Map<number, PendingRequest>();
   private readonly runByTurn = new Map<string, RunMapping>();
   private readonly sessionByThread = new Map<string, string>();
+  private readonly activeTurnIds = new Set<string>();
   private restarting = false;
   private stopped = false;
   private ready = false;
   private restarts = 0;
   private lastError: string | undefined;
 
-  constructor(private readonly logger: LoggerLike) {
+  constructor(
+    private readonly logger: LoggerLike,
+    private readonly debugLog?: CodexDebugLog
+  ) {
     super();
   }
 
   async start() {
     if (this.ready && this.child) {
+      this.debugLog?.write("start.skip_ready", {
+        pid: this.child.pid ?? null
+      });
       return;
     }
 
     this.stopped = false;
+    this.debugLog?.write("start.begin", {
+      restarts: this.restarts
+    });
     this.spawnChild();
     await this.initialize();
   }
 
   async stop() {
+    this.debugLog?.write("stop.begin", {
+      pendingRequests: this.pending.size,
+      activeTurnCount: this.activeTurnIds.size,
+      pid: this.child?.pid ?? null
+    });
     this.stopped = true;
     this.ready = false;
     for (const [, pending] of this.pending) {
@@ -70,10 +91,12 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       this.child.kill();
       this.child = null;
     }
+    this.debugLog?.write("stop.complete");
   }
 
   async createThread(cwd: string) {
     await this.ensureReady();
+    this.debugLog?.write("thread.create.request", { cwd });
     const started = await this.request("thread/start", {
       cwd,
       approvalPolicy: "never",
@@ -86,6 +109,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     if (!threadId) {
       throw new Error("Codex did not return a thread id");
     }
+    this.debugLog?.write("thread.create.result", { cwd, threadId });
     return { threadId };
   }
 
@@ -125,6 +149,12 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     return thread;
   }
 
+  async readAccountRateLimits(): Promise<CodexAccountRateLimits | null> {
+    await this.ensureReady();
+    const response = await this.request("account/rateLimits/read", undefined);
+    return this.extractAccountRateLimits(response);
+  }
+
   async setThreadName(threadId: string, name: string) {
     await this.ensureReady();
     await this.request("thread/name/set", {
@@ -138,11 +168,22 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     await this.request("thread/archive", { threadId });
   }
 
+  async unarchiveThread(threadId: string) {
+    await this.ensureReady();
+    await this.request("thread/unarchive", { threadId });
+  }
+
   async ensureThread(params: EnsureThreadParams) {
     await this.ensureReady();
     if (params.threadId) {
+      this.debugLog?.write("thread.resume.request", {
+        threadId: params.threadId,
+        sessionId: params.sessionId ?? null,
+        cwd: params.cwd
+      });
       const resumed = await this.request("thread/resume", {
         threadId: params.threadId,
+        path: params.path ?? null,
         cwd: params.cwd,
         approvalPolicy: "never",
         sandbox: "danger-full-access",
@@ -151,7 +192,13 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       if (params.sessionId) {
         this.sessionByThread.set(params.threadId, params.sessionId);
       }
-      return { threadId: this.extractThreadId(resumed) ?? params.threadId };
+      const threadId = this.extractThreadId(resumed) ?? params.threadId;
+      this.debugLog?.write("thread.resume.result", {
+        threadId,
+        requestedThreadId: params.threadId,
+        sessionId: params.sessionId ?? null
+      });
+      return { threadId };
     }
 
     const { threadId } = await this.createThread(params.cwd);
@@ -167,6 +214,12 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       sessionId: params.sessionId,
       cwd: params.cwd,
       threadId: params.threadId
+    });
+    this.debugLog?.write("turn.start.request", {
+      runId: params.runId,
+      sessionId: params.sessionId ?? ensured.threadId,
+      threadId: ensured.threadId,
+      inputCount: params.input.length
     });
     const response = await this.request("turn/start", {
       threadId: ensured.threadId,
@@ -185,6 +238,14 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       sessionId: params.sessionId ?? ensured.threadId,
       runId: params.runId
     });
+    this.activeTurnIds.add(turnId);
+    this.debugLog?.write("turn.start.result", {
+      runId: params.runId,
+      sessionId: params.sessionId ?? ensured.threadId,
+      threadId: ensured.threadId,
+      turnId,
+      activeTurnCount: this.activeTurnIds.size
+    });
 
     return {
       threadId: ensured.threadId,
@@ -194,6 +255,11 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
 
   async interruptRun(runId: string, _threadId: string, turnId: string) {
     await this.ensureReady();
+    this.debugLog?.write("turn.interrupt.request", {
+      runId,
+      threadId: _threadId,
+      turnId
+    });
     await this.request("turn/interrupt", { turnId, threadId: _threadId });
     const mapping = this.runByTurn.get(turnId);
     if (mapping) {
@@ -223,13 +289,35 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
   }
 
   private spawnChild() {
-    this.child = spawn("codex", ["app-server", "--listen", "stdio://"], {
+    this.debugLog?.write("child.spawn.request", {
+      command: "codex",
+      args: ["app-server", "--listen", "stdio://"],
+      restarts: this.restarts
+    });
+    const child = spawn("codex", ["app-server", "--listen", "stdio://"], {
       stdio: ["pipe", "pipe", "pipe"]
     });
+    this.child = child;
     this.buffer = "";
 
-    this.child.stdout.setEncoding("utf8");
-    this.child.stdout.on("data", (chunk: string) => {
+    child.on("spawn", () => {
+      this.debugLog?.write("child.spawn", {
+        pid: child.pid ?? null,
+        restarts: this.restarts
+      });
+    });
+
+    child.on("error", (error) => {
+      this.lastError = error.message;
+      this.debugLog?.write("child.error", {
+        pid: child.pid ?? null,
+        error
+      });
+      this.logger.error(error.message);
+    });
+
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
       this.buffer += chunk;
       let newlineIndex = this.buffer.indexOf("\n");
       while (newlineIndex >= 0) {
@@ -242,18 +330,49 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       }
     });
 
-    this.child.stderr.setEncoding("utf8");
-    this.child.stderr.on("data", (chunk: string) => {
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
       const text = chunk.trim();
       if (text) {
+        this.debugLog?.write("child.stderr", {
+          pid: child.pid ?? null,
+          text
+        });
         this.logger.warn(text);
       }
     });
+    child.stdout.on("close", () => {
+      this.debugLog?.write("child.stdout.closed", {
+        pid: child.pid ?? null
+      });
+    });
+    child.stderr.on("close", () => {
+      this.debugLog?.write("child.stderr.closed", {
+        pid: child.pid ?? null
+      });
+    });
 
-    this.child.on("exit", (code, signal) => {
+    child.on("close", (code, signal) => {
+      this.debugLog?.write("child.close", {
+        pid: child.pid ?? null,
+        code: code ?? null,
+        signal: signal ?? null
+      });
+    });
+
+    child.on("exit", (code, signal) => {
       this.ready = false;
+      const pid = child.pid ?? null;
       this.child = null;
       this.lastError = `codex app-server exited (${code ?? "null"} / ${signal ?? "null"})`;
+      this.debugLog?.write("child.exit", {
+        pid,
+        code: code ?? null,
+        signal: signal ?? null,
+        pendingRequests: this.pending.size,
+        activeTurnIds: [...this.activeTurnIds],
+        lastError: this.lastError
+      });
       if (!this.stopped && !this.restarting) {
         this.restarts += 1;
         this.restarting = true;
@@ -261,10 +380,19 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
           type: "backend.degraded",
           reason: this.lastError
         });
+        this.debugLog?.write("child.restart.scheduled", {
+          restarts: this.restarts,
+          delayMs: 700,
+          reason: this.lastError
+        });
         setTimeout(() => {
           this.restarting = false;
           void this.start().catch((error: Error) => {
             this.lastError = error.message;
+            this.debugLog?.write("child.restart.failed", {
+              restarts: this.restarts,
+              error
+            });
             this.logger.error(error.message);
           });
         }, 700);
@@ -273,6 +401,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
   }
 
   private async initialize() {
+    this.debugLog?.write("initialize.request");
     await this.request("initialize", {
       clientInfo: {
         name: "codex_remote_web",
@@ -289,6 +418,9 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       params: {}
     });
     this.ready = true;
+    this.debugLog?.write("initialize.ready", {
+      pid: this.child?.pid ?? null
+    });
   }
 
   private handleLine(line: string) {
@@ -296,6 +428,9 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     try {
       message = JSON.parse(line) as JsonRpcMessage;
     } catch (error) {
+      this.debugLog?.write("child.stdout.non_json", {
+        line
+      });
       this.logger.warn(`Non-JSON stdout from codex app-server: ${line}`);
       return;
     }
@@ -308,14 +443,27 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       }
       this.pending.delete(requestId);
       if (message.error) {
+        this.debugLog?.write("request.error", {
+          requestId,
+          method: pending.method,
+          message: message.error.message ?? null
+        });
         pending.reject(new Error(message.error.message ?? `Codex request failed: ${pending.method}`));
       } else {
+        this.debugLog?.write("request.result", {
+          requestId,
+          method: pending.method
+        });
         pending.resolve(message.result);
       }
       return;
     }
 
     if (message.method && message.id !== undefined) {
+      this.debugLog?.write("server.request.unhandled", {
+        requestId: message.id,
+        method: message.method
+      });
       this.logger.warn(`Unhandled server request from codex app-server: ${message.method}`);
       this.send({
         id: message.id,
@@ -486,6 +634,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       }
 
       if (payload.turn?.status === "completed") {
+        this.markTurnFinished(turnId, "completed");
         this.emitBridgeEvent({
           type: "run.completed",
           sessionId: mapping.sessionId,
@@ -493,6 +642,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
           turnId
         });
       } else if (payload.turn?.status === "interrupted") {
+        this.markTurnFinished(turnId, "interrupted");
         this.emitBridgeEvent({
           type: "run.interrupted",
           sessionId: mapping.sessionId,
@@ -500,6 +650,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
           turnId
         });
       } else {
+        this.markTurnFinished(turnId, "failed", payload.turn?.error?.message ?? "Codex turn failed");
         this.emitBridgeEvent({
           type: "run.error",
           sessionId: mapping.sessionId,
@@ -514,6 +665,10 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     if (method === "error") {
       const payload = params as { threadId?: string; turnId?: string; error?: { message?: string } };
       if (!payload.turnId) {
+        this.debugLog?.write("backend.error", {
+          threadId: payload.threadId ?? null,
+          message: payload.error?.message ?? "Codex backend error"
+        });
         this.emitBridgeEvent({
           type: "backend.degraded",
           reason: payload.error?.message ?? "Codex backend error"
@@ -524,6 +679,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       if (!mapping) {
         return;
       }
+      this.markTurnFinished(payload.turnId, "failed", payload.error?.message ?? "Codex backend error");
       this.emitBridgeEvent({
         type: "run.error",
         sessionId: mapping.sessionId,
@@ -605,9 +761,27 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     this.emit("event", event);
   }
 
+  private markTurnFinished(turnId: string, status: "completed" | "interrupted" | "failed", message?: string) {
+    this.activeTurnIds.delete(turnId);
+    const mapping = this.runByTurn.get(turnId);
+    this.debugLog?.write("turn.finished", {
+      turnId,
+      status,
+      message: message ?? null,
+      runId: mapping?.runId ?? null,
+      sessionId: mapping?.sessionId ?? null,
+      activeTurnCount: this.activeTurnIds.size
+    });
+  }
+
   private request(method: string, params: unknown) {
     const id = this.nextId++;
     return new Promise<unknown>((resolve, reject) => {
+      this.debugLog?.write("request.send", {
+        requestId: id,
+        method,
+        pendingRequests: this.pending.size + 1
+      });
       this.pending.set(id, {
         resolve,
         reject,
@@ -619,6 +793,10 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
 
   private send(payload: Record<string, unknown>) {
     if (!this.child?.stdin.writable) {
+      this.debugLog?.write("stdin.unwritable", {
+        payload,
+        pid: this.child?.pid ?? null
+      });
       throw new Error("Codex app-server stdin is not writable");
     }
     this.child.stdin.write(`${JSON.stringify(payload)}\n`);
@@ -638,5 +816,121 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     }
     const turn = (result as { turn?: { id?: string } }).turn;
     return typeof turn?.id === "string" ? turn.id : null;
+  }
+
+  private extractAccountRateLimits(result: unknown): CodexAccountRateLimits | null {
+    if (!result || typeof result !== "object") {
+      return null;
+    }
+
+    const payload = result as {
+      rateLimits?: unknown;
+      rateLimitsByLimitId?: unknown;
+    };
+    const rateLimits = this.extractRateLimitSnapshot(payload.rateLimits);
+    if (!rateLimits) {
+      return null;
+    }
+
+    return {
+      rateLimits,
+      rateLimitsByLimitId: this.extractRateLimitSnapshotMap(payload.rateLimitsByLimitId)
+    };
+  }
+
+  private extractRateLimitSnapshotMap(value: unknown): Record<string, CodexRateLimitSnapshot> | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const entries = Object.entries(value).flatMap(([key, snapshot]) => {
+      const normalized = this.extractRateLimitSnapshot(snapshot);
+      return normalized ? ([[key, normalized]] as const) : [];
+    });
+
+    return Object.fromEntries(entries);
+  }
+
+  private extractRateLimitSnapshot(value: unknown): CodexRateLimitSnapshot | null {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const snapshot = value as {
+      limitId?: unknown;
+      limitName?: unknown;
+      primary?: unknown;
+      secondary?: unknown;
+      credits?: unknown;
+      planType?: unknown;
+    };
+
+    return {
+      limitId: typeof snapshot.limitId === "string" ? snapshot.limitId : null,
+      limitName: typeof snapshot.limitName === "string" ? snapshot.limitName : null,
+      primary: this.extractRateLimitWindow(snapshot.primary),
+      secondary: this.extractRateLimitWindow(snapshot.secondary),
+      credits: this.extractRateLimitCredits(snapshot.credits),
+      planType: this.extractPlanType(snapshot.planType)
+    };
+  }
+
+  private extractRateLimitWindow(value: unknown): CodexRateLimitWindow | null {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const windowData = value as {
+      usedPercent?: unknown;
+      windowDurationMins?: unknown;
+      resetsAt?: unknown;
+    };
+    const usedPercent = typeof windowData.usedPercent === "number" ? windowData.usedPercent : null;
+    if (usedPercent === null) {
+      return null;
+    }
+
+    return {
+      usedPercent,
+      windowDurationMins: typeof windowData.windowDurationMins === "number" ? windowData.windowDurationMins : null,
+      resetsAt: typeof windowData.resetsAt === "number" ? windowData.resetsAt : null
+    };
+  }
+
+  private extractRateLimitCredits(value: unknown): CodexRateLimitCredits | null {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const credits = value as {
+      hasCredits?: unknown;
+      unlimited?: unknown;
+      balance?: unknown;
+    };
+
+    return {
+      hasCredits: Boolean(credits.hasCredits),
+      unlimited: Boolean(credits.unlimited),
+      balance: typeof credits.balance === "string" ? credits.balance : null
+    };
+  }
+
+  private extractPlanType(value: unknown): CodexPlanType | null {
+    const planTypes: CodexPlanType[] = [
+      "free",
+      "go",
+      "plus",
+      "pro",
+      "team",
+      "business",
+      "enterprise",
+      "edu",
+      "unknown"
+    ];
+
+    return typeof value === "string" && planTypes.includes(value as CodexPlanType) ? (value as CodexPlanType) : null;
   }
 }

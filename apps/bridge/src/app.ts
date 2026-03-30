@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import path from "node:path";
 
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
@@ -8,24 +7,44 @@ import Fastify from "fastify";
 import { z } from "zod";
 
 import type {
+  AccountRateLimitsResponse,
   ClientWsEvent,
   CreateRunRequest,
   CreateSessionRequest,
+  DeletePushSubscriptionRequest,
+  NotificationsConfigResponse,
+  SavePushSubscriptionRequest,
   SessionDetail,
   SessionFilter,
   SessionSummary
 } from "../../../packages/shared-types/src/index";
+import { presentAccountRateLimits, unavailableAccountRateLimits } from "./account/rate-limits";
 import { LiveCatalogService } from "./catalog/live-catalog-service";
 import { createCodexBackend } from "./codex/index";
 import { loadConfig } from "./config/env";
 import { readRepoConfigOptional } from "./config/repos";
+import { PushNotificationService } from "./notifications/push-notification-service";
+import { CodexDebugLog } from "./observability/codex-debug-log";
 import { RealtimeGateway } from "./realtime/realtime-gateway";
 import { RunService } from "./runs/run-service";
 import { ImageUploadService } from "./uploads/image-upload-service";
 
-const filterSchema = z.enum(["all", "running", "unread", "completed", "error"]).optional();
+const filterSchema = z.enum(["all", "running", "unread", "completed", "error", "archived"]).optional();
 const renameSessionSchema = z.object({
   title: z.string().trim().min(1)
+});
+const savePushSubscriptionSchema = z.object({
+  endpoint: z.string().url(),
+  expirationTime: z.number().nullable().optional(),
+  keys: z.object({
+    p256dh: z.string().min(1),
+    auth: z.string().min(1)
+  }),
+  userAgent: z.string().optional(),
+  platform: z.string().optional()
+});
+const deletePushSubscriptionSchema = z.object({
+  endpoint: z.string().url()
 });
 
 export async function buildApp() {
@@ -63,7 +82,13 @@ export async function buildApp() {
     }
   });
 
-  const codex = await createCodexBackend(config.codexMode, app.log);
+  const codexDebugLog = new CodexDebugLog(config.codexDebugLogFile, {
+    bridgePid: process.pid,
+    listenPort: config.port
+  });
+  app.log.info({ path: config.codexDebugLogFile }, "Codex app-server debug log enabled");
+
+  const codex = await createCodexBackend(config.codexMode, app.log, codexDebugLog);
   const uploads = new ImageUploadService(
     config.uploadsDir,
     "/api/uploads/",
@@ -72,12 +97,13 @@ export async function buildApp() {
   );
   const repoConfig = readRepoConfigOptional(config.reposFile);
   const catalog = new LiveCatalogService(codex, repoConfig, uploads);
+  const pushNotifications = new PushNotificationService(config.dbFile, config, app.log);
   const realtime = new RealtimeGateway((event: ClientWsEvent) => {
     if (event.type === "ping") {
       realtime.broadcastPong();
     }
   });
-  const runs = new RunService(config, catalog, realtime, codex, uploads);
+  const runs = new RunService(config, catalog, realtime, codex, uploads, pushNotifications, app.log);
   const presentSessions = (sessions: SessionSummary[]) => runs.presentSessionSummaries(sessions);
   const presentDetail = (detail: SessionDetail) => runs.presentSessionDetail(detail);
 
@@ -101,6 +127,44 @@ export async function buildApp() {
       activeRuns: runs.getActiveRunsCount()
     }
   }));
+
+  app.get("/api/notifications/config", async (): Promise<NotificationsConfigResponse> =>
+    pushNotifications.getClientConfig()
+  );
+
+  app.get("/api/account/rate-limits", async (): Promise<AccountRateLimitsResponse> => {
+    if (codex.getState().mode !== "real") {
+      return unavailableAccountRateLimits("Usage limits are not available in mock mode.");
+    }
+
+    try {
+      const rateLimits = await codex.readAccountRateLimits();
+      if (!rateLimits) {
+        return unavailableAccountRateLimits("Usage limits are not available right now.");
+      }
+
+      return {
+        available: true,
+        rateLimits: presentAccountRateLimits(rateLimits),
+        error: null
+      };
+    } catch (error) {
+      app.log.warn({ err: error }, "Unable to read account rate limits");
+      return unavailableAccountRateLimits("Usage limits are not available right now.");
+    }
+  });
+
+  app.post("/api/notifications/subscriptions", async (request) => {
+    const body = savePushSubscriptionSchema.parse(request.body) as SavePushSubscriptionRequest;
+    pushNotifications.saveSubscription(body);
+    return { ok: true };
+  });
+
+  app.delete("/api/notifications/subscriptions", async (request) => {
+    const body = deletePushSubscriptionSchema.parse(request.body) as DeletePushSubscriptionRequest;
+    pushNotifications.deleteSubscription(body.endpoint);
+    return { ok: true };
+  });
 
   app.get("/api/repos", async () => ({
     repos: await catalog.listRepos()
@@ -217,10 +281,31 @@ export async function buildApp() {
 
     try {
       await catalog.archiveSession(params.sessionId);
-      realtime.broadcastSession(runs.presentSessionSummary(detail.session));
-      return { ok: true };
+      const updated = presentDetail(await catalog.getSessionDetail(params.sessionId));
+      realtime.broadcastSession(updated.session);
+      realtime.broadcastSessionDetail(updated);
+      realtime.broadcastRepos(await catalog.listRepos());
+      return updated;
     } catch (error) {
       return reply.code(400).send({ message: error instanceof Error ? error.message : "Unable to archive session" });
+    }
+  });
+
+  app.post("/api/sessions/:sessionId/restore", async (request, reply) => {
+    const params = z.object({ sessionId: z.string().min(1) }).parse(request.params);
+    const detail = presentDetail(await catalog.getSessionDetail(params.sessionId));
+    if (!detail) {
+      return reply.code(404).send({ message: "Session not found" });
+    }
+
+    try {
+      const restored = presentDetail(await catalog.restoreSession(params.sessionId));
+      realtime.broadcastSession(restored.session);
+      realtime.broadcastSessionDetail(restored);
+      realtime.broadcastRepos(await catalog.listRepos());
+      return restored;
+    } catch (error) {
+      return reply.code(400).send({ message: error instanceof Error ? error.message : "Unable to restore session" });
     }
   });
 
@@ -297,12 +382,14 @@ export async function buildApp() {
       if (request.url.startsWith("/api") || request.url.startsWith("/ws")) {
         return reply.code(404).send({ message: "Not found" });
       }
-      return reply.sendFile(path.join(config.webDistDir, "index.html"));
+      return reply.type("text/html").sendFile("index.html");
     });
   }
 
   app.addHook("onClose", async () => {
+    pushNotifications.close();
     await codex.stop();
+    codexDebugLog.close();
   });
 
   return {

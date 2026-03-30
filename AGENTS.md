@@ -72,6 +72,7 @@ npm run build -w @codex-remote/web
 - TypeScript strict mode (`strict: true`, `noUncheckedIndexedAccess: true`)
 - backend の dev は `tsx watch`、build は `tsup`
 - frontend の build は `vite build`
+- user-facing UI copy は英語を既定とする
 - 日本語コメント・ドキュメント OK
 
 ## Documentation Notes

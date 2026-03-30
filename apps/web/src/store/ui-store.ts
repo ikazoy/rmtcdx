@@ -88,6 +88,8 @@ type UiState = {
   removeActivity: (sessionId: string, itemId: string) => void;
   clearActivities: (sessionId: string) => void;
   toggleRepoCollapsed: (repoName: string) => void;
+  collapseRepos: (repoNames: string[]) => void;
+  expandRepos: (repoNames: string[]) => void;
 };
 
 export const useUiStore = create<UiState>((set) => ({
@@ -190,6 +192,26 @@ export const useUiStore = create<UiState>((set) => ({
         next.delete(repoName);
       } else {
         next.add(repoName);
+      }
+      persistCollapsedRepos(next);
+      return { collapsedRepos: next };
+    }),
+  collapseRepos: (repoNames) =>
+    set((state) => {
+      const next = new Set(state.collapsedRepos);
+      for (const repoName of repoNames) {
+        if (repoName) {
+          next.add(repoName);
+        }
+      }
+      persistCollapsedRepos(next);
+      return { collapsedRepos: next };
+    }),
+  expandRepos: (repoNames) =>
+    set((state) => {
+      const next = new Set(state.collapsedRepos);
+      for (const repoName of repoNames) {
+        next.delete(repoName);
       }
       persistCollapsedRepos(next);
       return { collapsedRepos: next };

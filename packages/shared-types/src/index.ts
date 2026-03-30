@@ -40,6 +40,7 @@ export type SessionSummary = {
   summary: string;
   codexThreadId?: string;
   status: SessionStatus;
+  isArchived: boolean;
   unreadCount: number;
   lastEventSeq: number;
   lastReadEventSeq: number;
@@ -172,6 +173,72 @@ export type UpdateSessionRequest = {
   title: string;
 };
 
+export type NotificationsConfigResponse = {
+  notifications: {
+    available: boolean;
+    vapidPublicKey: string | null;
+  };
+};
+
+export type SavePushSubscriptionRequest = {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  userAgent?: string;
+  platform?: string;
+};
+
+export type DeletePushSubscriptionRequest = {
+  endpoint: string;
+};
+
+export type AccountPlanType =
+  | "free"
+  | "go"
+  | "plus"
+  | "pro"
+  | "team"
+  | "business"
+  | "enterprise"
+  | "edu"
+  | "unknown";
+
+export type AccountRateLimitWindow = {
+  usedPercent: number;
+  windowDurationMins: number | null;
+  resetsAt: string | null;
+};
+
+export type AccountRateLimitCredits = {
+  hasCredits: boolean;
+  unlimited: boolean;
+  balance: string | null;
+};
+
+export type AccountRateLimitSnapshot = {
+  limitId: string | null;
+  limitName: string | null;
+  primary: AccountRateLimitWindow | null;
+  secondary: AccountRateLimitWindow | null;
+  credits: AccountRateLimitCredits | null;
+  planType: AccountPlanType | null;
+};
+
+export type AccountRateLimits = {
+  rateLimits: AccountRateLimitSnapshot;
+  rateLimitsByLimitId: Record<string, AccountRateLimitSnapshot> | null;
+  fetchedAt: string;
+};
+
+export type AccountRateLimitsResponse = {
+  available: boolean;
+  rateLimits: AccountRateLimits | null;
+  error: string | null;
+};
+
 export type ClientWsEvent =
   | { type: "ping" }
   | { type: "session.read"; sessionId: string };
@@ -200,5 +267,5 @@ export type ServerWsEvent =
     }
   | { type: "backend.degraded"; reason: string };
 
-export const SESSION_FILTERS = ["all", "running", "unread", "completed", "error"] as const;
+export const SESSION_FILTERS = ["all", "running", "unread", "completed", "error", "archived"] as const;
 export type SessionFilter = (typeof SESSION_FILTERS)[number];

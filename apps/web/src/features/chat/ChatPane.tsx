@@ -1,5 +1,12 @@
 import { memo, useEffect, useRef, useState } from "react";
-import type { ChangeEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
+import type {
+  CSSProperties,
+  ChangeEvent,
+  KeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+  RefObject
+} from "react";
 import ReactMarkdown from "react-markdown";
 import remend from "remend";
 import remarkGfm from "remark-gfm";
@@ -12,9 +19,23 @@ import type {
   SessionDetail
 } from "../../../../../packages/shared-types/src/index";
 import { formatRelativeTime } from "../../components/formatters";
+import { sessionDisplayStatus } from "../sessions/session-state";
 
 const MAX_IMAGE_ATTACHMENTS = 5;
-const TIMELINE_PIN_THRESHOLD_PX = 24;
+const TIMELINE_PIN_THRESHOLD_MIN_PX = 120;
+const TIMELINE_PIN_THRESHOLD_MAX_PX = 220;
+const TIMELINE_PIN_THRESHOLD_VIEWPORT_RATIO = 0.18;
+
+function timelinePinThresholdPx() {
+  if (typeof window === "undefined") {
+    return TIMELINE_PIN_THRESHOLD_MIN_PX;
+  }
+
+  return Math.min(
+    TIMELINE_PIN_THRESHOLD_MAX_PX,
+    Math.max(TIMELINE_PIN_THRESHOLD_MIN_PX, Math.round(window.innerHeight * TIMELINE_PIN_THRESHOLD_VIEWPORT_RATIO))
+  );
+}
 
 type OptimisticUserMessage = {
   prompt: string;
@@ -73,6 +94,7 @@ type Props = {
   messages: Message[];
   streamingText: string;
   liveActivities: LiveActivity[];
+  isMobileViewport: boolean;
   optimisticMessage?: OptimisticUserMessage | null;
   wsState: string;
   backendMode: "real" | "mock" | undefined;
@@ -82,16 +104,31 @@ type Props = {
   onInterrupt: () => Promise<void>;
   onRename: () => Promise<void>;
   onArchive: () => Promise<void>;
+  onRestore: () => Promise<void>;
   isSubmitting: boolean;
   isInterrupting: boolean;
   isRenaming: boolean;
   isArchiving: boolean;
+  isRestoring: boolean;
   canRename: boolean;
   canArchive: boolean;
+  canRestore: boolean;
 };
 
 function timelineIsPinnedToBottom(timeline: HTMLDivElement) {
-  return timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop <= TIMELINE_PIN_THRESHOLD_PX;
+  return timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop <= timelinePinThresholdPx();
+}
+
+function readRootScrollTop() {
+  if (typeof document === "undefined") {
+    return 0;
+  }
+
+  return document.scrollingElement?.scrollTop ?? window.scrollY ?? 0;
+}
+
+function timelineViewportIsPinnedToBottom(timelineEnd: HTMLElement, composerHeight: number) {
+  return timelineEnd.getBoundingClientRect().bottom <= window.innerHeight - composerHeight + timelinePinThresholdPx();
 }
 
 function revokeComposerImages(images: ComposerImage[]) {
@@ -287,34 +324,34 @@ function buildTimelineEntries(messages: Message[]): TimelineEntry[] {
   return entries;
 }
 
-function formatCountLabel(count: number, noun: string) {
-  return `${count}件の${noun}`;
+function formatCountLabel(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function formatCommandGroupTitle(count: number) {
-  return `${formatCountLabel(count, "コマンド")}を実行しました`;
+  return `Ran ${formatCountLabel(count, "command")}`;
 }
 
 function formatFileGroupTitle(count: number) {
-  return `${formatCountLabel(count, "ファイル")}を編集しました`;
+  return `Edited ${formatCountLabel(count, "file")}`;
 }
 
 function formatSearchGroupTitle(count: number) {
-  return `${formatCountLabel(count, "検索")}を実行しました`;
+  return `Ran ${formatCountLabel(count, "search", "searches")}`;
 }
 
 function commandStatusLabel(command: CommandExecutionEntry) {
   switch (command.status) {
     case "completed":
-      return command.exitCode === null || command.exitCode === 0 ? "完了" : `終了コード ${command.exitCode}`;
+      return command.exitCode === null || command.exitCode === 0 ? "Completed" : `Exit ${command.exitCode}`;
     case "failed":
-      return command.exitCode !== null ? `失敗 · exit ${command.exitCode}` : "失敗";
+      return command.exitCode !== null ? `Failed · exit ${command.exitCode}` : "Failed";
     case "inProgress":
-      return "実行中";
+      return "Running";
     case "declined":
-      return "拒否";
+      return "Declined";
     default:
-      return command.exitCode !== null ? `終了コード ${command.exitCode}` : "Bash";
+      return command.exitCode !== null ? `Exit ${command.exitCode}` : "Bash";
   }
 }
 
@@ -521,7 +558,7 @@ const SummaryCard = memo(function SummaryCard({
             </div>
           ))}
         </div>
-        {extraCount > 0 ? <div className="summary-card__more">+{extraCount}件</div> : null}
+        {extraCount > 0 ? <div className="summary-card__more">+{extraCount}</div> : null}
       </button>
     </article>
   );
@@ -843,13 +880,13 @@ function CommandDetailSheet({
       </div>
 
       <section className="sheet-terminal-block">
-        <span className="sheet-terminal-block__label">コマンド</span>
+        <span className="sheet-terminal-block__label">Command</span>
         <pre>{command.command}</pre>
       </section>
 
       <section className="sheet-terminal-block">
-        <span className="sheet-terminal-block__label">出力</span>
-        <pre>{command.output?.trim() || "出力はありません。"}</pre>
+        <span className="sheet-terminal-block__label">Output</span>
+        <pre>{command.output?.trim() || "No output."}</pre>
       </section>
     </BottomSheet>
   );
@@ -883,7 +920,7 @@ function FileChangeSheet({
             </div>
           ))
         ) : (
-          <p className="sheet-empty">この run にはファイル一覧の詳細がありません。</p>
+          <p className="sheet-empty">No file details were recorded for this run.</p>
         )}
       </div>
     </BottomSheet>
@@ -925,6 +962,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   optimisticMessage,
   showPendingAssistant,
   timelineRef,
+  timelineEndRef,
   showJumpToLatest,
   hasQueuedUpdates,
   onJumpToLatest,
@@ -940,6 +978,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   optimisticMessage?: OptimisticUserMessage | null;
   showPendingAssistant: boolean;
   timelineRef: RefObject<HTMLDivElement | null>;
+  timelineEndRef: RefObject<HTMLDivElement | null>;
   showJumpToLatest: boolean;
   hasQueuedUpdates: boolean;
   onJumpToLatest: () => void;
@@ -954,8 +993,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
     messages.some((message) => optimisticMessage ? messageMatchesOptimistic(message, optimisticMessage) : false);
   const showTimelineSkeleton =
     isLoadingMessages && messages.length === 0 && !streamingText && !optimisticMessage && !showPendingAssistant;
-  const showEmptyState =
-    !showTimelineSkeleton && messages.length === 0 && !streamingText && !optimisticMessage && !showPendingAssistant;
 
   return (
     <div className="timeline-shell">
@@ -1080,12 +1117,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
             </>
           ) : null}
 
-          {showEmptyState ? (
-            <div className="empty-state empty-state--chat">
-              <strong>No conversation yet</strong>
-              <p>Start with a prompt and keep the session around for later follow-up work.</p>
-            </div>
-          ) : null}
+          <div ref={timelineEndRef} className="timeline-end" aria-hidden="true" />
         </div>
       </div>
 
@@ -1108,17 +1140,29 @@ const ConversationTimeline = memo(function ConversationTimeline({
 function ChatSkeletonContent() {
   return (
     <>
-      <div className="chat-head">
-        <div>
-          <div className="skeleton skeleton--title" />
-          <div className="skeleton skeleton--subtitle" />
+      <div className="chat-topbar">
+        <div className="chat-head">
+          <div>
+            <div className="skeleton skeleton--title" />
+            <div className="skeleton skeleton--subtitle" />
+          </div>
         </div>
       </div>
-      <div className="timeline-wrap">
-        <div className="timeline">
-          <div className="skeleton skeleton--message skeleton--message-wide" />
-          <div className="skeleton skeleton--message" />
-          <div className="skeleton skeleton--message skeleton--message-wide" />
+      <div className="timeline-shell">
+        <div className="timeline-wrap">
+          <div className="timeline">
+            <div className="skeleton skeleton--message skeleton--message-wide" />
+            <div className="skeleton skeleton--message" />
+            <div className="skeleton skeleton--message skeleton--message-wide" />
+          </div>
+        </div>
+      </div>
+      <div className="composer-shell composer-shell--loading" aria-hidden="true">
+        <div className="composer composer--loading">
+          <div className="composer-field composer-field--loading">
+            <div className="skeleton composer-skeleton composer-skeleton--input" />
+            <div className="skeleton composer-skeleton composer-skeleton--button" />
+          </div>
         </div>
       </div>
     </>
@@ -1132,6 +1176,7 @@ export function ChatPane({
   messages,
   streamingText,
   liveActivities,
+  isMobileViewport,
   optimisticMessage,
   wsState,
   backendMode,
@@ -1141,15 +1186,20 @@ export function ChatPane({
   onInterrupt,
   onRename,
   onArchive,
+  onRestore,
   isSubmitting,
   isInterrupting,
   isRenaming,
   isArchiving,
+  isRestoring,
   canRename,
-  canArchive
+  canArchive,
+  canRestore
 }: Props) {
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  const timelineEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerShellRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const selectedImagesRef = useRef<ComposerImage[]>([]);
@@ -1166,15 +1216,24 @@ export function ChatPane({
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [hasQueuedUpdates, setHasQueuedUpdates] = useState(false);
+  const [composerShellHeight, setComposerShellHeight] = useState(0);
+  const [visualViewportBottomInset, setVisualViewportBottomInset] = useState(0);
 
   const activeRunState = detail?.activeRun?.status ?? null;
   const latestRunState = detail?.latestRun?.status ?? null;
+  const sessionIsArchived = Boolean(detail?.session.isArchived);
   const sessionIsRunning = activeRunState === "running" || detail?.session.status === "running";
   const hasPendingRun = sessionIsRunning || isSubmitting || Boolean(optimisticMessage);
   const canInterruptRun = Boolean(detail?.activeRun?.id) && !isSubmitting;
   const bannerRunState = activeRunState ?? (sessionIsRunning ? "running" : null) ?? (latestRunState === "error" ? "error" : null);
+  const sessionBadgeState = detail ? sessionDisplayStatus(detail.session) : "idle";
   const showPendingAssistant =
     !streamingText && (Boolean(optimisticMessage) || sessionIsRunning || isSubmitting);
+  const showComposerEmptyState =
+    !isLoadingMessages && messages.length === 0 && !streamingText && !optimisticMessage && !showPendingAssistant;
+  const usesRootScroll = isMobileViewport;
+
+  const readCurrentScrollTop = () => (usesRootScroll ? readRootScrollTop() : timelineRef.current?.scrollTop ?? 0);
 
   const disableAutoFollow = () => {
     autoFollowEnabledRef.current = false;
@@ -1182,12 +1241,9 @@ export function ChatPane({
   };
 
   const syncTimelinePinnedState = (scrollDelta = 0, isProgrammaticScroll = false) => {
-    const timeline = timelineRef.current;
-    if (!timeline) {
-      return;
-    }
-
-    const pinnedToBottom = timelineIsPinnedToBottom(timeline);
+    const pinnedToBottom = usesRootScroll
+      ? (timelineEndRef.current ? timelineViewportIsPinnedToBottom(timelineEndRef.current, composerShellHeight) : true)
+      : (timelineRef.current ? timelineIsPinnedToBottom(timelineRef.current) : true);
 
     if (!isProgrammaticScroll && scrollDelta < -1) {
       disableAutoFollow();
@@ -1206,28 +1262,23 @@ export function ChatPane({
   };
 
   const scrollTimelineToBottom = (behavior: ScrollBehavior = "auto") => {
-    const timeline = timelineRef.current;
-    if (!timeline) {
+    const timelineEnd = timelineEndRef.current;
+    if (!timelineEnd) {
       return;
     }
 
     autoFollowEnabledRef.current = true;
     shouldScrollToBottomRef.current = false;
     isProgrammaticScrollRef.current = true;
-    timeline.scrollTo({ top: timeline.scrollHeight, behavior });
-    lastTimelineScrollTopRef.current = timeline.scrollTop;
+    timelineEnd.scrollIntoView({ block: "end", behavior });
+    lastTimelineScrollTopRef.current = readCurrentScrollTop();
     isPinnedToBottomRef.current = true;
     setShowJumpToLatest(false);
     setHasQueuedUpdates(false);
 
     window.requestAnimationFrame(() => {
       isProgrammaticScrollRef.current = false;
-
-      if (!timelineRef.current) {
-        return;
-      }
-
-      lastTimelineScrollTopRef.current = timelineRef.current.scrollTop;
+      lastTimelineScrollTopRef.current = readCurrentScrollTop();
       syncTimelinePinnedState(0, true);
     });
   };
@@ -1237,6 +1288,59 @@ export function ChatPane({
   }, [selectedImages]);
 
   useEffect(() => () => revokeComposerImages(selectedImagesRef.current), []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const viewport = window.visualViewport;
+    if (!viewport) {
+      setVisualViewportBottomInset(0);
+      return;
+    }
+
+    const updateVisualViewportBottomInset = () => {
+      const bottomInset = Math.max(0, Math.ceil(window.innerHeight - viewport.height - viewport.offsetTop));
+      setVisualViewportBottomInset(bottomInset);
+    };
+
+    updateVisualViewportBottomInset();
+    viewport.addEventListener("resize", updateVisualViewportBottomInset);
+    viewport.addEventListener("scroll", updateVisualViewportBottomInset);
+    window.addEventListener("resize", updateVisualViewportBottomInset);
+
+    return () => {
+      viewport.removeEventListener("resize", updateVisualViewportBottomInset);
+      viewport.removeEventListener("scroll", updateVisualViewportBottomInset);
+      window.removeEventListener("resize", updateVisualViewportBottomInset);
+    };
+  }, []);
+
+  useEffect(() => {
+    const composerShell = composerShellRef.current;
+    if (!composerShell) {
+      setComposerShellHeight(0);
+      return;
+    }
+
+    const updateComposerShellHeight = () => {
+      setComposerShellHeight(Math.ceil(composerShell.getBoundingClientRect().height));
+    };
+
+    updateComposerShellHeight();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(() => {
+        updateComposerShellHeight();
+      });
+      observer.observe(composerShell);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener("resize", updateComposerShellHeight);
+    return () => window.removeEventListener("resize", updateComposerShellHeight);
+  }, [detail?.session.id, isMobileViewport]);
 
   useEffect(() => {
     if (!isActionsMenuOpen) {
@@ -1354,13 +1458,46 @@ export function ChatPane({
   }, [detail?.session.id]);
 
   useEffect(() => {
+    if (!showComposerEmptyState || sessionIsArchived) {
+      return;
+    }
+
+    let scrollTimeout: number | null = null;
+    const frame = window.requestAnimationFrame(() => {
+      const composer = composerRef.current;
+      if (!composer) {
+        return;
+      }
+
+      if (usesRootScroll) {
+        composer.focus();
+        scrollTimeout = window.setTimeout(() => {
+          composerShellRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
+        }, 250);
+        return;
+      }
+
+      composer.focus({ preventScroll: true });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (scrollTimeout !== null) {
+        window.clearTimeout(scrollTimeout);
+      }
+    };
+  }, [detail?.session.id, sessionIsArchived, showComposerEmptyState, usesRootScroll]);
+
+  useEffect(() => {
     const timeline = timelineRef.current;
-    if (!timeline) {
+    const scrollTarget = usesRootScroll ? window : timeline;
+    const touchTarget = usesRootScroll ? document : timeline;
+    if (!scrollTarget || !touchTarget) {
       return;
     }
 
     const handleScroll = () => {
-      const currentScrollTop = timeline.scrollTop;
+      const currentScrollTop = readCurrentScrollTop();
       const scrollDelta = currentScrollTop - lastTimelineScrollTopRef.current;
       const isProgrammaticScroll = isProgrammaticScrollRef.current;
 
@@ -1369,19 +1506,31 @@ export function ChatPane({
     };
 
     handleScroll();
-    timeline.addEventListener("scroll", handleScroll, { passive: true });
+    scrollTarget.addEventListener("scroll", handleScroll, { passive: true });
 
-    const handleWheel = (event: WheelEvent) => {
+    const handleWheel = (event: Event) => {
+      if (!(event instanceof WheelEvent)) {
+        return;
+      }
+
       if (event.deltaY < -1) {
         disableAutoFollow();
       }
     };
 
-    const handleTouchStart = (event: TouchEvent) => {
+    const handleTouchStart = (event: Event) => {
+      if (!(event instanceof TouchEvent)) {
+        return;
+      }
+
       touchStartYRef.current = event.touches[0]?.clientY ?? null;
     };
 
-    const handleTouchMove = (event: TouchEvent) => {
+    const handleTouchMove = (event: Event) => {
+      if (!(event instanceof TouchEvent)) {
+        return;
+      }
+
       const currentY = event.touches[0]?.clientY;
       if (touchStartYRef.current === null || typeof currentY !== "number") {
         return;
@@ -1396,24 +1545,33 @@ export function ChatPane({
       touchStartYRef.current = null;
     };
 
-    timeline.addEventListener("wheel", handleWheel, { passive: true });
-    timeline.addEventListener("touchstart", handleTouchStart, { passive: true });
-    timeline.addEventListener("touchmove", handleTouchMove, { passive: true });
-    timeline.addEventListener("touchend", resetTouchTracking, { passive: true });
-    timeline.addEventListener("touchcancel", resetTouchTracking, { passive: true });
+    scrollTarget.addEventListener("wheel", handleWheel, { passive: true });
+    touchTarget.addEventListener("touchstart", handleTouchStart, { passive: true });
+    touchTarget.addEventListener("touchmove", handleTouchMove, { passive: true });
+    touchTarget.addEventListener("touchend", resetTouchTracking, { passive: true });
+    touchTarget.addEventListener("touchcancel", resetTouchTracking, { passive: true });
 
     return () => {
-      timeline.removeEventListener("scroll", handleScroll);
-      timeline.removeEventListener("wheel", handleWheel);
-      timeline.removeEventListener("touchstart", handleTouchStart);
-      timeline.removeEventListener("touchmove", handleTouchMove);
-      timeline.removeEventListener("touchend", resetTouchTracking);
-      timeline.removeEventListener("touchcancel", resetTouchTracking);
+      scrollTarget.removeEventListener("scroll", handleScroll);
+      scrollTarget.removeEventListener("wheel", handleWheel);
+      touchTarget.removeEventListener("touchstart", handleTouchStart);
+      touchTarget.removeEventListener("touchmove", handleTouchMove);
+      touchTarget.removeEventListener("touchend", resetTouchTracking);
+      touchTarget.removeEventListener("touchcancel", resetTouchTracking);
     };
-  }, [detail?.session.id]);
+  }, [composerShellHeight, detail?.session.id, usesRootScroll]);
 
   useEffect(() => {
-    if (!timelineRef.current) {
+    const frame = window.requestAnimationFrame(() => {
+      lastTimelineScrollTopRef.current = readCurrentScrollTop();
+      syncTimelinePinnedState(0, isProgrammaticScrollRef.current);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [composerShellHeight, detail?.session.id, usesRootScroll]);
+
+  useEffect(() => {
+    if (!timelineEndRef.current) {
       return;
     }
 
@@ -1431,6 +1589,11 @@ export function ChatPane({
   }, [liveActivities, messages, optimisticMessage, showPendingAssistant, streamingText]);
 
   const handleSubmit = async () => {
+    if (sessionIsArchived) {
+      setSubmitError("Restore this thread before sending a prompt.");
+      return;
+    }
+
     const prompt = composerRef.current?.value.trim() ?? "";
     if (!prompt && selectedImages.length === 0) {
       return;
@@ -1539,107 +1702,136 @@ export function ChatPane({
   };
 
   return (
-    <div className="chat-card">
+    <div
+      className="chat-card"
+      style={
+        {
+          "--composer-shell-height": `${composerShellHeight}px`,
+          "--viewport-bottom-inset": `${visualViewportBottomInset}px`
+        } as CSSProperties
+      }
+    >
       {detail ? (
         <>
-          <div className="chat-head">
-            <div className="chat-head__lead">
-              <div className="chat-toolbar__left chat-head__nav">
-                <button
-                  aria-label="Back to sidebar"
-                  className="ghost-button ghost-button--back"
-                  onClick={() => void onBack()}
-                  title="Back"
-                  type="button"
-                >
-                  <SheetBackIcon />
-                </button>
+          <div className="chat-topbar">
+            <div className="chat-head">
+              <div className="chat-head__lead">
+                <div className="chat-toolbar__left chat-head__nav">
+                  <button
+                    aria-label="Back to sidebar"
+                    className="ghost-button ghost-button--back"
+                    onClick={() => void onBack()}
+                    title="Back"
+                    type="button"
+                  >
+                    <SheetBackIcon />
+                  </button>
+                </div>
+                <div className="chat-head__copy">
+                  <h2>
+                    <span
+                      className={["status-dot", `status-dot--${bannerRunState ?? sessionBadgeState}`].join(" ")}
+                    />
+                    {detail.session.title}
+                  </h2>
+                  <p className="subtle">
+                    Updated {formatRelativeTime(detail.session.updatedAt)} · {repoName ?? "unknown workspace"}
+                  </p>
+                </div>
               </div>
-              <div className="chat-head__copy">
-                <h2>
-                  <span
-                    className={[
-                      "status-dot",
-                      `status-dot--${bannerRunState ?? detail.session.status ?? "idle"}`
-                    ].join(" ")}
-                  />
-                  {detail.session.title}
-                </h2>
-                <p className="subtle">
-                  Updated {formatRelativeTime(detail.session.updatedAt)} · {repoName ?? "unknown workspace"}
-                </p>
-              </div>
+              {canRename || canArchive || canRestore ? (
+                <div ref={actionsMenuRef} className="sidebar-menu chat-head__menu">
+                  <button
+                    className="sidebar-menu__trigger chat-head__menu-trigger"
+                    onClick={() => setIsActionsMenuOpen((current) => !current)}
+                    type="button"
+                    aria-expanded={isActionsMenuOpen}
+                    aria-label="Open thread actions"
+                  >
+                    <span className="sr-only">Open thread actions</span>
+                    <MoreActionsIcon />
+                  </button>
+
+                  {isActionsMenuOpen ? (
+                    <div className="sidebar-menu__popover chat-head__menu-popover">
+                      <section className="sidebar-menu__section">
+                        <div className="sidebar-menu__list">
+                          {canRename ? (
+                            <button
+                              className="sidebar-menu__item"
+                              disabled={isRenaming || isArchiving || isRestoring}
+                              onClick={() => {
+                                setIsActionsMenuOpen(false);
+                                void onRename();
+                              }}
+                              type="button"
+                            >
+                              <span>{isRenaming ? "Renaming..." : "Rename"}</span>
+                            </button>
+                          ) : null}
+
+                          {canRestore ? (
+                            <button
+                              className="sidebar-menu__item"
+                              disabled={isRestoring || isRenaming || isArchiving}
+                              onClick={() => {
+                                setIsActionsMenuOpen(false);
+                                void onRestore();
+                              }}
+                              type="button"
+                            >
+                              <span>{isRestoring ? "Restoring..." : "Restore"}</span>
+                            </button>
+                          ) : null}
+
+                          {canArchive ? (
+                            <button
+                              className="sidebar-menu__item sidebar-menu__item--danger"
+                              disabled={
+                                isArchiving ||
+                                isRestoring ||
+                                isRenaming ||
+                                isSubmitting ||
+                                isInterrupting ||
+                                sessionIsRunning
+                              }
+                              onClick={() => {
+                                setIsActionsMenuOpen(false);
+                                void onArchive();
+                              }}
+                              type="button"
+                            >
+                              <span>{isArchiving ? "Archiving..." : "Archive"}</span>
+                            </button>
+                          ) : null}
+                        </div>
+                      </section>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-            {canRename || canArchive ? (
-              <div ref={actionsMenuRef} className="sidebar-menu chat-head__menu">
-                <button
-                  className="sidebar-menu__trigger chat-head__menu-trigger"
-                  onClick={() => setIsActionsMenuOpen((current) => !current)}
-                  type="button"
-                  aria-expanded={isActionsMenuOpen}
-                  aria-label="Open thread actions"
-                >
-                  <span className="sr-only">Open thread actions</span>
-                  <MoreActionsIcon />
-                </button>
 
-                {isActionsMenuOpen ? (
-                  <div className="sidebar-menu__popover chat-head__menu-popover">
-                    <section className="sidebar-menu__section">
-                      <div className="sidebar-menu__list">
-                        {canRename ? (
-                          <button
-                            className="sidebar-menu__item"
-                            disabled={isRenaming || isArchiving}
-                            onClick={() => {
-                              setIsActionsMenuOpen(false);
-                              void onRename();
-                            }}
-                            type="button"
-                          >
-                            <span>{isRenaming ? "Renaming..." : "Rename"}</span>
-                          </button>
-                        ) : null}
-
-                        {canArchive ? (
-                          <button
-                            className="sidebar-menu__item sidebar-menu__item--danger"
-                            disabled={isArchiving || isRenaming || isSubmitting || isInterrupting || sessionIsRunning}
-                            onClick={() => {
-                              setIsActionsMenuOpen(false);
-                              void onArchive();
-                            }}
-                            type="button"
-                          >
-                            <span>{isArchiving ? "Archiving..." : "Archive"}</span>
-                          </button>
-                        ) : null}
-                      </div>
-                    </section>
-                  </div>
-                ) : null}
+            {bannerRunState === "error" ? (
+              <div className="run-banner run-banner--error">
+                <div>
+                  <strong>Run error</strong>
+                  <p>
+                    {detail.latestRun?.finishedAt
+                      ? `Last run failed ${formatRelativeTime(detail.latestRun.finishedAt)}`
+                      : "The latest run failed."}
+                  </p>
+                </div>
               </div>
             ) : null}
           </div>
-
-          {bannerRunState === "error" ? (
-            <div className="run-banner run-banner--error">
-              <div>
-                <strong>Run error</strong>
-                <p>
-                  {detail.latestRun?.finishedAt
-                    ? `Last run failed ${formatRelativeTime(detail.latestRun.finishedAt)}`
-                    : "The latest run failed."}
-                </p>
-              </div>
-            </div>
-          ) : null}
 
           <ConversationTimeline
             messages={messages}
             isLoadingMessages={isLoadingMessages}
             streamingText={streamingText}
             liveActivities={liveActivities}
+            timelineEndRef={timelineEndRef}
             optimisticMessage={optimisticMessage}
             showPendingAssistant={showPendingAssistant}
             timelineRef={timelineRef}
@@ -1652,7 +1844,7 @@ export function ChatPane({
             onOpenImageViewer={(attachments, selectedIndex) => setImageViewerState({ attachments, selectedIndex })}
           />
 
-          <div className="composer-shell">
+          <div ref={composerShellRef} className="composer-shell">
             <div className="composer">
               <input
                 ref={fileInputRef}
@@ -1660,6 +1852,7 @@ export function ChatPane({
                 type="file"
                 accept="image/*"
                 multiple
+                disabled={sessionIsArchived}
                 onChange={handleImageSelect}
               />
               {selectedImages.length > 0 ? (
@@ -1683,7 +1876,8 @@ export function ChatPane({
                 <div className="composer-field">
                   <textarea
                     ref={composerRef}
-                    placeholder="Describe a task or ask a question..."
+                    placeholder={sessionIsArchived ? "Restore this thread to continue..." : "Describe a task or ask a question..."}
+                    disabled={sessionIsArchived}
                     onKeyDown={handleComposerKeyDown}
                     onInput={autoResize}
                     rows={1}
@@ -1694,7 +1888,7 @@ export function ChatPane({
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       aria-label="Attach images"
-                      disabled={isSubmitting || selectedImages.length >= MAX_IMAGE_ATTACHMENTS}
+                      disabled={sessionIsArchived || isSubmitting || selectedImages.length >= MAX_IMAGE_ATTACHMENTS}
                     >
                       <span className="sr-only">Attach images</span>
                       <ImageIcon />
@@ -1712,7 +1906,7 @@ export function ChatPane({
                     ) : (
                       <button
                         className="composer-send"
-                        disabled={isSubmitting}
+                        disabled={sessionIsArchived || isSubmitting}
                         onClick={() => void handleSubmit()}
                         type="button"
                         aria-label="Send"
@@ -1723,6 +1917,12 @@ export function ChatPane({
                   </div>
                 </div>
               </div>
+              {showComposerEmptyState ? (
+                <div className="composer-empty-state" aria-live="polite">
+                  <strong>No conversation yet</strong>
+                  <p>Start with a prompt and keep the session around for later follow-up work.</p>
+                </div>
+              ) : null}
               {selectedImages.length > 0 ? (
                 <div className="composer-meta">
                   <span>{selectedImages.length} / {MAX_IMAGE_ATTACHMENTS} images attached</span>
