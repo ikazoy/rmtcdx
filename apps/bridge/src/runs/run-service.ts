@@ -269,6 +269,16 @@ export class RunService {
       return;
     }
 
+    if (event.type === "request.created") {
+      this.realtime.broadcastCodexRequestCreated(event.sessionId, event.request);
+      return;
+    }
+
+    if (event.type === "request.resolved") {
+      this.realtime.broadcastCodexRequestResolved(event.sessionId, event.requestId);
+      return;
+    }
+
     const current = this.runsById.get(event.runId);
     if (!current) {
       return;

@@ -1,0 +1,47 @@
+{
+  "thread": {
+    "id": "thread_basic",
+    "preview": "Ask Codex to summarize this repo",
+    "createdAt": 1711756800,
+    "updatedAt": 1711756860,
+    "status": {
+      "type": "idle"
+    },
+    "cwd": "/fixtures/repo",
+    "path": null,
+    "name": null,
+    "modelProvider": "openai",
+    "source": "appServer",
+    "gitInfo": {
+      "sha": "abc123",
+      "branch": "main",
+      "originUrl": "https://example.test/repo.git"
+    },
+    "turns": [
+      {
+        "id": "turn_basic_1",
+        "status": "completed",
+        "error": null,
+        "items": [
+          {
+            "type": "userMessage",
+            "id": "user_basic_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "Ask Codex to summarize this repo",
+                "text_elements": []
+              }
+            ]
+          },
+          {
+            "type": "agentMessage",
+            "id": "assistant_basic_1",
+            "text": "This repo provides a web client for remote Codex sessions.",
+            "phase": "final"
+          }
+        ]
+      }
+    ]
+  }
+}

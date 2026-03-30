@@ -32,6 +32,7 @@
     "dev": "tsx watch src/main.ts",
     "build": "npm --prefix ../.. run build -w @codex-remote/web && tsc -p tsconfig.json --noEmit && tsup src/main.ts --format esm --out-dir dist --clean && node ./scripts/copy-web-dist.mjs",
     "start": "node dist/main.js",
+    "test": "tsx --test test/codex-compat/*.test.ts",
     "prepack": "npm --prefix ../.. run build"
   },
   "dependencies": {

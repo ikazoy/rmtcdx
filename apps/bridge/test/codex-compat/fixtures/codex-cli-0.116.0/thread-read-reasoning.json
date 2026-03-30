@@ -1,0 +1,62 @@
+{
+  "thread": {
+    "id": "thread_reasoning",
+    "preview": "Explain the rollout plan",
+    "createdAt": 1711757100,
+    "updatedAt": 1711757160,
+    "status": {
+      "type": "idle"
+    },
+    "cwd": "/fixtures/repo",
+    "path": null,
+    "name": null,
+    "modelProvider": "openai",
+    "source": "appServer",
+    "gitInfo": {
+      "sha": "987654",
+      "branch": "main",
+      "originUrl": "https://example.test/repo.git"
+    },
+    "turns": [
+      {
+        "id": "turn_reasoning_1",
+        "status": "completed",
+        "error": null,
+        "items": [
+          {
+            "type": "userMessage",
+            "id": "user_reasoning_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "Explain the rollout plan",
+                "text_elements": []
+              }
+            ]
+          },
+          {
+            "type": "plan",
+            "id": "plan_reasoning_1",
+            "text": "1. Extract parsers\n2. Add tests"
+          },
+          {
+            "type": "reasoning",
+            "id": "reasoning_reasoning_1",
+            "summary": [
+              "Need parser stability"
+            ],
+            "content": [
+              "Unknown notifications must not break the bridge."
+            ]
+          },
+          {
+            "type": "agentMessage",
+            "id": "assistant_reasoning_1",
+            "text": "Roll out pure parsers before adding fixture replay.",
+            "phase": "final"
+          }
+        ]
+      }
+    ]
+  }
+}

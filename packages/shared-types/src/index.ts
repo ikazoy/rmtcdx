@@ -112,6 +112,134 @@ export type Run = {
   errorMessage?: string;
 };
 
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+export type CodexCommandAction =
+  | { type: "read"; command: string; name: string; path: string }
+  | { type: "listFiles"; command: string; path: string | null }
+  | { type: "search"; command: string; query: string | null; path: string | null }
+  | { type: "unknown"; command: string };
+
+export type CodexAdditionalFileSystemPermissions = {
+  read: string[] | null;
+  write: string[] | null;
+};
+
+export type CodexAdditionalNetworkPermissions = {
+  enabled: boolean | null;
+};
+
+export type CodexRequestedPermissionProfile = {
+  network: CodexAdditionalNetworkPermissions | null;
+  fileSystem: CodexAdditionalFileSystemPermissions | null;
+};
+
+export type CodexGrantedPermissionProfile = {
+  network?: CodexAdditionalNetworkPermissions;
+  fileSystem?: CodexAdditionalFileSystemPermissions;
+};
+
+export type CodexNetworkApprovalContext = {
+  host: string;
+  protocol: string;
+};
+
+export type CodexCommandApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+export type CodexFileChangeApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+export type CodexPermissionGrantScope = "turn" | "session";
+export type CodexMcpElicitationAction = "accept" | "decline" | "cancel";
+
+export type CodexRequestUserInputOption = {
+  label: string;
+  description: string;
+};
+
+export type CodexRequestUserInputQuestion = {
+  id: string;
+  header: string;
+  question: string;
+  isOther: boolean;
+  isSecret: boolean;
+  options: CodexRequestUserInputOption[] | null;
+};
+
+export type CodexRequestUserInputAnswer = {
+  answers: string[];
+};
+
+type CodexPendingRequestBase = {
+  id: string;
+  sessionId: string;
+  threadId: string;
+  turnId: string | null;
+  itemId: string | null;
+  createdAt: string;
+};
+
+export type CodexCommandApprovalRequest = CodexPendingRequestBase & {
+  type: "command_approval";
+  approvalId: string | null;
+  reason: string | null;
+  networkApprovalContext: CodexNetworkApprovalContext | null;
+  command: string | null;
+  cwd: string | null;
+  commandActions: CodexCommandAction[] | null;
+  requestedPermissions: CodexRequestedPermissionProfile | null;
+  availableDecisions: CodexCommandApprovalDecision[];
+};
+
+export type CodexFileChangeApprovalRequest = CodexPendingRequestBase & {
+  type: "file_change_approval";
+  reason: string | null;
+  grantRoot: string | null;
+};
+
+export type CodexPermissionsApprovalRequest = CodexPendingRequestBase & {
+  type: "permissions_approval";
+  reason: string | null;
+  permissions: CodexRequestedPermissionProfile;
+};
+
+export type CodexRequestUserInputRequest = CodexPendingRequestBase & {
+  type: "request_user_input";
+  questions: CodexRequestUserInputQuestion[];
+};
+
+export type CodexMcpElicitationRequest = CodexPendingRequestBase &
+  (
+    | {
+        type: "mcp_elicitation";
+        mode: "form";
+        serverName: string;
+        message: string;
+        meta: JsonValue | null;
+        requestedSchema: JsonValue;
+      }
+    | {
+        type: "mcp_elicitation";
+        mode: "url";
+        serverName: string;
+        message: string;
+        meta: JsonValue | null;
+        url: string;
+        elicitationId: string;
+      }
+  );
+
+export type CodexPendingRequest =
+  | CodexCommandApprovalRequest
+  | CodexFileChangeApprovalRequest
+  | CodexPermissionsApprovalRequest
+  | CodexRequestUserInputRequest
+  | CodexMcpElicitationRequest;
+
+export type CodexPendingRequestResponse =
+  | { type: "command_approval"; decision: CodexCommandApprovalDecision }
+  | { type: "file_change_approval"; decision: CodexFileChangeApprovalDecision }
+  | { type: "permissions_approval"; permissions: CodexGrantedPermissionProfile; scope: CodexPermissionGrantScope }
+  | { type: "request_user_input"; answers: Record<string, CodexRequestUserInputAnswer> }
+  | { type: "mcp_elicitation"; action: CodexMcpElicitationAction; content: JsonValue | null; meta?: JsonValue | null };
+
 export type LiveActivityKind = "command" | "tool" | "file" | "search" | "review";
 
 export type LiveActivity = {
@@ -153,6 +281,7 @@ export type SessionsResponse = { sessions: SessionSummary[] };
 export type SessionResponse = SessionDetail;
 export type MessagesResponse = { messages: Message[] };
 export type RunResponse = { run: Run };
+export type PendingCodexRequestsResponse = { requests: CodexPendingRequest[] };
 
 export type CreateSessionRequest = {
   repoId: string;
@@ -262,6 +391,8 @@ export type ServerWsEvent =
   | { type: "activity.completed"; sessionId: string; itemId: string }
   | { type: "message.delta"; sessionId: string; runId: string; text: string }
   | { type: "message.final"; sessionId: string; runId: string; message: Message }
+  | { type: "codex.request.created"; sessionId: string; request: CodexPendingRequest }
+  | { type: "codex.request.resolved"; sessionId: string; requestId: string }
   | {
       type: "notification.unread";
       sessionId: string;

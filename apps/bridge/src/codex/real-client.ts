@@ -2,6 +2,16 @@ import { EventEmitter } from "node:events";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 import type {
+  CodexCommandAction,
+  CodexCommandApprovalDecision,
+  CodexPendingRequest,
+  CodexPendingRequestResponse,
+  CodexRequestUserInputOption,
+  CodexRequestUserInputQuestion,
+  JsonValue
+} from "@codex-remote/shared-types";
+
+import type {
   CodexAccountRateLimits,
   CodexBackend,
   CodexBridgeEvent,
@@ -17,6 +27,7 @@ import type {
   StartRunParams
 } from "./types";
 import type { CodexDebugLog } from "../observability/codex-debug-log";
+import { parseBridgeNotification } from "./parsers/bridge-events";
 
 type JsonRpcMessage = {
   id?: number | string;
@@ -37,11 +48,18 @@ type RunMapping = {
   runId: string;
 };
 
+type PendingServerRequest = {
+  id: number | string;
+  method: string;
+  request: CodexPendingRequest;
+};
+
 export class RealCodexClient extends EventEmitter implements CodexBackend {
   private child: ChildProcessWithoutNullStreams | null = null;
   private buffer = "";
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
+  private readonly pendingServerRequests = new Map<string, PendingServerRequest>();
   private readonly runByTurn = new Map<string, RunMapping>();
   private readonly sessionByThread = new Map<string, string>();
   private readonly activeTurnIds = new Set<string>();
@@ -86,6 +104,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       pending.reject(new Error("Codex backend stopped"));
     }
     this.pending.clear();
+    this.clearPendingServerRequests();
 
     if (this.child) {
       this.child.kill();
@@ -99,8 +118,8 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     this.debugLog?.write("thread.create.request", { cwd });
     const started = await this.request("thread/start", {
       cwd,
-      approvalPolicy: "never",
-      sandbox: "danger-full-access",
+      approvalPolicy: "on-request",
+      sandbox: "workspace-write",
       serviceName: "codex_remote_web",
       experimentalRawEvents: false,
       persistExtendedHistory: true
@@ -185,8 +204,8 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
         threadId: params.threadId,
         path: params.path ?? null,
         cwd: params.cwd,
-        approvalPolicy: "never",
-        sandbox: "danger-full-access",
+        approvalPolicy: "on-request",
+        sandbox: "workspace-write",
         persistExtendedHistory: true
       });
       if (params.sessionId) {
@@ -270,6 +289,35 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
         turnId
       });
     }
+  }
+
+  listPendingRequests(sessionId?: string) {
+    return [...this.pendingServerRequests.values()]
+      .map((entry) => entry.request)
+      .filter((request) => (sessionId ? request.sessionId === sessionId : true));
+  }
+
+  async respondToRequest(requestId: string, response: CodexPendingRequestResponse) {
+    const pending = this.pendingServerRequests.get(requestId);
+    if (!pending) {
+      return null;
+    }
+
+    if (pending.request.type !== response.type) {
+      throw new Error(`Codex request ${requestId} expects ${pending.request.type}, received ${response.type}`);
+    }
+
+    this.send({
+      id: pending.id,
+      result: this.resultForServerRequest(pending.request, response)
+    });
+    this.pendingServerRequests.delete(requestId);
+    this.emitBridgeEvent({
+      type: "request.resolved",
+      sessionId: pending.request.sessionId,
+      requestId
+    });
+    return pending.request;
   }
 
   getState(): CodexRuntimeState {
@@ -364,6 +412,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       this.ready = false;
       const pid = child.pid ?? null;
       this.child = null;
+      this.clearPendingServerRequests();
       this.lastError = `codex app-server exited (${code ?? "null"} / ${signal ?? "null"})`;
       this.debugLog?.write("child.exit", {
         pid,
@@ -460,6 +509,10 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     }
 
     if (message.method && message.id !== undefined) {
+      if (this.handleServerRequest(message.id, message.method, message.params)) {
+        return;
+      }
+
       this.debugLog?.write("server.request.unhandled", {
         requestId: message.id,
         method: message.method
@@ -481,284 +534,67 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
   }
 
   private handleNotification(method: string, params: unknown) {
-    if (!params || typeof params !== "object") {
-      return;
-    }
-
-    if (method === "item/agentMessage/delta") {
-      const payload = params as { threadId: string; turnId: string; delta: string };
-      const mapping = this.runByTurn.get(payload.turnId);
-      if (!mapping) {
-        return;
-      }
-      this.emitBridgeEvent({
-        type: "message.delta",
-        sessionId: mapping.sessionId,
-        runId: mapping.runId,
-        turnId: payload.turnId,
-        text: payload.delta
-      });
-      return;
-    }
-
-    if (method === "item/commandExecution/outputDelta") {
-      const payload = params as { threadId: string; turnId: string; itemId: string; delta: string };
-      const mapping = this.runByTurn.get(payload.turnId);
-      if (!mapping) {
-        return;
-      }
-      this.emitBridgeEvent({
-        type: "activity.updated",
-        sessionId: mapping.sessionId,
-        runId: mapping.runId,
-        turnId: payload.turnId,
-        itemId: payload.itemId,
-        delta: payload.delta
-      });
-      return;
-    }
-
-    if (method === "item/started") {
-      const payload = params as {
-        turnId: string;
-        item?: { id?: string; type?: string; tool?: string; server?: string; command?: string };
-      };
-      const mapping = this.runByTurn.get(payload.turnId);
-      if (!mapping || !payload.item) {
-        return;
-      }
-      const activity = this.activityFromItem(payload.item);
-      if (activity && payload.item.id) {
-        this.emitBridgeEvent({
-          type: "activity.started",
-          sessionId: mapping.sessionId,
-          runId: mapping.runId,
-          turnId: payload.turnId,
-          itemId: payload.item.id,
-          kind: activity.kind,
-          label: activity.label
-        });
-      }
-      const toolName = this.toolName(payload.item);
-      if (!toolName) {
-        return;
-      }
-      this.emitBridgeEvent({
-        type: "tool.start",
-        sessionId: mapping.sessionId,
-        runId: mapping.runId,
-        turnId: payload.turnId,
-        name: toolName
-      });
-      return;
-    }
-
-    if (method === "item/completed") {
-      const payload = params as {
-        turnId: string;
-        item?: {
-          id?: string;
-          type?: string;
-          text?: string;
-          phase?: string | null;
-          status?: string;
-          tool?: string;
-          server?: string;
-          command?: string;
-        };
-      };
-      const mapping = this.runByTurn.get(payload.turnId);
-      if (!mapping || !payload.item) {
-        return;
-      }
-
-      if (payload.item.type === "agentMessage" && payload.item.text) {
-        const countsUnread = payload.item.phase !== "commentary";
-        this.emitBridgeEvent({
-          type: "message.final",
-          sessionId: mapping.sessionId,
-          runId: mapping.runId,
-          turnId: payload.turnId,
-          text: payload.item.text,
-          countsUnread
-        });
-        return;
-      }
-
-      if (payload.item.id) {
-        const activity = this.activityFromItem(payload.item);
-        if (activity) {
+    if (method === "serverRequest/resolved") {
+      const payload = asObject(params);
+      const requestId = payload?.requestId;
+      if (typeof requestId === "string" || typeof requestId === "number") {
+        const internalRequestId = String(requestId);
+        const pending = this.pendingServerRequests.get(internalRequestId);
+        if (pending) {
+          this.pendingServerRequests.delete(internalRequestId);
           this.emitBridgeEvent({
-            type: "activity.completed",
-            sessionId: mapping.sessionId,
-            runId: mapping.runId,
-            turnId: payload.turnId,
-            itemId: payload.item.id
+            type: "request.resolved",
+            sessionId: pending.request.sessionId,
+            requestId: internalRequestId
           });
         }
       }
-
-      const toolName = this.toolName(payload.item);
-      if (!toolName) {
-        return;
-      }
-
-      const ok = !payload.item.status || !["failed", "declined"].includes(payload.item.status);
-      this.emitBridgeEvent({
-        type: "tool.end",
-        sessionId: mapping.sessionId,
-        runId: mapping.runId,
-        turnId: payload.turnId,
-        name: toolName,
-        ok
-      });
       return;
     }
 
-    if (method === "turn/completed") {
-      const payload = params as {
-        turnId?: string;
-        turn?: {
-          id: string;
-          status: "completed" | "interrupted" | "failed" | "inProgress";
-          error?: { message?: string } | null;
-        };
-      };
-      const turnId = payload.turn?.id ?? payload.turnId;
-      if (!turnId) {
-        return;
-      }
-      const mapping = this.runByTurn.get(turnId);
-      if (!mapping) {
-        return;
-      }
+    const parsed = parseBridgeNotification(method, params, this.runByTurn);
 
-      if (payload.turn?.status === "completed") {
-        this.markTurnFinished(turnId, "completed");
-        this.emitBridgeEvent({
-          type: "run.completed",
-          sessionId: mapping.sessionId,
-          runId: mapping.runId,
-          turnId
-        });
-      } else if (payload.turn?.status === "interrupted") {
-        this.markTurnFinished(turnId, "interrupted");
-        this.emitBridgeEvent({
-          type: "run.interrupted",
-          sessionId: mapping.sessionId,
-          runId: mapping.runId,
-          turnId
-        });
-      } else {
-        this.markTurnFinished(turnId, "failed", payload.turn?.error?.message ?? "Codex turn failed");
-        this.emitBridgeEvent({
-          type: "run.error",
-          sessionId: mapping.sessionId,
-          runId: mapping.runId,
-          turnId,
-          message: payload.turn?.error?.message ?? "Codex turn failed"
-        });
-      }
-      return;
+    for (const entry of parsed.debugEntries) {
+      this.debugLog?.write(entry.event, entry.fields);
     }
 
-    if (method === "error") {
-      const payload = params as { threadId?: string; turnId?: string; error?: { message?: string } };
-      if (!payload.turnId) {
-        this.debugLog?.write("backend.error", {
-          threadId: payload.threadId ?? null,
-          message: payload.error?.message ?? "Codex backend error"
-        });
-        this.emitBridgeEvent({
-          type: "backend.degraded",
-          reason: payload.error?.message ?? "Codex backend error"
-        });
-        return;
-      }
-      const mapping = this.runByTurn.get(payload.turnId);
-      if (!mapping) {
-        return;
-      }
-      this.markTurnFinished(payload.turnId, "failed", payload.error?.message ?? "Codex backend error");
-      this.emitBridgeEvent({
-        type: "run.error",
-        sessionId: mapping.sessionId,
-        runId: mapping.runId,
-        turnId: payload.turnId,
-        message: payload.error?.message ?? "Codex backend error"
-      });
+    if (parsed.finishedTurn) {
+      this.markTurnFinished(parsed.finishedTurn.turnId, parsed.finishedTurn.status, parsed.finishedTurn.message);
     }
-  }
 
-  private toolName(item: { type?: string; tool?: string; server?: string; command?: string }) {
-    if (!item.type) {
-      return null;
+    for (const event of parsed.events) {
+      this.emitBridgeEvent(event);
     }
-    if (item.type === "commandExecution") {
-      return item.command ? `shell:${item.command.split(" ")[0]}` : "shell";
-    }
-    if (item.type === "mcpToolCall") {
-      return item.server && item.tool ? `${item.server}:${item.tool}` : item.tool ?? "mcp";
-    }
-    if (item.type === "dynamicToolCall") {
-      return item.tool ?? "tool";
-    }
-    if (item.type === "fileChange") {
-      return "apply_patch";
-    }
-    if (item.type === "webSearch") {
-      return "web_search";
-    }
-    if (item.type === "collabAgentToolCall") {
-      return item.tool ?? "agent";
-    }
-    return null;
-  }
-
-  private activityFromItem(item: {
-    type?: string;
-    tool?: string;
-    server?: string;
-    command?: string;
-  }) {
-    if (!item.type) {
-      return null;
-    }
-    if (item.type === "commandExecution") {
-      return {
-        kind: "command" as const,
-        label: item.command ?? "shell command"
-      };
-    }
-    if (item.type === "mcpToolCall" || item.type === "dynamicToolCall" || item.type === "collabAgentToolCall") {
-      return {
-        kind: "tool" as const,
-        label: item.server && item.tool ? `${item.server}:${item.tool}` : item.tool ?? "tool"
-      };
-    }
-    if (item.type === "fileChange") {
-      return {
-        kind: "file" as const,
-        label: "Applying file changes"
-      };
-    }
-    if (item.type === "webSearch") {
-      return {
-        kind: "search" as const,
-        label: "Running web search"
-      };
-    }
-    if (item.type === "enteredReviewMode" || item.type === "exitedReviewMode") {
-      return {
-        kind: "review" as const,
-        label: "Review mode"
-      };
-    }
-    return null;
   }
 
   private emitBridgeEvent(event: CodexBridgeEvent) {
     this.emit("event", event);
+  }
+
+  private handleServerRequest(id: number | string, method: string, params: unknown) {
+    const request = this.pendingRequestFromServerMessage(id, method, params);
+    if (!request) {
+      return false;
+    }
+
+    this.pendingServerRequests.set(request.id, {
+      id,
+      method,
+      request
+    });
+    this.debugLog?.write("server.request.queued", {
+      requestId: request.id,
+      method,
+      sessionId: request.sessionId,
+      threadId: request.threadId,
+      turnId: request.turnId
+    });
+    this.emitBridgeEvent({
+      type: "request.created",
+      sessionId: request.sessionId,
+      request
+    });
+    return true;
   }
 
   private markTurnFinished(turnId: string, status: "completed" | "interrupted" | "failed", message?: string) {
@@ -800,6 +636,381 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       throw new Error("Codex app-server stdin is not writable");
     }
     this.child.stdin.write(`${JSON.stringify(payload)}\n`);
+  }
+
+  private clearPendingServerRequests() {
+    if (this.pendingServerRequests.size === 0) {
+      return;
+    }
+
+    const requests = [...this.pendingServerRequests.values()];
+    this.pendingServerRequests.clear();
+    for (const entry of requests) {
+      this.emitBridgeEvent({
+        type: "request.resolved",
+        sessionId: entry.request.sessionId,
+        requestId: entry.request.id
+      });
+    }
+  }
+
+  private pendingRequestFromServerMessage(
+    requestId: number | string,
+    method: string,
+    params: unknown
+  ): CodexPendingRequest | null {
+    const payload = asObject(params);
+    if (!payload) {
+      return null;
+    }
+
+    const id = String(requestId);
+    const createdAt = new Date().toISOString();
+
+    if (method === "item/commandExecution/requestApproval") {
+      const threadId = stringField(payload, "threadId");
+      const turnId = stringField(payload, "turnId");
+      if (!threadId || !turnId) {
+        return null;
+      }
+
+      return {
+        type: "command_approval",
+        id,
+        sessionId: this.sessionIdForRequest(threadId, turnId),
+        threadId,
+        turnId,
+        itemId: stringField(payload, "itemId") ?? null,
+        createdAt,
+        approvalId: stringField(payload, "approvalId") ?? null,
+        reason: stringField(payload, "reason") ?? null,
+        networkApprovalContext: this.networkApprovalContext(payload.networkApprovalContext),
+        command: stringField(payload, "command") ?? null,
+        cwd: stringField(payload, "cwd") ?? null,
+        commandActions: this.commandActions(payload.commandActions),
+        requestedPermissions: this.requestedPermissions(payload.additionalPermissions),
+        availableDecisions: this.commandApprovalDecisions(payload.availableDecisions)
+      };
+    }
+
+    if (method === "item/fileChange/requestApproval") {
+      const threadId = stringField(payload, "threadId");
+      const turnId = stringField(payload, "turnId");
+      if (!threadId || !turnId) {
+        return null;
+      }
+
+      return {
+        type: "file_change_approval",
+        id,
+        sessionId: this.sessionIdForRequest(threadId, turnId),
+        threadId,
+        turnId,
+        itemId: stringField(payload, "itemId") ?? null,
+        createdAt,
+        reason: stringField(payload, "reason") ?? null,
+        grantRoot: stringField(payload, "grantRoot") ?? null
+      };
+    }
+
+    if (method === "item/permissions/requestApproval") {
+      const threadId = stringField(payload, "threadId");
+      const turnId = stringField(payload, "turnId");
+      const permissions = this.requestedPermissions(payload.permissions);
+      if (!threadId || !turnId || !permissions) {
+        return null;
+      }
+
+      return {
+        type: "permissions_approval",
+        id,
+        sessionId: this.sessionIdForRequest(threadId, turnId),
+        threadId,
+        turnId,
+        itemId: stringField(payload, "itemId") ?? null,
+        createdAt,
+        reason: stringField(payload, "reason") ?? null,
+        permissions
+      };
+    }
+
+    if (method === "item/tool/requestUserInput") {
+      const threadId = stringField(payload, "threadId");
+      const turnId = stringField(payload, "turnId");
+      if (!threadId || !turnId) {
+        return null;
+      }
+
+      return {
+        type: "request_user_input",
+        id,
+        sessionId: this.sessionIdForRequest(threadId, turnId),
+        threadId,
+        turnId,
+        itemId: stringField(payload, "itemId") ?? null,
+        createdAt,
+        questions: this.requestUserInputQuestions(payload.questions)
+      };
+    }
+
+    if (method === "mcpServer/elicitation/request") {
+      const threadId = stringField(payload, "threadId");
+      const serverName = stringField(payload, "serverName");
+      const mode = stringField(payload, "mode");
+      const message = stringField(payload, "message");
+      if (!threadId || !serverName || !mode || !message) {
+        return null;
+      }
+
+      const turnId = stringField(payload, "turnId") ?? null;
+      const base = {
+        type: "mcp_elicitation" as const,
+        id,
+        sessionId: this.sessionIdForRequest(threadId, turnId),
+        threadId,
+        turnId,
+        itemId: null,
+        createdAt,
+        serverName,
+        message,
+        meta: this.jsonValue(payload._meta)
+      };
+
+      if (mode === "form") {
+        return {
+          ...base,
+          mode,
+          requestedSchema: this.jsonValue(payload.requestedSchema) ?? {}
+        };
+      }
+
+      if (mode === "url") {
+        const url = stringField(payload, "url");
+        const elicitationId = stringField(payload, "elicitationId");
+        if (!url || !elicitationId) {
+          return null;
+        }
+
+        return {
+          ...base,
+          mode,
+          url,
+          elicitationId
+        };
+      }
+    }
+
+    return null;
+  }
+
+  private resultForServerRequest(request: CodexPendingRequest, response: CodexPendingRequestResponse) {
+    if (request.type === "command_approval" && response.type === "command_approval") {
+      return {
+        decision: response.decision
+      };
+    }
+
+    if (request.type === "file_change_approval" && response.type === "file_change_approval") {
+      return {
+        decision: response.decision
+      };
+    }
+
+    if (request.type === "permissions_approval" && response.type === "permissions_approval") {
+      return {
+        permissions: response.permissions,
+        scope: response.scope
+      };
+    }
+
+    if (request.type === "request_user_input" && response.type === "request_user_input") {
+      return {
+        answers: response.answers
+      };
+    }
+
+    if (request.type === "mcp_elicitation" && response.type === "mcp_elicitation") {
+      return {
+        action: response.action,
+        content: response.content,
+        _meta: response.meta ?? null
+      };
+    }
+
+    throw new Error(`Unsupported Codex request response: ${request.type}`);
+  }
+
+  private sessionIdForRequest(threadId: string, turnId: string | null) {
+    if (turnId) {
+      const mapping = this.runByTurn.get(turnId);
+      if (mapping) {
+        return mapping.sessionId;
+      }
+    }
+
+    return this.sessionByThread.get(threadId) ?? threadId;
+  }
+
+  private networkApprovalContext(value: unknown) {
+    const payload = asObject(value);
+    const host = stringField(payload, "host");
+    const protocol = stringField(payload, "protocol");
+    return host && protocol ? { host, protocol } : null;
+  }
+
+  private commandActions(value: unknown): CodexCommandAction[] | null {
+    if (!Array.isArray(value)) {
+      return null;
+    }
+
+    const actions: CodexCommandAction[] = [];
+    for (const entry of value) {
+      const payload = asObject(entry);
+      if (!payload) {
+        continue;
+      }
+      const type = stringField(payload, "type");
+      const command = stringField(payload, "command");
+      if (!type || !command) {
+        continue;
+      }
+
+      if (type === "read") {
+        const name = stringField(payload, "name");
+        const path = stringField(payload, "path");
+        if (name && path) {
+          actions.push({ type, command, name, path });
+        }
+        continue;
+      }
+
+      if (type === "listFiles") {
+        actions.push({ type, command, path: stringField(payload, "path") ?? null });
+        continue;
+      }
+
+      if (type === "search") {
+        actions.push({
+          type,
+          command,
+          query: stringField(payload, "query") ?? null,
+          path: stringField(payload, "path") ?? null
+        });
+        continue;
+      }
+
+      if (type === "unknown") {
+        actions.push({ type, command });
+      }
+    }
+
+    return actions.length > 0 ? actions : null;
+  }
+
+  private commandApprovalDecisions(value: unknown): CodexCommandApprovalDecision[] {
+    if (!Array.isArray(value)) {
+      return ["accept", "decline", "cancel"];
+    }
+
+    const decisions: CodexCommandApprovalDecision[] = [];
+    for (const entry of value) {
+      if (
+        entry === "accept" ||
+        entry === "acceptForSession" ||
+        entry === "decline" ||
+        entry === "cancel"
+      ) {
+        decisions.push(entry);
+      }
+    }
+
+    return decisions.length > 0 ? decisions : ["accept", "decline", "cancel"];
+  }
+
+  private requestedPermissions(value: unknown) {
+    const payload = asObject(value);
+    if (!payload) {
+      return null;
+    }
+
+    const fileSystem = asObject(payload.fileSystem);
+    const network = asObject(payload.network);
+    const read = stringArray(fileSystem?.read);
+    const write = stringArray(fileSystem?.write);
+    const enabled = booleanField(network, "enabled");
+    const normalized = {
+      fileSystem: read || write ? { read, write } : null,
+      network: enabled !== undefined ? { enabled } : null
+    };
+
+    return normalized.fileSystem || normalized.network ? normalized : null;
+  }
+
+  private requestUserInputQuestions(value: unknown): CodexRequestUserInputQuestion[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    const questions: CodexRequestUserInputQuestion[] = [];
+    for (const entry of value) {
+      const payload = asObject(entry);
+      if (!payload) {
+        continue;
+      }
+      const id = stringField(payload, "id");
+      const header = stringField(payload, "header");
+      const question = stringField(payload, "question");
+      if (!id || !header || !question) {
+        continue;
+      }
+
+      questions.push({
+        id,
+        header,
+        question,
+        isOther: booleanField(payload, "isOther") ?? false,
+        isSecret: booleanField(payload, "isSecret") ?? false,
+        options: this.requestUserInputOptions(payload.options)
+      });
+    }
+
+    return questions;
+  }
+
+  private requestUserInputOptions(value: unknown): CodexRequestUserInputOption[] | null {
+    if (!Array.isArray(value)) {
+      return null;
+    }
+
+    const options: CodexRequestUserInputOption[] = [];
+    for (const entry of value) {
+      const payload = asObject(entry);
+      if (!payload) {
+        continue;
+      }
+      const label = stringField(payload, "label");
+      const description = stringField(payload, "description");
+      if (label && description) {
+        options.push({ label, description });
+      }
+    }
+
+    return options.length > 0 ? options : null;
+  }
+
+  private jsonValue(value: unknown): JsonValue | null {
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      Array.isArray(value) ||
+      (value && typeof value === "object")
+    ) {
+      return value as JsonValue;
+    }
+
+    return null;
   }
 
   private extractThreadId(result: unknown) {
@@ -933,4 +1144,27 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
 
     return typeof value === "string" && planTypes.includes(value as CodexPlanType) ? (value as CodexPlanType) : null;
   }
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function stringField(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function booleanField(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function stringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const items = value.filter((entry): entry is string => typeof entry === "string");
+  return items.length > 0 ? items : null;
 }

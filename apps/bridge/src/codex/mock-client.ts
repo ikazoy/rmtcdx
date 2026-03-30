@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
+import type { CodexPendingRequest, CodexPendingRequestResponse } from "@codex-remote/shared-types";
+
 import type {
   CodexAccountRateLimits,
   CodexBackend,
@@ -233,6 +235,17 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
       runId: handle.runId,
       turnId: handle.turnId
     });
+  }
+
+  listPendingRequests(_sessionId?: string): CodexPendingRequest[] {
+    return [];
+  }
+
+  async respondToRequest(
+    _requestId: string,
+    _response: CodexPendingRequestResponse
+  ): Promise<CodexPendingRequest | null> {
+    return null;
   }
 
   getState(): CodexRuntimeState {

@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import type { CodexPendingRequest, CodexPendingRequestResponse } from "@codex-remote/shared-types";
 
 export type CodexActivityKind = "command" | "tool" | "file" | "search" | "review";
 
@@ -150,6 +151,8 @@ export type CodexBridgeEvent =
   | { type: "run.completed"; sessionId: string; runId: string; turnId: string }
   | { type: "run.interrupted"; sessionId: string; runId: string; turnId: string }
   | { type: "run.error"; sessionId: string; runId: string; turnId: string; message: string }
+  | { type: "request.created"; sessionId: string; request: CodexPendingRequest }
+  | { type: "request.resolved"; sessionId: string; requestId: string }
   | { type: "backend.degraded"; reason: string };
 
 export type EnsureThreadParams = {
@@ -185,6 +188,8 @@ export interface CodexBackend extends EventEmitter {
   ensureThread(params: EnsureThreadParams): Promise<{ threadId: string }>;
   startRun(params: StartRunParams): Promise<StartRunResult>;
   interruptRun(runId: string, threadId: string, turnId: string): Promise<void>;
+  listPendingRequests(sessionId?: string): CodexPendingRequest[];
+  respondToRequest(requestId: string, response: CodexPendingRequestResponse): Promise<CodexPendingRequest | null>;
   getState(): CodexRuntimeState;
 }
 

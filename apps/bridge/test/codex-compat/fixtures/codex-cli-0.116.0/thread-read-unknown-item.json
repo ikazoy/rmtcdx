@@ -1,0 +1,51 @@
+{
+  "thread": {
+    "id": "thread_unknown",
+    "preview": "Probe future item types",
+    "createdAt": 1711757200,
+    "updatedAt": 1711757260,
+    "status": {
+      "type": "idle"
+    },
+    "cwd": "/fixtures/repo",
+    "path": null,
+    "name": null,
+    "modelProvider": "openai",
+    "source": "appServer",
+    "gitInfo": {
+      "sha": "fedcba",
+      "branch": "main",
+      "originUrl": "https://example.test/repo.git"
+    },
+    "turns": [
+      {
+        "id": "turn_unknown_1",
+        "status": "completed",
+        "error": null,
+        "items": [
+          {
+            "type": "userMessage",
+            "id": "user_unknown_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "Probe future item types",
+                "text_elements": []
+              }
+            ]
+          },
+          {
+            "type": "futureUnknownType",
+            "id": "unknown_item_1"
+          },
+          {
+            "type": "agentMessage",
+            "id": "assistant_unknown_1",
+            "text": "Known items still render.",
+            "phase": "final"
+          }
+        ]
+      }
+    ]
+  }
+}

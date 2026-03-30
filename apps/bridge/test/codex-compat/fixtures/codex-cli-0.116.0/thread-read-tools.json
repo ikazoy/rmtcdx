@@ -1,0 +1,123 @@
+{
+  "thread": {
+    "id": "thread_tools",
+    "preview": "Run the compatibility toolchain",
+    "createdAt": 1711756900,
+    "updatedAt": 1711757000,
+    "status": {
+      "type": "idle"
+    },
+    "cwd": "/fixtures/repo",
+    "path": null,
+    "name": "Tool-heavy session",
+    "modelProvider": "openai",
+    "source": "appServer",
+    "gitInfo": {
+      "sha": "def456",
+      "branch": "main",
+      "originUrl": "https://example.test/repo.git"
+    },
+    "turns": [
+      {
+        "id": "turn_tools_1",
+        "status": "completed",
+        "error": null,
+        "items": [
+          {
+            "type": "userMessage",
+            "id": "user_tools_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "Run the compatibility toolchain",
+                "text_elements": []
+              }
+            ]
+          },
+          {
+            "type": "commandExecution",
+            "id": "command_tools_1",
+            "command": "npm test",
+            "cwd": "/fixtures/repo",
+            "status": "completed",
+            "aggregatedOutput": "12 tests passed",
+            "exitCode": 0,
+            "durationMs": 820
+          },
+          {
+            "type": "fileChange",
+            "id": "file_tools_1",
+            "status": "completed",
+            "changes": [
+              {
+                "path": "apps/bridge/src/codex/parsers/bridge-events.ts",
+                "kind": {
+                  "type": "update",
+                  "move_path": null
+                },
+                "diff": "@@"
+              }
+            ]
+          },
+          {
+            "type": "mcpToolCall",
+            "id": "mcp_tools_1",
+            "server": "linear",
+            "tool": "list_issues",
+            "status": "completed"
+          },
+          {
+            "type": "dynamicToolCall",
+            "id": "dynamic_tools_1",
+            "tool": "fetch_docs",
+            "status": "completed"
+          },
+          {
+            "type": "collabAgentToolCall",
+            "id": "agent_tools_1",
+            "tool": "worker",
+            "status": "completed",
+            "prompt": "Check protocol drift"
+          },
+          {
+            "type": "webSearch",
+            "id": "search_tools_1",
+            "query": "codex compatibility tests"
+          },
+          {
+            "type": "imageView",
+            "id": "image_view_tools_1",
+            "path": "/tmp/screenshot.png"
+          },
+          {
+            "type": "imageGeneration",
+            "id": "image_generation_tools_1",
+            "status": "completed",
+            "revisedPrompt": "Generate a diagram",
+            "result": "diagram ready"
+          },
+          {
+            "type": "enteredReviewMode",
+            "id": "review_on_tools_1",
+            "review": "Review mode enabled"
+          },
+          {
+            "type": "exitedReviewMode",
+            "id": "review_off_tools_1",
+            "review": "Review mode disabled"
+          },
+          {
+            "type": "contextCompaction",
+            "id": "compact_tools_1"
+          },
+          {
+            "type": "agentMessage",
+            "id": "assistant_tools_1",
+            "text": "Tool-heavy session completed successfully.",
+            "phase": "final"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+{"method":"item/agentMessage/delta","params":{"turnId":"turn_fixture_1","delta":"Planning compatibility tests"}}
+{"method":"item/started","params":{"turnId":"turn_fixture_1","item":{"id":"cmd_fixture_1","type":"commandExecution","command":"npm test"}}}
+{"method":"item/commandExecution/outputDelta","params":{"turnId":"turn_fixture_1","itemId":"cmd_fixture_1","delta":"1 passing"}}
+{"method":"item/futureUnknownType","params":{"turnId":"turn_fixture_1","item":{"id":"unknown_item_1","type":"futureUnknownType"}}}
+{"method":"item/completed","params":{"turnId":"turn_fixture_1","item":{"type":"agentMessage","text":"Compatibility tests added","phase":"final"}}}
+{"method":"turn/completed","params":{"turn":{"id":"turn_fixture_1","status":"completed"}}}
