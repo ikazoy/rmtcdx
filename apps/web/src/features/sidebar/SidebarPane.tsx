@@ -144,7 +144,9 @@ export function SidebarPane({
   const repoGroups = selectedRepoId ? [] : groupByRepo(sessions);
   const singleRepoSessions = selectedRepoId ? sessions : [];
   const repoGroupNames = repoGroups.map((group) => group.repoName);
+  const canToggleAllRepos = !selectedRepoId && repoGroupNames.length > 0;
   const collapsedGroupCount = repoGroupNames.filter((repoName) => collapsedRepos.has(repoName)).length;
+  const allReposCollapsed = canToggleAllRepos && collapsedGroupCount === repoGroupNames.length;
   const activeSummary = [
     selectedRepo ? formatRepoLabel(selectedRepo) : "All projects",
     search.trim() ? `Search: ${search.trim()}` : null
@@ -159,6 +161,20 @@ export function SidebarPane({
   function handleToggleSidebar() {
     closeListMenu();
     onToggleSidebar();
+  }
+
+  function handleToggleAllRepos() {
+    if (!canToggleAllRepos) {
+      return;
+    }
+
+    if (allReposCollapsed) {
+      expandRepos(repoGroupNames);
+    } else {
+      collapseRepos(repoGroupNames);
+    }
+
+    closeListMenu();
   }
 
   return (
@@ -189,6 +205,31 @@ export function SidebarPane({
 
           <div className="sidebar-brand__actions">
             <StatusMenu isMobileViewport={isMobileViewport} />
+
+            <button
+              className="sidebar-menu__trigger"
+              onClick={handleToggleAllRepos}
+              type="button"
+              disabled={!canToggleAllRepos}
+              aria-pressed={canToggleAllRepos ? allReposCollapsed : undefined}
+              aria-label={
+                canToggleAllRepos
+                  ? (allReposCollapsed ? "Expand all repos" : "Collapse all repos")
+                  : "Collapse all repos unavailable"
+              }
+              title={
+                canToggleAllRepos
+                  ? (allReposCollapsed ? "Expand all repos" : "Collapse all repos")
+                  : "Collapse all repos is available in All projects view"
+              }
+            >
+              <span className="sr-only">
+                {canToggleAllRepos
+                  ? (allReposCollapsed ? "Expand all repos" : "Collapse all repos")
+                  : "Collapse all repos unavailable"}
+              </span>
+              <RepoGroupToggleIcon collapsed={allReposCollapsed} />
+            </button>
 
             <div className="sidebar-menu">
               <button
@@ -292,35 +333,6 @@ export function SidebarPane({
                       </label>
                     </section>
 
-                    {!selectedRepoId && repoGroupNames.length > 0 ? (
-                      <section className="sidebar-menu__section">
-                        <span className="sidebar-menu__section-title">Repositories</span>
-                        <div className="sidebar-menu__list">
-                          <button
-                            className="sidebar-menu__item"
-                            onClick={() => {
-                              collapseRepos(repoGroupNames);
-                              closeListMenu();
-                            }}
-                            type="button"
-                            disabled={collapsedGroupCount === repoGroupNames.length}
-                          >
-                            <span>Collapse all repos</span>
-                          </button>
-                          <button
-                            className="sidebar-menu__item"
-                            onClick={() => {
-                              expandRepos(repoGroupNames);
-                              closeListMenu();
-                            }}
-                            type="button"
-                            disabled={collapsedGroupCount === 0}
-                          >
-                            <span>Expand all repos</span>
-                          </button>
-                        </div>
-                      </section>
-                    ) : null}
                   </div>
                 </FloatingPortal>
               ) : null}
@@ -461,6 +473,33 @@ function SidebarToggleIcon({ collapsed = false }: { collapsed?: boolean }) {
           strokeLinecap="round"
           strokeLinejoin="round"
         />
+      )}
+    </svg>
+  );
+}
+
+function RepoGroupToggleIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg
+      className="sidebar-menu__trigger-icon"
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M5 8.25H11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M5 12H15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M5 15.75H11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      {collapsed ? (
+        <>
+          <path d="M14 9.5L17 12.5L20 9.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M17 5.5V12.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </>
+      ) : (
+        <>
+          <path d="M14 14.5L17 11.5L20 14.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M17 18.5V11.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </>
       )}
     </svg>
   );

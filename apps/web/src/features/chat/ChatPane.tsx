@@ -3,6 +3,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import type {
   CSSProperties,
   ChangeEvent,
+  ClipboardEvent,
   KeyboardEvent,
   PointerEvent as ReactPointerEvent,
   ReactNode,
@@ -49,6 +50,52 @@ type ComposerImage = {
   file: File;
   previewUrl: string;
 };
+
+function createComposerImages(files: File[]) {
+  return files.map((file) => ({
+    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    file,
+    previewUrl: URL.createObjectURL(file)
+  }));
+}
+
+function clipboardImageFiles(clipboardData: DataTransfer | null) {
+  if (!clipboardData) {
+    return [];
+  }
+
+  const fromItems = Array.from(clipboardData.items)
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null);
+
+  if (fromItems.length > 0) {
+    return fromItems;
+  }
+
+  return Array.from(clipboardData.files).filter((file) => file.type.startsWith("image/"));
+}
+
+type MiddleTruncateProps = {
+  text: string;
+  className?: string;
+  suffixLength?: number;
+  as?: "span" | "code";
+};
+
+function MiddleTruncate({ text, className, suffixLength = 12, as = "span" }: MiddleTruncateProps) {
+  const Component = as;
+  const suffix = text.length > suffixLength ? text.slice(-suffixLength) : "";
+  const prefix = suffix ? text.slice(0, -suffixLength) : text;
+  const mergedClassName = className ? `middle-truncate ${className}` : "middle-truncate";
+
+  return (
+    <Component className={mergedClassName} title={text}>
+      <span className="middle-truncate__start">{prefix}</span>
+      {suffix ? <span className="middle-truncate__end">{suffix}</span> : null}
+    </Component>
+  );
+}
 
 type CommandExecutionEntry = {
   id: string;
@@ -600,9 +647,19 @@ const SummaryCard = memo(function SummaryCard({
               <div className="summary-card__row-copy">
                 <span className="summary-card__row-line">
                   <span className="summary-card__row-prefix">{row.prefix}</span>
-                  <span className="summary-card__row-text">{row.text}</span>
+                  {tone === "file" ? (
+                    <MiddleTruncate className="summary-card__row-text" suffixLength={18} text={row.text} />
+                  ) : (
+                    <span className="summary-card__row-text">{row.text}</span>
+                  )}
                 </span>
-                {row.detail ? <span className="summary-card__row-detail">{row.detail}</span> : null}
+                {row.detail ? (
+                  tone === "file" ? (
+                    <MiddleTruncate className="summary-card__row-detail" suffixLength={18} text={row.detail} />
+                  ) : (
+                    <span className="summary-card__row-detail">{row.detail}</span>
+                  )
+                ) : null}
               </div>
             </div>
           ))}
@@ -962,9 +1019,11 @@ function FileChangeSheet({
               <div className="sheet-row__copy">
                 <span className="sheet-row__title">
                   <span className="sheet-row__eyebrow sheet-row__eyebrow--inline">{fileChangeVerb(change)}</span>
-                  {change.movePath ?? change.path}
+                  <MiddleTruncate className="sheet-row__title-text" suffixLength={18} text={change.movePath ?? change.path} />
                 </span>
-                {change.movePath ? <span className="sheet-row__meta">{change.path}</span> : null}
+                {change.movePath ? (
+                  <MiddleTruncate className="sheet-row__meta" suffixLength={18} text={change.path} />
+                ) : null}
               </div>
             </div>
           ))
@@ -1646,7 +1705,6 @@ export function ChatPane({
     setSubmitError(null);
 
     const files = selectedImages.map((image) => image.file);
-    const savedImages = [...selectedImages];
 
     isPinnedToBottomRef.current = true;
     shouldScrollToBottomRef.current = true;
@@ -1666,7 +1724,7 @@ export function ChatPane({
         composerRef.current.value = prompt;
         composerRef.current.style.height = "auto";
       }
-      setSelectedImages(savedImages);
+      setSelectedImages(createComposerImages(files));
       setSubmitError(error instanceof Error ? error.message : "Unable to send this message.");
     }
   };
@@ -1693,17 +1751,14 @@ export function ChatPane({
     void handleSubmit();
   };
 
-  const handleImageSelect = (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith("image/"));
+  const appendSelectedImages = (files: File[]) => {
     if (files.length === 0) {
-      event.target.value = "";
       return;
     }
 
     const remainingSlots = Math.max(0, MAX_IMAGE_ATTACHMENTS - selectedImagesRef.current.length);
     if (remainingSlots === 0) {
       setSubmitError(`You can attach up to ${MAX_IMAGE_ATTACHMENTS} images per message.`);
-      event.target.value = "";
       return;
     }
 
@@ -1718,14 +1773,37 @@ export function ChatPane({
       setSubmitError(null);
     }
 
-    const nextImages = acceptedFiles.map((file) => ({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      file,
-      previewUrl: URL.createObjectURL(file)
-    }));
-
+    const nextImages = createComposerImages(acceptedFiles);
     setSelectedImages((current) => [...current, ...nextImages]);
+  };
+
+  const handleImageSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith("image/"));
+    appendSelectedImages(files);
     event.target.value = "";
+  };
+
+  const handleComposerPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (isSubmitting) {
+      return;
+    }
+
+    const files = clipboardImageFiles(event.clipboardData);
+    if (files.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    appendSelectedImages(files);
+
+    const pastedText = event.clipboardData.getData("text/plain");
+    if (!pastedText || !composerRef.current) {
+      return;
+    }
+
+    const { selectionStart, selectionEnd } = composerRef.current;
+    composerRef.current.setRangeText(pastedText, selectionStart, selectionEnd, "end");
+    autoResize();
   };
 
   const removeSelectedImage = (imageId: string) => {
@@ -1878,7 +1956,7 @@ export function ChatPane({
                             <div className="chat-head__debug-row chat-head__debug-row--split">
                               <div className="chat-head__debug-copy-block">
                                 <span className="chat-head__debug-label">Session ID</span>
-                                <code className="chat-head__debug-value">{detail.session.id}</code>
+                                <MiddleTruncate as="code" className="chat-head__debug-value" suffixLength={10} text={detail.session.id} />
                               </div>
                               <button
                                 className={`chat-head__debug-copy-button ${copiedDebugField === "session-id" ? "is-copied" : ""}`}
@@ -1993,6 +2071,7 @@ export function ChatPane({
                     placeholder={sessionIsArchived ? "Restore this thread to continue..." : "Describe a task or ask a question..."}
                     disabled={sessionIsArchived}
                     onKeyDown={handleComposerKeyDown}
+                    onPaste={handleComposerPaste}
                     onInput={autoResize}
                     rows={1}
                   />

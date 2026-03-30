@@ -10,6 +10,7 @@ import type {
   MessageAttachment,
   SessionDetail,
   SessionFilter,
+  SessionSummary,
   SessionsResponse
 } from "@codex-remote/shared-types";
 import { SESSION_FILTERS } from "@codex-remote/shared-types";
@@ -82,6 +83,14 @@ type OptimisticUserMessage = {
   attachments: MessageAttachment[];
 };
 
+type HydratingSession = {
+  sessionId: string;
+  repoId: string;
+  repoName?: string;
+  prompt: string;
+  createdAt: string;
+};
+
 function revokeOptimisticAttachments(message: OptimisticUserMessage | null) {
   for (const attachment of message?.attachments ?? []) {
     if (attachment.url.startsWith("blob:")) {
@@ -113,6 +122,42 @@ function createOptimisticAttachments(files: File[]) {
         url: URL.createObjectURL(file)
       }) satisfies MessageAttachment
   );
+}
+
+function buildPendingSessionSummary(session: HydratingSession): SessionSummary {
+  const prompt = session.prompt.trim();
+  const title = prompt ? prompt.slice(0, 80) : "New session";
+  const summary = prompt || (session.repoName ? `Starting a conversation in ${session.repoName}` : "Starting a conversation");
+
+  return {
+    id: session.sessionId,
+    repoId: session.repoId,
+    repoName: session.repoName,
+    title,
+    summary,
+    status: "running",
+    isArchived: false,
+    unreadCount: 0,
+    lastEventSeq: 0,
+    lastReadEventSeq: 0,
+    lastMessageAt: session.createdAt,
+    lastUserMessageAt: session.createdAt,
+    latestTurnStatus: "inProgress",
+    threadStatusType: "active",
+    latestUserPrompt: prompt || undefined,
+    hasUnreadCompletion: false,
+    hasUnreadError: false,
+    createdAt: session.createdAt,
+    updatedAt: session.createdAt
+  };
+}
+
+function buildPendingSessionDetail(summary: SessionSummary): SessionDetail {
+  return {
+    session: summary,
+    activeRun: null,
+    latestRun: null
+  };
 }
 
 function readFileAsDataUrl(file: File) {
@@ -184,6 +229,7 @@ export function App() {
   const [search, setSearch] = useState(() => readStoredThreadFilters().search);
   const [filter, setFilter] = useState<SessionFilter>(() => readStoredThreadFilters().filter);
   const [optimisticMessage, setOptimisticMessage] = useState<OptimisticUserMessage | null>(null);
+  const [hydratingSession, setHydratingSession] = useState<HydratingSession | null>(null);
   const optimisticMessageRef = useRef<OptimisticUserMessage | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") {
@@ -345,6 +391,11 @@ export function App() {
           ? { ...current, sessionId: data.run.sessionId }
           : current
       );
+      setHydratingSession((current) =>
+        current && current.sessionId === variables.clientSessionId
+          ? { ...current, sessionId: data.run.sessionId }
+          : current
+      );
       setSelectedSessionId(data.run.sessionId);
       setMobilePane("chat");
       const nextPath = buildSessionPath(data.run.sessionId);
@@ -360,11 +411,12 @@ export function App() {
         queryClient.invalidateQueries({ queryKey: queryKeys.accountRateLimits })
       ]);
     },
-    onError: () => {
+    onError: (_error, variables) => {
       setOptimisticMessage((current) => {
         revokeOptimisticAttachments(current);
         return null;
       });
+      setHydratingSession((current) => (current?.sessionId === variables.clientSessionId ? null : current));
     }
   });
 
@@ -427,8 +479,15 @@ export function App() {
 
   const repos = reposQuery.data?.repos ?? [];
   const sessions = sessionsQuery.data?.sessions ?? [];
+  const pendingSessionSummary =
+    hydratingSession &&
+    (!selectedRepoId || selectedRepoId === hydratingSession.repoId) &&
+    !sessions.some((session) => session.id === hydratingSession.sessionId)
+      ? buildPendingSessionSummary(hydratingSession)
+      : null;
+  const visibleSessions = pendingSessionSummary ? [pendingSessionSummary, ...sessions] : sessions;
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
-  const selectedSessionSummary = sessions.find((session) => session.id === selectedSessionId) ?? null;
+  const selectedSessionSummary = visibleSessions.find((session) => session.id === selectedSessionId) ?? null;
   const fallbackCreateRepoId =
     selectedRepoId ??
     sessionDetailQuery.data?.session.repoId ??
@@ -460,11 +519,23 @@ export function App() {
           latestRun: null
         } satisfies SessionDetail)
       : null;
-  const detail = isDraftSession ? draftDetail : sessionDetailQuery.data;
+  const fallbackDetail = !isDraftSession && selectedSessionSummary ? buildPendingSessionDetail(selectedSessionSummary) : null;
+  const detail = isDraftSession ? draftDetail : (sessionDetailQuery.data ?? fallbackDetail);
   const messages = isDraftSession ? [] : messagesQuery.data?.messages ?? [];
   const activeRepoName = selectedRepo?.name ?? detail?.session.repoName;
   const optimisticMessageForSession =
     optimisticMessage && optimisticMessage.sessionId === selectedSessionId ? optimisticMessage : null;
+  const hasResolvedSessionDetail = Boolean(sessionDetailQuery.data) || isDraftSession;
+
+  useEffect(() => {
+    if (!hydratingSession) {
+      return;
+    }
+
+    if (selectedSessionSummary?.id === hydratingSession.sessionId || sessionDetailQuery.data?.session.id === hydratingSession.sessionId) {
+      setHydratingSession(null);
+    }
+  }, [hydratingSession, selectedSessionSummary?.id, sessionDetailQuery.data?.session.id]);
 
   useEffect(() => {
     if (!optimisticMessageForSession) {
@@ -555,8 +626,8 @@ export function App() {
             repos={repos}
             isMobileViewport={isMobileViewport}
             selectedRepoId={selectedRepoId}
-            sessions={sessions}
-            isLoadingSessions={sessionsQuery.isLoading}
+            sessions={visibleSessions}
+            isLoadingSessions={sessionsQuery.isLoading && visibleSessions.length === 0}
             selectedSessionId={selectedSessionId}
             search={search}
             filter={filter}
@@ -611,7 +682,7 @@ export function App() {
         <section className="workspace-shell__chat" data-mobile-visible={mobilePane === "chat"}>
           <ChatPane
             detail={detail}
-            isLoadingDetail={!isDraftSession && Boolean(selectedSessionId) && sessionDetailQuery.isLoading}
+            isLoadingDetail={!isDraftSession && Boolean(selectedSessionId) && !detail && sessionDetailQuery.isLoading}
             isLoadingMessages={!isDraftSession && Boolean(selectedSessionId) && messagesQuery.isLoading}
             messages={messages}
             streamingText={streamingText}
@@ -636,6 +707,17 @@ export function App() {
               }
 
               // Show optimistic message immediately — before any async work.
+              const createdAt = new Date().toISOString();
+              if (isDraftSession && selectedRepoId) {
+                setHydratingSession({
+                  sessionId: selectedSessionId,
+                  repoId: selectedRepoId,
+                  repoName: selectedRepo?.name,
+                  prompt,
+                  createdAt
+                });
+              }
+
               setOptimisticMessage((current) => {
                 revokeOptimisticAttachments(current);
                 return {
@@ -721,9 +803,9 @@ export function App() {
             isRenaming={renameMutation.isPending}
             isArchiving={archiveMutation.isPending}
             isRestoring={restoreMutation.isPending}
-            canRename={!isDraftSession}
-            canArchive={!isDraftSession && !Boolean(detail?.session.isArchived)}
-            canRestore={!isDraftSession && Boolean(detail?.session.isArchived)}
+            canRename={!isDraftSession && hasResolvedSessionDetail}
+            canArchive={!isDraftSession && hasResolvedSessionDetail && !Boolean(detail?.session.isArchived)}
+            canRestore={!isDraftSession && hasResolvedSessionDetail && Boolean(detail?.session.isArchived)}
           />
         </section>
       </main>
