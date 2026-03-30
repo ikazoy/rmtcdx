@@ -20,6 +20,7 @@ import { ImageUploadService } from "../../src/uploads/image-upload-service";
 import type { CodexAvailableModel, CodexPendingRequest, CodexPendingRequestResponse } from "@codex-remote/shared-types";
 
 const fixturesDir = new URL("./fixtures/codex-cli-0.116.0/", import.meta.url);
+const realCanaryFixturesDir = new URL("./fixtures/codex-cli-0.116.0/real-canary/", import.meta.url);
 const uploads = new ImageUploadService("/tmp/compat-uploads", "/uploads/", 5, 10_485_760);
 
 test("fixture thread/read payloads still produce session details and message lists", async () => {
@@ -128,6 +129,55 @@ test("notification fixtures replay into the expected event stream", async () => 
   ]);
 });
 
+test("sanitized real-canary fixtures still replay into catalog and bridge event views", async () => {
+  const basicThread = await readRealCanaryThreadFixture("thread-read-basic.json");
+  const toolEditThread = await readRealCanaryThreadFixture("thread-read-tool-edit.json");
+
+  const backend = new FixtureCodexBackend([basicThread, toolEditThread]);
+  const catalog = new LiveCatalogService(
+    backend,
+    [
+      {
+        id: "fixture_repo",
+        path: "/fixtures/repo",
+        name: "Fixture Repo",
+        pinned: false
+      }
+    ],
+    uploads
+  );
+
+  const basicMessages = await catalog.listMessages(basicThread.id);
+  const toolEditMessages = await catalog.listMessages(toolEditThread.id);
+  const toolEditEvents = await readBridgeEventFixture("bridge-events-tool-edit.jsonl");
+
+  assert.equal(basicThread.cwd, "/fixtures/workspaces/basic-text");
+  assert.equal(toolEditThread.cwd, "/fixtures/workspaces/tool-edit");
+  assert.equal(toolEditThread.path, "/fixtures/codex/sessions/tool-edit.jsonl");
+  assert.deepEqual(
+    basicMessages.map((message) => ({ kind: message.kind, role: message.role })),
+    [
+      { kind: "user_message", role: "user" },
+      { kind: "assistant_message", role: "assistant" }
+    ]
+  );
+  assert.deepEqual(
+    toolEditMessages.map((message) => message.kind),
+    [
+      "user_message",
+      "assistant_thinking",
+      "command_execution",
+      "assistant_thinking",
+      "file_change",
+      "command_execution",
+      "assistant_message"
+    ]
+  );
+  assert.ok(toolEditEvents.some((event) => event.type === "activity.updated"));
+  assert.ok(toolEditEvents.some((event) => event.type === "run.completed"));
+  assert.ok(toolEditEvents.some((event) => event.type === "message.final"));
+});
+
 class FixtureCodexBackend extends EventEmitter implements CodexBackend {
   private readonly threads = new Map<string, CodexThread>();
 
@@ -221,6 +271,13 @@ async function readThreadFixture(fileName: string) {
   return payload.thread;
 }
 
+async function readRealCanaryThreadFixture(fileName: string) {
+  const payload = JSON.parse(await fs.readFile(new URL(fileName, realCanaryFixturesDir), "utf8")) as {
+    thread: CodexThread;
+  };
+  return payload.thread;
+}
+
 async function readNotificationFixture(fileName: string) {
   const contents = await fs.readFile(new URL(fileName, fixturesDir), "utf8");
   return contents
@@ -228,4 +285,13 @@ async function readNotificationFixture(fileName: string) {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => JSON.parse(line) as { method: string; params: unknown });
+}
+
+async function readBridgeEventFixture(fileName: string) {
+  const contents = await fs.readFile(new URL(fileName, realCanaryFixturesDir), "utf8");
+  return contents
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { type: string });
 }

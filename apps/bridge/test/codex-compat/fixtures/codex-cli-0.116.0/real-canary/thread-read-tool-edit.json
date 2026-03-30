@@ -1,0 +1,119 @@
+{
+  "thread": {
+    "id": "thread_tool-edit",
+    "preview": "This is a Codex compatibility canary.\nUse shell to inspect notes.txt, then append a new line compat-tool-ok to notes.txt.\nUse apply_patch or another file editing tool for the file change.\nIn your final answer include the exact text compat-tool-ok.",
+    "ephemeral": false,
+    "modelProvider": "openai",
+    "createdAt": 1774899461,
+    "updatedAt": 1774899488,
+    "status": {
+      "type": "idle"
+    },
+    "path": "/fixtures/codex/sessions/tool-edit.jsonl",
+    "cwd": "/fixtures/workspaces/tool-edit",
+    "cliVersion": "0.116.0",
+    "source": "vscode",
+    "agentNickname": null,
+    "agentRole": null,
+    "gitInfo": {
+      "sha": null,
+      "branch": null,
+      "originUrl": null
+    },
+    "name": null,
+    "turns": [
+      {
+        "id": "turn_tool-edit_1",
+        "items": [
+          {
+            "type": "userMessage",
+            "id": "item_tool-edit_1_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "This is a Codex compatibility canary.\nUse shell to inspect notes.txt, then append a new line compat-tool-ok to notes.txt.\nUse apply_patch or another file editing tool for the file change.\nIn your final answer include the exact text compat-tool-ok.",
+                "text_elements": []
+              }
+            ]
+          },
+          {
+            "type": "agentMessage",
+            "id": "item_tool-edit_1_2",
+            "text": "Inspecting `notes.txt` with the shell first, then I’ll append the required line with `apply_patch`.",
+            "phase": "commentary",
+            "memoryCitation": null
+          },
+          {
+            "type": "commandExecution",
+            "id": "item_tool-edit_1_3",
+            "command": "/bin/zsh -lc \"sed -n '1,200p' notes.txt\"",
+            "cwd": "/fixtures/workspaces/tool-edit",
+            "processId": "33606",
+            "status": "completed",
+            "commandActions": [
+              {
+                "type": "read",
+                "command": "sed -n '1,200p' notes.txt",
+                "name": "notes.txt",
+                "path": "notes.txt"
+              }
+            ],
+            "aggregatedOutput": "initial-line\n",
+            "exitCode": 0,
+            "durationMs": 0
+          },
+          {
+            "type": "agentMessage",
+            "id": "item_tool-edit_1_4",
+            "text": "Appending `compat-tool-ok` to `notes.txt` now, then I’ll verify the file contents.",
+            "phase": "commentary",
+            "memoryCitation": null
+          },
+          {
+            "type": "fileChange",
+            "id": "item_tool-edit_1_5",
+            "changes": [
+              {
+                "path": "/fixtures/workspaces/tool-edit/notes.txt",
+                "kind": {
+                  "type": "update",
+                  "move_path": null
+                },
+                "diff": "@@ -1 +1,2 @@\n initial-line\n+compat-tool-ok\n"
+              }
+            ],
+            "status": "completed"
+          },
+          {
+            "type": "commandExecution",
+            "id": "item_tool-edit_1_6",
+            "command": "/bin/zsh -lc \"sed -n '1,200p' notes.txt\"",
+            "cwd": "/fixtures/workspaces/tool-edit",
+            "processId": "2479",
+            "status": "completed",
+            "commandActions": [
+              {
+                "type": "read",
+                "command": "sed -n '1,200p' notes.txt",
+                "name": "notes.txt",
+                "path": "notes.txt"
+              }
+            ],
+            "aggregatedOutput": "initial-line\ncompat-tool-ok\n",
+            "exitCode": 0,
+            "durationMs": 0
+          },
+          {
+            "type": "agentMessage",
+            "id": "item_tool-edit_1_7",
+            "text": "Updated [notes.txt](/fixtures/workspaces/tool-edit/notes.txt) and verified the appended line is present.\n\ncompat-tool-ok",
+            "phase": "final_answer",
+            "memoryCitation": null
+          }
+        ],
+        "status": "completed",
+        "error": null
+      }
+    ]
+  }
+}

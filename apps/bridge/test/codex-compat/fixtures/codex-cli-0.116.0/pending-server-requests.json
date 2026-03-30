@@ -1,0 +1,423 @@
+{
+  "parseCases": [
+    {
+      "name": "command approval with actions and additional permissions",
+      "requestId": 11,
+      "method": "item/commandExecution/requestApproval",
+      "params": {
+        "threadId": "thread_1",
+        "turnId": "turn_1",
+        "itemId": "item_1",
+        "approvalId": "approval_1",
+        "reason": "Needs shell access",
+        "command": "npm test",
+        "cwd": "/repo",
+        "networkApprovalContext": {
+          "host": "registry.npmjs.org",
+          "protocol": "https"
+        },
+        "commandActions": [
+          {
+            "type": "read",
+            "command": "cat package.json",
+            "name": "cat",
+            "path": "/repo/package.json"
+          },
+          {
+            "type": "search",
+            "command": "rg approvalPolicy",
+            "query": "approvalPolicy",
+            "path": "/repo/apps"
+          }
+        ],
+        "additionalPermissions": {
+          "network": {
+            "enabled": true
+          },
+          "fileSystem": {
+            "read": [
+              "/repo/package.json"
+            ],
+            "write": [
+              "/repo/tmp"
+            ]
+          }
+        },
+        "availableDecisions": [
+          "accept",
+          "acceptForSession",
+          "decline",
+          "cancel"
+        ]
+      },
+      "expected": {
+        "type": "command_approval",
+        "id": "11",
+        "sessionId": "thread_1:turn_1",
+        "threadId": "thread_1",
+        "turnId": "turn_1",
+        "itemId": "item_1",
+        "createdAt": "2026-03-30T20:00:00.000Z",
+        "approvalId": "approval_1",
+        "reason": "Needs shell access",
+        "networkApprovalContext": {
+          "host": "registry.npmjs.org",
+          "protocol": "https"
+        },
+        "command": "npm test",
+        "cwd": "/repo",
+        "commandActions": [
+          {
+            "type": "read",
+            "command": "cat package.json",
+            "name": "cat",
+            "path": "/repo/package.json"
+          },
+          {
+            "type": "search",
+            "command": "rg approvalPolicy",
+            "query": "approvalPolicy",
+            "path": "/repo/apps"
+          }
+        ],
+        "requestedPermissions": {
+          "network": {
+            "enabled": true
+          },
+          "fileSystem": {
+            "read": [
+              "/repo/package.json"
+            ],
+            "write": [
+              "/repo/tmp"
+            ]
+          }
+        },
+        "availableDecisions": [
+          "accept",
+          "acceptForSession",
+          "decline",
+          "cancel"
+        ]
+      }
+    },
+    {
+      "name": "file change approval",
+      "requestId": "12",
+      "method": "item/fileChange/requestApproval",
+      "params": {
+        "threadId": "thread_1",
+        "turnId": "turn_1",
+        "itemId": "item_2",
+        "reason": "Write access required",
+        "grantRoot": "/repo"
+      },
+      "expected": {
+        "type": "file_change_approval",
+        "id": "12",
+        "sessionId": "thread_1:turn_1",
+        "threadId": "thread_1",
+        "turnId": "turn_1",
+        "itemId": "item_2",
+        "createdAt": "2026-03-30T20:00:00.000Z",
+        "reason": "Write access required",
+        "grantRoot": "/repo"
+      }
+    },
+    {
+      "name": "permissions approval",
+      "requestId": 13,
+      "method": "item/permissions/requestApproval",
+      "params": {
+        "threadId": "thread_1",
+        "turnId": "turn_1",
+        "itemId": "item_3",
+        "reason": "Additional permissions required",
+        "permissions": {
+          "network": {
+            "enabled": true
+          },
+          "fileSystem": {
+            "read": [
+              "/repo/docs"
+            ],
+            "write": [
+              "/repo/apps/web/src"
+            ]
+          }
+        }
+      },
+      "expected": {
+        "type": "permissions_approval",
+        "id": "13",
+        "sessionId": "thread_1:turn_1",
+        "threadId": "thread_1",
+        "turnId": "turn_1",
+        "itemId": "item_3",
+        "createdAt": "2026-03-30T20:00:00.000Z",
+        "reason": "Additional permissions required",
+        "permissions": {
+          "network": {
+            "enabled": true
+          },
+          "fileSystem": {
+            "read": [
+              "/repo/docs"
+            ],
+            "write": [
+              "/repo/apps/web/src"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "request user input",
+      "requestId": 14,
+      "method": "item/tool/requestUserInput",
+      "params": {
+        "threadId": "thread_1",
+        "turnId": "turn_1",
+        "itemId": "item_4",
+        "questions": [
+          {
+            "id": "target_env",
+            "header": "Target env",
+            "question": "Which environment should Codex use?",
+            "isOther": false,
+            "isSecret": false,
+            "options": [
+              {
+                "label": "staging",
+                "description": "Use staging."
+              },
+              {
+                "label": "production",
+                "description": "Use production."
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "type": "request_user_input",
+        "id": "14",
+        "sessionId": "thread_1:turn_1",
+        "threadId": "thread_1",
+        "turnId": "turn_1",
+        "itemId": "item_4",
+        "createdAt": "2026-03-30T20:00:00.000Z",
+        "questions": [
+          {
+            "id": "target_env",
+            "header": "Target env",
+            "question": "Which environment should Codex use?",
+            "isOther": false,
+            "isSecret": false,
+            "options": [
+              {
+                "label": "staging",
+                "description": "Use staging."
+              },
+              {
+                "label": "production",
+                "description": "Use production."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "mcp form elicitation",
+      "requestId": 15,
+      "method": "mcpServer/elicitation/request",
+      "params": {
+        "threadId": "thread_1",
+        "turnId": "turn_1",
+        "serverName": "github",
+        "mode": "form",
+        "message": "Fill out the repository details.",
+        "_meta": {
+          "requestId": "meta_1"
+        },
+        "requestedSchema": {
+          "type": "object",
+          "required": [
+            "owner",
+            "repo"
+          ]
+        }
+      },
+      "expected": {
+        "type": "mcp_elicitation",
+        "id": "15",
+        "sessionId": "thread_1:turn_1",
+        "threadId": "thread_1",
+        "turnId": "turn_1",
+        "itemId": null,
+        "createdAt": "2026-03-30T20:00:00.000Z",
+        "mode": "form",
+        "serverName": "github",
+        "message": "Fill out the repository details.",
+        "meta": {
+          "requestId": "meta_1"
+        },
+        "requestedSchema": {
+          "type": "object",
+          "required": [
+            "owner",
+            "repo"
+          ]
+        }
+      }
+    },
+    {
+      "name": "mcp url elicitation without turn id",
+      "requestId": 16,
+      "method": "mcpServer/elicitation/request",
+      "params": {
+        "threadId": "thread_1",
+        "serverName": "github",
+        "mode": "url",
+        "message": "Open the approval URL.",
+        "url": "https://example.test/approve",
+        "elicitationId": "elicitation_1"
+      },
+      "expected": {
+        "type": "mcp_elicitation",
+        "id": "16",
+        "sessionId": "thread_1",
+        "threadId": "thread_1",
+        "turnId": null,
+        "itemId": null,
+        "createdAt": "2026-03-30T20:00:00.000Z",
+        "mode": "url",
+        "serverName": "github",
+        "message": "Open the approval URL.",
+        "meta": null,
+        "url": "https://example.test/approve",
+        "elicitationId": "elicitation_1"
+      }
+    }
+  ],
+  "responseCases": [
+    {
+      "name": "command approval response",
+      "request": {
+        "requestId": 21,
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+          "threadId": "thread_1",
+          "turnId": "turn_1"
+        }
+      },
+      "response": {
+        "type": "command_approval",
+        "decision": "acceptForSession"
+      },
+      "expected": {
+        "decision": "acceptForSession"
+      }
+    },
+    {
+      "name": "request user input response",
+      "request": {
+        "requestId": 22,
+        "method": "item/tool/requestUserInput",
+        "params": {
+          "threadId": "thread_1",
+          "turnId": "turn_1",
+          "questions": []
+        }
+      },
+      "response": {
+        "type": "request_user_input",
+        "answers": {
+          "target_env": {
+            "answers": [
+              "staging"
+            ]
+          }
+        }
+      },
+      "expected": {
+        "answers": {
+          "target_env": {
+            "answers": [
+              "staging"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "mcp elicitation response",
+      "request": {
+        "requestId": 23,
+        "method": "mcpServer/elicitation/request",
+        "params": {
+          "threadId": "thread_1",
+          "serverName": "github",
+          "mode": "form",
+          "message": "Fill out the repository details.",
+          "requestedSchema": {}
+        }
+      },
+      "response": {
+        "type": "mcp_elicitation",
+        "action": "accept",
+        "content": {
+          "owner": "ikazoy",
+          "repo": "remote-control-codex"
+        },
+        "meta": {
+          "from": "test"
+        }
+      },
+      "expected": {
+        "action": "accept",
+        "content": {
+          "owner": "ikazoy",
+          "repo": "remote-control-codex"
+        },
+        "_meta": {
+          "from": "test"
+        }
+      }
+    }
+  ],
+  "nullCases": [
+    {
+      "name": "incomplete permissions approval",
+      "requestId": 31,
+      "method": "item/permissions/requestApproval",
+      "params": {
+        "threadId": "thread_1"
+      }
+    },
+    {
+      "name": "unknown future request",
+      "requestId": 32,
+      "method": "future/requestType",
+      "params": {
+        "threadId": "thread_1",
+        "turnId": "turn_1"
+      }
+    }
+  ],
+  "unsupportedResponseCase": {
+    "request": {
+      "requestId": 41,
+      "method": "item/commandExecution/requestApproval",
+      "params": {
+        "threadId": "thread_1",
+        "turnId": "turn_1"
+      }
+    },
+    "response": {
+      "type": "file_change_approval",
+      "decision": "accept"
+    }
+  }
+}

@@ -26,8 +26,9 @@ import type {
 import { presentAccountRateLimits, unavailableAccountRateLimits } from "./account/rate-limits";
 import { LiveCatalogService } from "./catalog/live-catalog-service";
 import { createCodexBackend } from "./codex/index";
-import { loadConfig } from "./config/env";
-import { readRepoConfigOptional } from "./config/repos";
+import type { CodexBackend } from "./codex/types";
+import { loadConfig, type AppConfig } from "./config/env";
+import { readRepoConfigOptional, type RepoConfig } from "./config/repos";
 import { PushNotificationService } from "./notifications/push-notification-service";
 import { CodexDebugLog } from "./observability/codex-debug-log";
 import { RealtimeGateway } from "./realtime/realtime-gateway";
@@ -114,8 +115,14 @@ const codexPendingRequestResponseSchema = z.discriminatedUnion("type", [
   })
 ]);
 
-export async function buildApp() {
-  const config = loadConfig();
+type BuildAppOverrides = {
+  config?: AppConfig;
+  codex?: CodexBackend;
+  repoConfig?: RepoConfig[];
+};
+
+export async function buildApp(overrides: BuildAppOverrides = {}) {
+  const config = overrides.config ?? loadConfig();
   fs.mkdirSync(config.dataDir, { recursive: true });
   fs.mkdirSync(config.uploadsDir, { recursive: true });
 
@@ -156,14 +163,14 @@ export async function buildApp() {
   });
   app.log.info({ path: config.codexDebugLogFile }, "Codex app-server debug log enabled");
 
-  const codex = await createCodexBackend(config.codexMode, app.log, codexDebugLog);
+  const codex = overrides.codex ?? (await createCodexBackend(config.codexMode, app.log, codexDebugLog));
   const uploads = new ImageUploadService(
     config.uploadsDir,
     "/api/uploads/",
     config.maxImageAttachments,
     config.maxImageAttachmentBytes
   );
-  const repoConfig = readRepoConfigOptional(config.reposFile);
+  const repoConfig = overrides.repoConfig ?? readRepoConfigOptional(config.reposFile);
   const catalog = new LiveCatalogService(codex, repoConfig, uploads);
   const pushNotifications = new PushNotificationService(config.stateFile, config, app.log);
   const realtime = new RealtimeGateway((event: ClientWsEvent) => {
@@ -523,6 +530,7 @@ export async function buildApp() {
 
   return {
     app,
-    config
+    config,
+    realtime
   };
 }

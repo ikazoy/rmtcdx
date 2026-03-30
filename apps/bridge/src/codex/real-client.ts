@@ -566,7 +566,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
   }
 
   private handleNotification(method: string, params: unknown) {
-    this.debugLog?.write("notification.received", { method });
+    this.debugLog?.write("notification.received", { method, params });
 
     if (method === "serverRequest/resolved") {
       const payload = asObject(params);

@@ -1,0 +1,45 @@
+{
+  "thread": {
+    "id": "thread_interrupt",
+    "preview": "This is a Codex compatibility canary.\nProduce a long response by counting from 1 to 200 with one number per line.\nDo not summarize.",
+    "ephemeral": false,
+    "modelProvider": "openai",
+    "createdAt": 1774899488,
+    "updatedAt": 1774899499,
+    "status": {
+      "type": "idle"
+    },
+    "path": "/fixtures/codex/sessions/interrupt.jsonl",
+    "cwd": "/fixtures/workspaces/interrupt",
+    "cliVersion": "0.116.0",
+    "source": "vscode",
+    "agentNickname": null,
+    "agentRole": null,
+    "gitInfo": {
+      "sha": null,
+      "branch": null,
+      "originUrl": null
+    },
+    "name": null,
+    "turns": [
+      {
+        "id": "turn_interrupt_1",
+        "items": [
+          {
+            "type": "userMessage",
+            "id": "item_interrupt_1_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "This is a Codex compatibility canary.\nProduce a long response by counting from 1 to 200 with one number per line.\nDo not summarize.",
+                "text_elements": []
+              }
+            ]
+          }
+        ],
+        "status": "interrupted",
+        "error": null
+      }
+    ]
+  }
+}

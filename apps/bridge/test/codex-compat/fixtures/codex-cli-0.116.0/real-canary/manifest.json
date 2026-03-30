@@ -1,0 +1,22 @@
+{
+  "sourceArtifactDir": "data/compat/real-codex-canary/2026-03-30T19-37-35-764Z",
+  "codexVersion": "codex-cli 0.116.0",
+  "generatedAt": "2026-03-30T20:31:48.800Z",
+  "scenarios": [
+    {
+      "scenarioId": "basic-text",
+      "fixtureName": "basic"
+    },
+    {
+      "scenarioId": "interrupt",
+      "fixtureName": "interrupt"
+    },
+    {
+      "scenarioId": "tool-edit",
+      "fixtureName": "tool-edit"
+    }
+  ],
+  "warnings": [
+    "notification.received entries do not include params yet; rerun real canary after updating debug logging."
+  ]
+}

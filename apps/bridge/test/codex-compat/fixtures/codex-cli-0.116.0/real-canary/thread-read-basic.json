@@ -1,0 +1,52 @@
+{
+  "thread": {
+    "id": "thread_basic",
+    "preview": "This is a Codex compatibility canary.\nReply with the exact text compat-basic-ok in your final answer.\nDo not edit files.",
+    "ephemeral": false,
+    "modelProvider": "openai",
+    "createdAt": 1774899455,
+    "updatedAt": 1774899461,
+    "status": {
+      "type": "idle"
+    },
+    "path": "/fixtures/codex/sessions/basic.jsonl",
+    "cwd": "/fixtures/workspaces/basic-text",
+    "cliVersion": "0.116.0",
+    "source": "vscode",
+    "agentNickname": null,
+    "agentRole": null,
+    "gitInfo": {
+      "sha": null,
+      "branch": null,
+      "originUrl": null
+    },
+    "name": null,
+    "turns": [
+      {
+        "id": "turn_basic_1",
+        "items": [
+          {
+            "type": "userMessage",
+            "id": "item_basic_1_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "This is a Codex compatibility canary.\nReply with the exact text compat-basic-ok in your final answer.\nDo not edit files.",
+                "text_elements": []
+              }
+            ]
+          },
+          {
+            "type": "agentMessage",
+            "id": "item_basic_1_2",
+            "text": "compat-basic-ok",
+            "phase": "final_answer",
+            "memoryCitation": null
+          }
+        ],
+        "status": "completed",
+        "error": null
+      }
+    ]
+  }
+}

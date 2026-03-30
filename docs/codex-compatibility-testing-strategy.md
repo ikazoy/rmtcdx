@@ -784,11 +784,16 @@ Layer A/B/C までを必須にし、
 - `codex-app-server.jsonl` から notification inventory を出す report 生成
 - real Codex canary artifact の保存
 - 実機 canary で観測した notification method を parser / test に反映する運用
+- pending request parser と request lifecycle fixture test
+- fixture backend を使った bridge-level smoke test
+- real canary artifact から sanitized fixture を生成する CLI
 
 実装済みの入口は以下。
 
 - `npm run compat:canary -w remote-control-codex`
+- `npm run compat:fixtures -w remote-control-codex`
 - `apps/bridge/scripts/run-real-codex-canary.ts`
+- `apps/bridge/scripts/generate-compat-fixtures.ts`
 - `apps/bridge/src/compat/canary-report.ts`
 
 実機確認としては、
@@ -804,21 +809,32 @@ Layer A/B/C までを必須にし、
 
 - `data/compat/real-codex-canary/2026-03-30T19-37-35-764Z/report.json`
 
+checked-in 済みの sanitized fixture 出力例:
+
+- `apps/bridge/test/codex-compat/fixtures/codex-cli-0.116.0/real-canary/`
+
+現時点の制約として、
+2026-03-30T19-37-35-764Z の artifact は
+`notification.received` に raw `params` をまだ含んでいない。
+そのため、
+現在の `compat:fixtures` は
+`thread/read` と `bridge-events` を生成できるが、
+raw notification fixture は次回 canary 再取得後に昇格させる前提である。
+
 ## 16. 今後追加すべき仕組み
 
 この方針をさらに実運用へ寄せるには、
 少なくとも以下を追加する必要がある。
 
-- fixture replay backend
-- sanitize 済み fixture を生成する workflow
-- fixture replay backend の API smoke test
+- raw notification fixture を生成するための canary rerun
+- sanitize 済み fixture 更新を半自動化する workflow
 - `reasoning-plan`、`request-surface` など未実装 scenario の拡張
 
 次の実装優先度は以下がよい。
 
-1. sanitize workflow
-2. fixture replay backend の API smoke test
-3. 実機 artifact から replay fixture への昇格
+1. `notification.received.params` を含む artifact で canary を再実行する
+2. raw notification fixture を checked-in して synthetic notification fixture を置き換える
+3. `request-surface` scenario を real canary に追加して request artifact も実ログ由来にする
 4. scenario matrix の拡張
 
 この順なら、

@@ -1,0 +1,2 @@
+{"type":"message.final","sessionId":"thread_basic","runId":"run_basic","turnId":"turn_basic_1","text":"compat-basic-ok","countsUnread":true}
+{"type":"run.completed","sessionId":"thread_basic","runId":"run_basic","turnId":"turn_basic_1"}
