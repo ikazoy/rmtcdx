@@ -20,6 +20,7 @@ import type {
   MessageAttachment,
   SessionDetail
 } from "@codex-remote/shared-types";
+import type { ChatViewState as ChatScreenViewState } from "../../app/view-state";
 import { formatRelativeTime } from "../../components/formatters";
 import { useAnchoredMenu } from "../../hooks/use-anchored-menu";
 import { sessionDisplayStatus } from "../sessions/session-state";
@@ -28,6 +29,12 @@ const MAX_IMAGE_ATTACHMENTS = 5;
 const TIMELINE_PIN_THRESHOLD_MIN_PX = 120;
 const TIMELINE_PIN_THRESHOLD_MAX_PX = 220;
 const TIMELINE_PIN_THRESHOLD_VIEWPORT_RATIO = 0.18;
+
+function debugChatState(label: string, payload: Record<string, unknown>) {
+  if (import.meta.env.DEV) {
+    console.info(`[chat-debug] ${label}`, payload);
+  }
+}
 
 function timelinePinThresholdPx() {
   if (typeof window === "undefined") {
@@ -137,17 +144,15 @@ type ImageViewerState =
     };
 
 type Props = {
-  detail: SessionDetail | null | undefined;
-  isLoadingDetail: boolean;
-  isLoadingMessages: boolean;
-  messages: Message[];
+  viewState: ChatScreenViewState;
   streamingText: string;
   liveActivities: LiveActivity[];
   isMobileViewport: boolean;
   optimisticMessage?: OptimisticUserMessage | null;
+  hasPendingResponse: boolean;
+  canInterruptRun: boolean;
   wsState: string;
   backendMode: "real" | "mock" | undefined;
-  repoName?: string;
   onBack: () => void;
   onSubmit: (payload: { prompt: string; files: File[] }) => Promise<void>;
   onInterrupt: () => Promise<void>;
@@ -1278,17 +1283,15 @@ function ChatSkeletonContent() {
 }
 
 export function ChatPane({
-  detail,
-  isLoadingDetail,
-  isLoadingMessages,
-  messages,
+  viewState,
   streamingText,
   liveActivities,
   isMobileViewport,
   optimisticMessage,
+  hasPendingResponse,
+  canInterruptRun,
   wsState,
   backendMode,
-  repoName,
   onBack,
   onSubmit,
   onInterrupt,
@@ -1330,23 +1333,57 @@ export function ChatPane({
     open: isActionsMenuOpen,
     onOpenChange: setIsActionsMenuOpen
   });
+  const detail = viewState.kind === "ready" ? viewState.detail : null;
+  const messages = viewState.kind === "ready" ? viewState.messages : [];
+  const isLoadingMessages = viewState.kind === "ready" ? viewState.isLoadingMessages : false;
+  const repoName = viewState.kind === "ready" ? viewState.repoName : undefined;
 
   const activeRunState = detail?.activeRun?.status ?? null;
   const latestRunState = detail?.latestRun?.status ?? null;
   const sessionIsArchived = Boolean(detail?.session.isArchived);
   const sessionIsRunning = activeRunState === "running" || detail?.session.status === "running";
-  const hasPendingRun = sessionIsRunning || isSubmitting || Boolean(optimisticMessage);
-  const canInterruptRun = Boolean(detail?.activeRun?.id) && !isSubmitting;
+  const hasPendingRun = sessionIsRunning || isSubmitting || Boolean(optimisticMessage) || hasPendingResponse;
+  const interruptButtonEnabled = canInterruptRun && !isSubmitting;
   const bannerRunState =
     activeRunState ??
     (sessionIsRunning ? "running" : null) ??
     (latestRunState === "error" || latestRunState === "interrupted" ? latestRunState : null);
   const sessionBadgeState = detail ? sessionDisplayStatus(detail.session) : "idle";
   const showPendingAssistant =
-    !streamingText && (Boolean(optimisticMessage) || sessionIsRunning || isSubmitting);
+    !streamingText && (Boolean(optimisticMessage) || sessionIsRunning || isSubmitting || hasPendingResponse);
   const showComposerEmptyState =
     !isLoadingMessages && messages.length === 0 && !streamingText && !optimisticMessage && !showPendingAssistant;
   const usesRootScroll = isMobileViewport;
+
+  useEffect(() => {
+    debugChatState("render-state", {
+      viewKind: viewState.kind,
+      detailId: detail?.session.id ?? null,
+      messageCount: messages.length,
+      optimistic: Boolean(optimisticMessage),
+      hasPendingResponse,
+      streamingTextLength: streamingText.length,
+      liveActivityCount: liveActivities.length,
+      isLoadingMessages,
+      isSubmitting,
+      sessionIsRunning,
+      showPendingAssistant,
+      showComposerEmptyState
+    });
+  }, [
+    detail?.session.id,
+    hasPendingResponse,
+    isLoadingMessages,
+    isSubmitting,
+    liveActivities.length,
+    messages.length,
+    optimisticMessage,
+    sessionIsRunning,
+    showComposerEmptyState,
+    showPendingAssistant,
+    streamingText.length,
+    viewState.kind
+  ]);
 
   useEffect(() => {
     if (!copiedDebugField) {
@@ -2089,10 +2126,10 @@ export function ChatPane({
                     {hasPendingRun ? (
                       <button
                         className="composer-send composer-send--stop"
-                        disabled={isInterrupting || !canInterruptRun}
+                        disabled={isInterrupting || !interruptButtonEnabled}
                         onClick={() => void onInterrupt()}
                         type="button"
-                        aria-label={canInterruptRun ? "Stop" : "Preparing run"}
+                        aria-label={interruptButtonEnabled ? "Stop" : "Preparing run"}
                       >
                         {isInterrupting ? "..." : "■"}
                       </button>
@@ -2119,8 +2156,13 @@ export function ChatPane({
             </div>
           </div>
         </>
-      ) : isLoadingDetail ? (
+      ) : viewState.kind === "loading" ? (
         <ChatSkeletonContent />
+      ) : viewState.kind === "error" ? (
+        <div className="empty-state empty-state--chat">
+          <strong>Unable to load this thread</strong>
+          <p>{viewState.message}</p>
+        </div>
       ) : (
         <div className="empty-state empty-state--chat">
           <strong>Select a thread</strong>

@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import type { LiveActivity } from "@codex-remote/shared-types";
 
-type MobilePane = "sidebar" | "chat";
 type WsState = "connecting" | "connected" | "reconnecting";
 
 const SELECTED_REPO_STORAGE_KEY = "codex-remote-selected-repo-id";
@@ -66,8 +65,6 @@ function persistCollapsedRepos(repoNames: Set<string>) {
 
 type UiState = {
   selectedRepoId: string | null;
-  selectedSessionId: string | null;
-  mobilePane: MobilePane;
   sidebarVisible: boolean;
   wsState: WsState;
   backendBanner: string | null;
@@ -75,8 +72,6 @@ type UiState = {
   activities: Record<string, Record<string, LiveActivity>>;
   collapsedRepos: Set<string>;
   setSelectedRepoId: (repoId: string | null) => void;
-  setSelectedSessionId: (sessionId: string | null) => void;
-  setMobilePane: (pane: MobilePane) => void;
   setSidebarVisible: (visible: boolean) => void;
   toggleSidebarVisible: () => void;
   setWsState: (state: WsState) => void;
@@ -94,8 +89,6 @@ type UiState = {
 
 export const useUiStore = create<UiState>((set) => ({
   selectedRepoId: readStoredSelectedRepoId(),
-  selectedSessionId: null,
-  mobilePane: "sidebar",
   sidebarVisible: true,
   wsState: "connecting",
   backendBanner: null,
@@ -106,8 +99,6 @@ export const useUiStore = create<UiState>((set) => ({
     persistSelectedRepoId(selectedRepoId);
     set({ selectedRepoId });
   },
-  setSelectedSessionId: (selectedSessionId) => set({ selectedSessionId }),
-  setMobilePane: (mobilePane) => set({ mobilePane }),
   setSidebarVisible: (sidebarVisible) => set({ sidebarVisible }),
   toggleSidebarVisible: () => set((state) => ({ sidebarVisible: !state.sidebarVisible })),
   setWsState: (wsState) => set({ wsState }),

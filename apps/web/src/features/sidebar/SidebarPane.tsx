@@ -2,6 +2,7 @@ import { FloatingPortal } from "@floating-ui/react";
 import { useState } from "react";
 import type { Repository, SessionFilter, SessionSummary } from "@codex-remote/shared-types";
 import { SESSION_FILTERS } from "@codex-remote/shared-types";
+import type { SidebarViewState } from "../../app/view-state";
 import { formatRelativeTime } from "../../components/formatters";
 import { useAnchoredMenu } from "../../hooks/use-anchored-menu";
 import { StatusMenu } from "../status/StatusMenu";
@@ -12,8 +13,7 @@ type Props = {
   repos: Repository[];
   isMobileViewport: boolean;
   selectedRepoId: string | null;
-  sessions: SessionSummary[];
-  isLoadingSessions: boolean;
+  sessionsState: SidebarViewState;
   selectedSessionId: string | null;
   search: string;
   filter: SessionFilter;
@@ -93,8 +93,7 @@ export function SidebarPane({
   repos,
   isMobileViewport,
   selectedRepoId,
-  sessions,
-  isLoadingSessions,
+  sessionsState,
   selectedSessionId,
   search,
   filter,
@@ -140,6 +139,11 @@ export function SidebarPane({
     return repo.branch ? `${repo.name} · ${repo.branch}` : `${repo.name} · ${segment}`;
   }
 
+  const sessions = sessionsState.kind === "ready" ? sessionsState.sessions : [];
+  const isLoadingSessions = sessionsState.kind === "loading";
+  const isRefreshingSessions = sessionsState.kind === "ready" && sessionsState.isRefreshing;
+  const hasEmptyState = sessionsState.kind === "empty";
+  const errorMessage = sessionsState.kind === "error" ? sessionsState.message : null;
   const selectedRepo = orderedRepos.find((repo) => repo.id === selectedRepoId) ?? null;
   const repoGroups = selectedRepoId ? [] : groupByRepo(sessions);
   const singleRepoSessions = selectedRepoId ? sessions : [];
@@ -351,11 +355,20 @@ export function SidebarPane({
         </div>
 
         <div className="sidebar-scroll">
+          {isRefreshingSessions ? <p className="sidebar-loading-note">Refreshing threads…</p> : null}
+
           {isLoadingSessions ? (
             <SidebarSkeleton />
           ) : null}
 
-          {!isLoadingSessions && repoGroups.length === 0 && singleRepoSessions.length === 0 ? (
+          {errorMessage ? (
+            <div className="empty-state empty-state--sidebar">
+              <strong>Unable to load threads</strong>
+              <p>{errorMessage}</p>
+            </div>
+          ) : null}
+
+          {hasEmptyState ? (
             <div className="empty-state empty-state--sidebar">
               <strong>{search || filter !== "all" ? "No matching sessions" : "No sessions yet"}</strong>
               <p>
@@ -368,52 +381,54 @@ export function SidebarPane({
             </div>
           ) : null}
 
-          {/* All projects: group by repo */}
-          {repoGroups.map((group) => {
-            const isCollapsed = collapsedRepos.has(group.repoName);
-            return (
-              <section key={group.repoName} className="repo-group">
-                <button
-                  className="repo-group__header"
-                  onClick={() => toggleRepoCollapsed(group.repoName)}
-                  type="button"
-                >
-                  <span className={`repo-group__chevron ${isCollapsed ? "is-collapsed" : ""}`}>▾</span>
-                  <span className="repo-group__name">{group.repoName}</span>
-                  <span className="repo-group__count">{group.sessions.length}</span>
-                </button>
-                {!isCollapsed ? (
-                  <div className="repo-group__list">
-                    {group.sessions.map((session) => (
-                      <SessionRow
-                        key={session.id}
-                        session={session}
-                        isActive={selectedSessionId === session.id}
-                        onSelect={onSelectSession}
-                        onHover={onHoverSession}
-                        showRepo={false}
-                      />
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-            );
-          })}
+          {!isLoadingSessions && !errorMessage ? (
+            <>
+              {repoGroups.map((group) => {
+                const isCollapsed = collapsedRepos.has(group.repoName);
+                return (
+                  <section key={group.repoName} className="repo-group">
+                    <button
+                      className="repo-group__header"
+                      onClick={() => toggleRepoCollapsed(group.repoName)}
+                      type="button"
+                    >
+                      <span className={`repo-group__chevron ${isCollapsed ? "is-collapsed" : ""}`}>▾</span>
+                      <span className="repo-group__name">{group.repoName}</span>
+                      <span className="repo-group__count">{group.sessions.length}</span>
+                    </button>
+                    {!isCollapsed ? (
+                      <div className="repo-group__list">
+                        {group.sessions.map((session) => (
+                          <SessionRow
+                            key={session.id}
+                            session={session}
+                            isActive={selectedSessionId === session.id}
+                            onSelect={onSelectSession}
+                            onHover={onHoverSession}
+                            showRepo={false}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })}
 
-          {/* Single repo selected: flat list */}
-          {singleRepoSessions.length > 0 ? (
-            <div className="repo-group__list">
-              {singleRepoSessions.map((session) => (
-                <SessionRow
-                  key={session.id}
-                  session={session}
-                  isActive={selectedSessionId === session.id}
-                  onSelect={onSelectSession}
-                  onHover={onHoverSession}
-                  showRepo={false}
-                />
-              ))}
-            </div>
+              {singleRepoSessions.length > 0 ? (
+                <div className="repo-group__list">
+                  {singleRepoSessions.map((session) => (
+                    <SessionRow
+                      key={session.id}
+                      session={session}
+                      isActive={selectedSessionId === session.id}
+                      onSelect={onSelectSession}
+                      onHover={onHoverSession}
+                      showRepo={false}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </>
           ) : null}
         </div>
 
