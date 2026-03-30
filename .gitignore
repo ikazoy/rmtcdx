@@ -24,3 +24,4 @@ apps/bridge/web-dist
 *.sqlite-journal
 *.sqlite-shm
 *.sqlite-wal
+.claude/schedule*
