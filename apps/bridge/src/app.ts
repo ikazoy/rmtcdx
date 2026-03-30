@@ -29,7 +29,7 @@ import { RealtimeGateway } from "./realtime/realtime-gateway";
 import { RunService } from "./runs/run-service";
 import { ImageUploadService } from "./uploads/image-upload-service";
 
-const filterSchema = z.enum(["all", "running", "unread", "completed", "error", "archived"]).optional();
+const filterSchema = z.enum(["all", "running", "unread", "completed", "interrupted", "error", "archived"]).optional();
 const renameSessionSchema = z.object({
   title: z.string().trim().min(1)
 });

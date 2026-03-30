@@ -233,6 +233,7 @@ export class LiveCatalogService {
       ? excerpt(context.thread.preview, 140)
       : `Start a conversation in ${context.repo.name}`;
     const status = this.mapThreadStatus(context.thread);
+    const latestTurn = context.thread.turns.at(-1);
     const updatedAt = this.toIso(context.thread.updatedAt);
     const createdAt = this.toIso(context.thread.createdAt);
 
@@ -250,6 +251,8 @@ export class LiveCatalogService {
       lastReadEventSeq: 0,
       lastMessageAt: updatedAt,
       lastRunFinishedAt: status === "running" ? undefined : updatedAt,
+      latestTurnStatus: latestTurn?.status ?? null,
+      threadStatusType: context.thread.status.type,
       latestUserPrompt: context.thread.preview.trim() || undefined,
       latestAssistantExcerpt: undefined,
       hasUnreadCompletion: false,
@@ -589,19 +592,19 @@ export class LiveCatalogService {
       id: latestTurn.id,
       sessionId: thread.id,
       turnId: latestTurn.id,
-      status: this.mapTurnStatus(latestTurn),
+      status: this.mapTurnStatus(thread, latestTurn),
       startedAt: this.toIso(thread.updatedAt),
-      finishedAt: latestTurn.status === "inProgress" ? undefined : this.toIso(thread.updatedAt),
+      finishedAt: this.mapTurnStatus(thread, latestTurn) === "running" ? undefined : this.toIso(thread.updatedAt),
       errorMessage: latestTurn.error?.message ?? undefined
     };
 
     return {
-      activeRun: latestTurn.status === "inProgress" ? run : null,
+      activeRun: run.status === "running" ? run : null,
       latestRun: run
     };
   }
 
-  private mapTurnStatus(turn: CodexThreadTurn): Run["status"] {
+  private mapTurnStatus(thread: CodexThread, turn: CodexThreadTurn): Run["status"] {
     switch (turn.status) {
       case "completed":
         return "completed";
@@ -610,16 +613,27 @@ export class LiveCatalogService {
       case "failed":
         return "error";
       default:
-        return "running";
+        // If Codex no longer marks the thread active, a dangling in-progress turn is effectively interrupted.
+        return thread.status.type === "active" ? "running" : "interrupted";
     }
   }
 
   private mapThreadStatus(thread: CodexThread): SessionSummary["status"] {
+    const latestTurn = thread.turns.at(-1);
     if (thread.status.type === "active") {
       return "running";
     }
     if (thread.status.type === "systemError") {
       return "error";
+    }
+    if (latestTurn) {
+      const latestRunStatus = this.mapTurnStatus(thread, latestTurn);
+      if (latestRunStatus === "error") {
+        return "error";
+      }
+      if (latestRunStatus === "interrupted") {
+        return "interrupted";
+      }
     }
     if (!thread.preview.trim() && !thread.name) {
       return "idle";

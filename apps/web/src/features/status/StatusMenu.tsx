@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { FloatingPortal } from "@floating-ui/react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import type { AccountRateLimitSnapshot, AccountRateLimitWindow } from "@codex-remote/shared-types";
 import { queryKeys } from "../../app/query";
 import { api } from "../../api/client";
+import { useAnchoredMenu } from "../../hooks/use-anchored-menu";
 
 type Props = {
   isMobileViewport: boolean;
@@ -197,7 +199,6 @@ async function registerPushWorker() {
 }
 
 export function StatusMenu({ isMobileViewport }: Props) {
-  const menuRef = useRef<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [isStandalone, setIsStandalone] = useState(() => readStandaloneState());
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -233,6 +234,10 @@ export function StatusMenu({ isMobileViewport }: Props) {
     queryKey: queryKeys.accountRateLimits,
     queryFn: api.accountRateLimits,
     staleTime: 30_000
+  });
+  const menu = useAnchoredMenu({
+    open: isOpen,
+    onOpenChange: setIsOpen
   });
 
   useEffect(() => {
@@ -271,32 +276,6 @@ export function StatusMenu({ isMobileViewport }: Props) {
       window.removeEventListener("appinstalled", handleAppInstalled);
     };
   }, []);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen]);
 
   useEffect(() => {
     if (notificationState !== "blocked") {
@@ -698,87 +677,96 @@ export function StatusMenu({ isMobileViewport }: Props) {
   };
 
   return (
-    <div ref={menuRef} className="sidebar-menu">
+    <div className="sidebar-menu">
       <button
-        className={`sidebar-menu__trigger sidebar-menu__trigger--status sidebar-menu__trigger--${triggerTone}`}
-        onClick={() => setIsOpen((current) => !current)}
-        type="button"
-        aria-expanded={isOpen}
-        aria-label="Open status and settings"
+        ref={menu.refs.setReference}
+        {...menu.getReferenceProps({
+          className: `sidebar-menu__trigger sidebar-menu__trigger--status sidebar-menu__trigger--${triggerTone}`,
+          type: "button",
+          "aria-expanded": isOpen,
+          "aria-label": "Open status and settings"
+        })}
       >
         <StatusIcon />
         {hasAttention ? <span className={`sidebar-menu__trigger-dot sidebar-menu__trigger-dot--${triggerTone}`} /> : null}
       </button>
 
       {isOpen ? (
-        <div className="sidebar-menu__popover status-menu__popover">
-          <section className="sidebar-menu__section">
-            <span className="sidebar-menu__section-title">Account</span>
-            <div className={`status-menu__card status-menu__card--${rateLimitView.tone}`}>
-              <div className="status-menu__card-head">
-                <strong>Usage</strong>
-                {rateLimitView.summary ? (
-                  <span className={`status-menu__pill status-menu__pill--${rateLimitView.tone}`}>{rateLimitView.summary}</span>
+        <FloatingPortal>
+          <div
+            ref={menu.refs.setFloating}
+            className="sidebar-menu__popover status-menu__popover"
+            style={menu.floatingStyles}
+            {...menu.getFloatingProps()}
+          >
+            <section className="sidebar-menu__section">
+              <span className="sidebar-menu__section-title">Account</span>
+              <div className={`status-menu__card status-menu__card--${rateLimitView.tone}`}>
+                <div className="status-menu__card-head">
+                  <strong>Usage</strong>
+                  {rateLimitView.summary ? (
+                    <span className={`status-menu__pill status-menu__pill--${rateLimitView.tone}`}>{rateLimitView.summary}</span>
+                  ) : null}
+                </div>
+                {rateLimitView.detail ? <p>{rateLimitView.detail}</p> : null}
+                {rateLimitView.meta.length > 0 ? (
+                  <div className="status-menu__meta-list">
+                    {rateLimitView.meta.map((item) => (
+                      <span key={item} className="status-menu__meta-badge">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
                 ) : null}
               </div>
-              {rateLimitView.detail ? <p>{rateLimitView.detail}</p> : null}
-              {rateLimitView.meta.length > 0 ? (
-                <div className="status-menu__meta-list">
-                  {rateLimitView.meta.map((item) => (
-                    <span key={item} className="status-menu__meta-badge">
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </section>
+            </section>
 
-          <section className="sidebar-menu__section">
-            <span className="sidebar-menu__section-title">Device</span>
-            <div className="sidebar-menu__list">
-              {homeScreenRow ? (
+            <section className="sidebar-menu__section">
+              <span className="sidebar-menu__section-title">Device</span>
+              <div className="sidebar-menu__list">
+                {homeScreenRow ? (
+                  <button
+                    className="sidebar-menu__item status-menu__item"
+                    onClick={() => void promptInstall()}
+                    type="button"
+                    disabled={homeScreenRow.disabled || !homeScreenRow.actionLabel}
+                  >
+                    <span className="status-menu__copy">
+                      <span className="status-menu__title">{homeScreenRow.title}</span>
+                      <span className="status-menu__detail">{homeScreenRow.detail}</span>
+                    </span>
+                    {homeScreenRow.actionLabel ? <span className="status-menu__action">{homeScreenRow.actionLabel}</span> : null}
+                  </button>
+                ) : null}
+
                 <button
-                  className="sidebar-menu__item status-menu__item"
-                  onClick={() => void promptInstall()}
+                  className={`sidebar-menu__item status-menu__item status-menu__item--${notificationRow.tone}`}
+                  onClick={() => void handleNotificationAction()}
                   type="button"
-                  disabled={homeScreenRow.disabled || !homeScreenRow.actionLabel}
+                  disabled={notificationRow.disabled || !notificationRow.actionLabel || notificationsConfigQuery.isLoading}
                 >
                   <span className="status-menu__copy">
-                    <span className="status-menu__title">{homeScreenRow.title}</span>
-                    <span className="status-menu__detail">{homeScreenRow.detail}</span>
+                    <span className="status-menu__title">{notificationRow.title}</span>
+                    <span className="status-menu__detail">{notificationRow.detail}</span>
                   </span>
-                  {homeScreenRow.actionLabel ? <span className="status-menu__action">{homeScreenRow.actionLabel}</span> : null}
+                  {notificationRow.actionLabel ? <span className="status-menu__action">{notificationRow.actionLabel}</span> : null}
                 </button>
-              ) : null}
-
-              <button
-                className={`sidebar-menu__item status-menu__item status-menu__item--${notificationRow.tone}`}
-                onClick={() => void handleNotificationAction()}
-                type="button"
-                disabled={notificationRow.disabled || !notificationRow.actionLabel || notificationsConfigQuery.isLoading}
-              >
-                <span className="status-menu__copy">
-                  <span className="status-menu__title">{notificationRow.title}</span>
-                  <span className="status-menu__detail">{notificationRow.detail}</span>
-                </span>
-                {notificationRow.actionLabel ? <span className="status-menu__action">{notificationRow.actionLabel}</span> : null}
-              </button>
-            </div>
-
-            {notificationState === "blocked" && showNotificationHelp ? (
-              <div className="status-menu__help">
-                <strong>How to recover</strong>
-                <ol className="status-menu__steps">
-                  {notificationRecovery.steps.map((step) => (
-                    <li key={step}>{step}</li>
-                  ))}
-                </ol>
-                <p className="status-menu__help-note">{notificationRecovery.note}</p>
               </div>
-            ) : null}
-          </section>
-        </div>
+
+              {notificationState === "blocked" && showNotificationHelp ? (
+                <div className="status-menu__help">
+                  <strong>How to recover</strong>
+                  <ol className="status-menu__steps">
+                    {notificationRecovery.steps.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </ol>
+                  <p className="status-menu__help-note">{notificationRecovery.note}</p>
+                </div>
+              ) : null}
+            </section>
+          </div>
+        </FloatingPortal>
       ) : null}
     </div>
   );

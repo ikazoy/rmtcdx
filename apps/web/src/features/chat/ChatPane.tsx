@@ -1,3 +1,4 @@
+import { FloatingPortal } from "@floating-ui/react";
 import { memo, useEffect, useRef, useState } from "react";
 import type {
   CSSProperties,
@@ -19,6 +20,7 @@ import type {
   SessionDetail
 } from "@codex-remote/shared-types";
 import { formatRelativeTime } from "../../components/formatters";
+import { useAnchoredMenu } from "../../hooks/use-anchored-menu";
 import { sessionDisplayStatus } from "../sessions/session-state";
 
 const MAX_IMAGE_ATTACHMENTS = 5;
@@ -365,6 +367,39 @@ function formatDuration(durationMs: number | null) {
   return `${Math.round(durationMs)}ms`;
 }
 
+function formatLatestTurnStatusDebug(detail: SessionDetail) {
+  if (detail.session.latestTurnStatus === undefined) {
+    return "missing";
+  }
+
+  return detail.session.latestTurnStatus ?? "none";
+}
+
+function formatThreadStatusTypeDebug(detail: SessionDetail) {
+  return detail.session.threadStatusType ?? "missing";
+}
+
+async function copyTextToClipboard(text: string) {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  if (typeof document === "undefined") {
+    throw new Error("Clipboard is unavailable");
+  }
+
+  const input = document.createElement("textarea");
+  input.value = text;
+  input.setAttribute("readonly", "true");
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.append(input);
+  input.select();
+  document.execCommand("copy");
+  input.remove();
+}
+
 function fileChangeVerb(change: FileChangeEntry) {
   switch (change.kind) {
     case "add":
@@ -475,6 +510,20 @@ function MoreActionsIcon() {
       <circle cx="6" cy="12" r="1.8" fill="currentColor" />
       <circle cx="12" cy="12" r="1.8" fill="currentColor" />
       <circle cx="18" cy="12" r="1.8" fill="currentColor" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="9" y="8" width="10" height="11" rx="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
     </svg>
   );
 }
@@ -1201,7 +1250,6 @@ export function ChatPane({
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const composerShellRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const selectedImagesRef = useRef<ComposerImage[]>([]);
   const autoFollowEnabledRef = useRef(true);
   const isPinnedToBottomRef = useRef(true);
@@ -1218,6 +1266,11 @@ export function ChatPane({
   const [hasQueuedUpdates, setHasQueuedUpdates] = useState(false);
   const [composerShellHeight, setComposerShellHeight] = useState(0);
   const [visualViewportBottomInset, setVisualViewportBottomInset] = useState(0);
+  const [copiedDebugField, setCopiedDebugField] = useState<string | null>(null);
+  const actionsMenu = useAnchoredMenu({
+    open: isActionsMenuOpen,
+    onOpenChange: setIsActionsMenuOpen
+  });
 
   const activeRunState = detail?.activeRun?.status ?? null;
   const latestRunState = detail?.latestRun?.status ?? null;
@@ -1225,13 +1278,30 @@ export function ChatPane({
   const sessionIsRunning = activeRunState === "running" || detail?.session.status === "running";
   const hasPendingRun = sessionIsRunning || isSubmitting || Boolean(optimisticMessage);
   const canInterruptRun = Boolean(detail?.activeRun?.id) && !isSubmitting;
-  const bannerRunState = activeRunState ?? (sessionIsRunning ? "running" : null) ?? (latestRunState === "error" ? "error" : null);
+  const bannerRunState =
+    activeRunState ??
+    (sessionIsRunning ? "running" : null) ??
+    (latestRunState === "error" || latestRunState === "interrupted" ? latestRunState : null);
   const sessionBadgeState = detail ? sessionDisplayStatus(detail.session) : "idle";
   const showPendingAssistant =
     !streamingText && (Boolean(optimisticMessage) || sessionIsRunning || isSubmitting);
   const showComposerEmptyState =
     !isLoadingMessages && messages.length === 0 && !streamingText && !optimisticMessage && !showPendingAssistant;
   const usesRootScroll = isMobileViewport;
+
+  useEffect(() => {
+    if (!copiedDebugField) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCopiedDebugField(null);
+    }, 1600);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [copiedDebugField]);
 
   const readCurrentScrollTop = () => (usesRootScroll ? readRootScrollTop() : timelineRef.current?.scrollTop ?? 0);
 
@@ -1341,32 +1411,6 @@ export function ChatPane({
     window.addEventListener("resize", updateComposerShellHeight);
     return () => window.removeEventListener("resize", updateComposerShellHeight);
   }, [detail?.session.id, isMobileViewport]);
-
-  useEffect(() => {
-    if (!isActionsMenuOpen) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!actionsMenuRef.current?.contains(event.target as Node)) {
-        setIsActionsMenuOpen(false);
-      }
-    };
-
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsActionsMenuOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isActionsMenuOpen]);
 
   useEffect(() => {
     if (!sheetState && !imageViewerState) {
@@ -1701,6 +1745,19 @@ export function ChatPane({
     });
   };
 
+  const handleCopySessionId = async () => {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(detail.session.id);
+      setCopiedDebugField("session-id");
+    } catch {
+      setCopiedDebugField(null);
+    }
+  };
+
   return (
     <div
       className="chat-card"
@@ -1740,73 +1797,113 @@ export function ChatPane({
                 </div>
               </div>
               {canRename || canArchive || canRestore ? (
-                <div ref={actionsMenuRef} className="sidebar-menu chat-head__menu">
+                <div className="sidebar-menu chat-head__menu">
                   <button
-                    className="sidebar-menu__trigger chat-head__menu-trigger"
-                    onClick={() => setIsActionsMenuOpen((current) => !current)}
-                    type="button"
-                    aria-expanded={isActionsMenuOpen}
-                    aria-label="Open thread actions"
+                    ref={actionsMenu.refs.setReference}
+                    {...actionsMenu.getReferenceProps({
+                      className: "sidebar-menu__trigger chat-head__menu-trigger",
+                      type: "button",
+                      "aria-expanded": isActionsMenuOpen,
+                      "aria-label": "Open thread actions"
+                    })}
                   >
                     <span className="sr-only">Open thread actions</span>
                     <MoreActionsIcon />
                   </button>
 
                   {isActionsMenuOpen ? (
-                    <div className="sidebar-menu__popover chat-head__menu-popover">
-                      <section className="sidebar-menu__section">
-                        <div className="sidebar-menu__list">
-                          {canRename ? (
-                            <button
-                              className="sidebar-menu__item"
-                              disabled={isRenaming || isArchiving || isRestoring}
-                              onClick={() => {
-                                setIsActionsMenuOpen(false);
-                                void onRename();
-                              }}
-                              type="button"
-                            >
-                              <span>{isRenaming ? "Renaming..." : "Rename"}</span>
-                            </button>
-                          ) : null}
+                    <FloatingPortal>
+                      <div
+                        ref={actionsMenu.refs.setFloating}
+                        className="sidebar-menu__popover chat-head__menu-popover"
+                        style={actionsMenu.floatingStyles}
+                        {...actionsMenu.getFloatingProps()}
+                      >
+                        <section className="sidebar-menu__section">
+                          <div className="sidebar-menu__list">
+                            {canRename ? (
+                              <button
+                                className="sidebar-menu__item"
+                                disabled={isRenaming || isArchiving || isRestoring}
+                                onClick={() => {
+                                  setIsActionsMenuOpen(false);
+                                  void onRename();
+                                }}
+                                type="button"
+                              >
+                                <span>{isRenaming ? "Renaming..." : "Rename"}</span>
+                              </button>
+                            ) : null}
 
-                          {canRestore ? (
-                            <button
-                              className="sidebar-menu__item"
-                              disabled={isRestoring || isRenaming || isArchiving}
-                              onClick={() => {
-                                setIsActionsMenuOpen(false);
-                                void onRestore();
-                              }}
-                              type="button"
-                            >
-                              <span>{isRestoring ? "Restoring..." : "Restore"}</span>
-                            </button>
-                          ) : null}
+                            {canRestore ? (
+                              <button
+                                className="sidebar-menu__item"
+                                disabled={isRestoring || isRenaming || isArchiving}
+                                onClick={() => {
+                                  setIsActionsMenuOpen(false);
+                                  void onRestore();
+                                }}
+                                type="button"
+                              >
+                                <span>{isRestoring ? "Restoring..." : "Restore"}</span>
+                              </button>
+                            ) : null}
 
-                          {canArchive ? (
-                            <button
-                              className="sidebar-menu__item sidebar-menu__item--danger"
-                              disabled={
-                                isArchiving ||
-                                isRestoring ||
-                                isRenaming ||
-                                isSubmitting ||
-                                isInterrupting ||
-                                sessionIsRunning
-                              }
-                              onClick={() => {
-                                setIsActionsMenuOpen(false);
-                                void onArchive();
-                              }}
-                              type="button"
-                            >
-                              <span>{isArchiving ? "Archiving..." : "Archive"}</span>
-                            </button>
-                          ) : null}
-                        </div>
-                      </section>
-                    </div>
+                            {canArchive ? (
+                              <button
+                                className="sidebar-menu__item sidebar-menu__item--danger"
+                                disabled={
+                                  isArchiving ||
+                                  isRestoring ||
+                                  isRenaming ||
+                                  isSubmitting ||
+                                  isInterrupting ||
+                                  sessionIsRunning
+                                }
+                                onClick={() => {
+                                  setIsActionsMenuOpen(false);
+                                  void onArchive();
+                                }}
+                                type="button"
+                              >
+                                <span>{isArchiving ? "Archiving..." : "Archive"}</span>
+                              </button>
+                            ) : null}
+                          </div>
+                        </section>
+
+                        <section className="sidebar-menu__section">
+                          <p className="sidebar-menu__section-title">Debug</p>
+                          <div className="chat-head__debug-list">
+                            <div className="chat-head__debug-row chat-head__debug-row--split">
+                              <div className="chat-head__debug-copy-block">
+                                <span className="chat-head__debug-label">Session ID</span>
+                                <code className="chat-head__debug-value">{detail.session.id}</code>
+                              </div>
+                              <button
+                                className={`chat-head__debug-copy-button ${copiedDebugField === "session-id" ? "is-copied" : ""}`}
+                                onClick={() => {
+                                  void handleCopySessionId();
+                                }}
+                                type="button"
+                                aria-label={copiedDebugField === "session-id" ? "Session ID copied" : "Copy Session ID"}
+                                title={copiedDebugField === "session-id" ? "Copied" : "Copy Session ID"}
+                              >
+                                <CopyIcon />
+                              </button>
+                            </div>
+                            <div className="chat-head__debug-row">
+                              <span className="chat-head__debug-label">latestTurn.status</span>
+                              <code className="chat-head__debug-value">{formatLatestTurnStatusDebug(detail)}</code>
+                            </div>
+                            <div className="chat-head__debug-row">
+                              <span className="chat-head__debug-label">thread.status.type</span>
+                              <code className="chat-head__debug-value">{formatThreadStatusTypeDebug(detail)}</code>
+                            </div>
+                          </div>
+                        </section>
+                      </div>
+                    </FloatingPortal>
                   ) : null}
                 </div>
               ) : null}
@@ -1820,6 +1917,17 @@ export function ChatPane({
                     {detail.latestRun?.finishedAt
                       ? `Last run failed ${formatRelativeTime(detail.latestRun.finishedAt)}`
                       : "The latest run failed."}
+                  </p>
+                </div>
+              </div>
+            ) : bannerRunState === "interrupted" ? (
+              <div className="run-banner run-banner--interrupted">
+                <div>
+                  <strong>Run interrupted</strong>
+                  <p>
+                    {detail.latestRun?.finishedAt
+                      ? `Last run stopped ${formatRelativeTime(detail.latestRun.finishedAt)}`
+                      : "The latest run was interrupted."}
                   </p>
                 </div>
               </div>
@@ -1872,6 +1980,12 @@ export function ChatPane({
                   ))}
                 </div>
               ) : null}
+              {showComposerEmptyState ? (
+                <div className="composer-empty-state" aria-live="polite">
+                  <strong>No conversation yet</strong>
+                  <p>Start with a prompt and keep the session around for later follow-up work.</p>
+                </div>
+              ) : null}
               <div className="composer-input-row">
                 <div className="composer-field">
                   <textarea
@@ -1917,12 +2031,6 @@ export function ChatPane({
                   </div>
                 </div>
               </div>
-              {showComposerEmptyState ? (
-                <div className="composer-empty-state" aria-live="polite">
-                  <strong>No conversation yet</strong>
-                  <p>Start with a prompt and keep the session around for later follow-up work.</p>
-                </div>
-              ) : null}
               {selectedImages.length > 0 ? (
                 <div className="composer-meta">
                   <span>{selectedImages.length} / {MAX_IMAGE_ATTACHMENTS} images attached</span>

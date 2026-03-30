@@ -1,5 +1,7 @@
-export type SessionStatus = "idle" | "running" | "completed" | "error" | "archived";
+export type SessionStatus = "idle" | "running" | "completed" | "interrupted" | "error" | "archived";
 export type RunStatus = "queued" | "running" | "completed" | "interrupted" | "error";
+export type CodexTurnStatus = "completed" | "interrupted" | "failed" | "inProgress";
+export type CodexThreadStatusType = "notLoaded" | "idle" | "systemError" | "active";
 export type MessageRole = "user" | "assistant" | "system";
 export type MessageKind =
   | "user_message"
@@ -47,6 +49,8 @@ export type SessionSummary = {
   lastMessageAt: string;
   lastUserMessageAt?: string;
   lastRunFinishedAt?: string;
+  latestTurnStatus?: CodexTurnStatus | null;
+  threadStatusType?: CodexThreadStatusType;
   latestUserPrompt?: string;
   latestAssistantExcerpt?: string;
   hasUnreadCompletion: boolean;
@@ -267,5 +271,5 @@ export type ServerWsEvent =
     }
   | { type: "backend.degraded"; reason: string };
 
-export const SESSION_FILTERS = ["all", "running", "unread", "completed", "error", "archived"] as const;
+export const SESSION_FILTERS = ["all", "running", "unread", "completed", "interrupted", "error", "archived"] as const;
 export type SessionFilter = (typeof SESSION_FILTERS)[number];

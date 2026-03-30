@@ -243,6 +243,8 @@ export class Database {
         clauses.push("unread_count > 0");
       } else if (options.filter === "completed") {
         clauses.push("status = 'completed'");
+      } else if (options.filter === "interrupted") {
+        clauses.push("status = 'interrupted'");
       } else if (options.filter === "error") {
         clauses.push("status = 'error'");
       } else if (options.filter === "archived") {
@@ -258,7 +260,7 @@ export class Database {
       ORDER BY
         CASE
           WHEN status = 'running' THEN 0
-          WHEN unread_count > 0 AND status IN ('completed', 'error') THEN 1
+          WHEN unread_count > 0 AND status IN ('completed', 'interrupted', 'error') THEN 1
           ELSE 2
         END ASC,
         updated_at DESC

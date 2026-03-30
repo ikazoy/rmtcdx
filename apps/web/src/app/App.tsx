@@ -24,11 +24,11 @@ const SIDEBAR_WIDTH_KEY = "codex-remote-sidebar-width";
 const THREAD_LIST_FILTERS_KEY = "codex-remote-thread-list-filters";
 const MOBILE_BREAKPOINT_PX = 860;
 const MOBILE_MEDIA_QUERY = `(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`;
+const SIDEBAR_MIN_WIDTH_PX = 280;
+const SIDEBAR_DEFAULT_WIDTH_PX = 320;
+const SIDEBAR_MAX_WIDTH_PX = 640;
+const SIDEBAR_CHAT_GUTTER_PX = 420;
 const EMPTY_ACTIVITY_MAP: Record<string, LiveActivity> = {};
-
-type DetailLocationState = {
-  fromThreadList?: boolean;
-} | null;
 
 function readStoredThreadFilters() {
   if (typeof window === "undefined") {
@@ -132,13 +132,19 @@ function readFileAsDataUrl(file: File) {
   });
 }
 
-function clampSidebarWidth(width: number) {
+function readSidebarMaxWidth() {
   if (typeof window === "undefined") {
-    return 308;
+    return SIDEBAR_MAX_WIDTH_PX;
   }
 
-  const maxWidth = Math.max(360, Math.min(520, window.innerWidth - 440));
-  return Math.min(Math.max(width, 280), maxWidth);
+  return Math.max(
+    SIDEBAR_MIN_WIDTH_PX,
+    Math.min(SIDEBAR_MAX_WIDTH_PX, window.innerWidth - SIDEBAR_CHAT_GUTTER_PX)
+  );
+}
+
+function clampSidebarWidth(width: number) {
+  return Math.min(Math.max(width, SIDEBAR_MIN_WIDTH_PX), readSidebarMaxWidth());
 }
 
 function readIsMobileViewport() {
@@ -181,17 +187,16 @@ export function App() {
   const optimisticMessageRef = useRef<OptimisticUserMessage | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") {
-      return 308;
+      return SIDEBAR_DEFAULT_WIDTH_PX;
     }
 
     const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
-    return Number.isFinite(stored) ? clampSidebarWidth(stored) : 308;
+    return Number.isFinite(stored) ? clampSidebarWidth(stored) : clampSidebarWidth(SIDEBAR_DEFAULT_WIDTH_PX);
   });
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(() => readIsMobileViewport());
   const deferredSearch = useDeferredValue(search);
   const routeSessionId = useMemo(() => readSessionIdFromPathname(location.pathname), [location.pathname]);
-  const detailLocationState = (location.state ?? null) as DetailLocationState;
 
   useEffect(() => {
     optimisticMessageRef.current = optimisticMessage;
@@ -260,6 +265,19 @@ export function App() {
     setIsMobileViewport(mediaQuery.matches);
     mediaQuery.addEventListener("change", handleChange);
     return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleResize = () => {
+      setSidebarWidth((current) => clampSidebarWidth(current));
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   useEffect(() => {
@@ -332,8 +350,7 @@ export function App() {
       const nextPath = buildSessionPath(data.run.sessionId);
       if (location.pathname !== nextPath || isDraftSession) {
         navigate(nextPath, {
-          replace: isDraftSession,
-          state: detailLocationState
+          replace: isDraftSession
         });
       }
       void Promise.all([
@@ -387,10 +404,7 @@ export function App() {
         const nextSessionId = nextSessions?.sessions[0]?.id ?? null;
         setSelectedSessionId(nextSessionId);
         setMobilePane(nextSessionId ? "chat" : "sidebar");
-        navigate(nextSessionId ? buildSessionPath(nextSessionId) : "/", {
-          replace: true,
-          state: nextSessionId ? detailLocationState : null
-        });
+        navigate(nextSessionId ? buildSessionPath(nextSessionId) : "/", { replace: true });
       }
 
       await Promise.all([
@@ -480,11 +494,7 @@ export function App() {
     setMobilePane("chat");
     const nextPath = buildSessionPath(sessionId);
     if (location.pathname !== nextPath) {
-      navigate(nextPath, {
-        state: {
-          fromThreadList: true
-        } satisfies NonNullable<DetailLocationState>
-      });
+      navigate(nextPath);
     }
   };
 
@@ -528,6 +538,7 @@ export function App() {
   const workspaceStyle = {
     "--sidebar-width": `${sidebarWidth}px`
   } as CSSProperties;
+  const sidebarMaxWidth = readSidebarMaxWidth();
 
   return (
     <div className={`app-shell ${isResizingSidebar ? "is-resizing" : ""}`}>
@@ -578,11 +589,7 @@ export function App() {
               setSelectedRepoId(fallbackCreateRepoId);
               setSelectedSessionId(draftSessionId);
               setMobilePane("chat");
-              navigate(buildSessionPath(draftSessionId), {
-                state: {
-                  fromThreadList: true
-                } satisfies NonNullable<DetailLocationState>
-              });
+              navigate(buildSessionPath(draftSessionId));
             }}
           />
         </aside>
@@ -594,8 +601,8 @@ export function App() {
             role="separator"
             aria-label="Resize sidebar"
             aria-orientation="vertical"
-            aria-valuemin={280}
-            aria-valuemax={520}
+            aria-valuemin={SIDEBAR_MIN_WIDTH_PX}
+            aria-valuemax={sidebarMaxWidth}
             aria-valuenow={sidebarWidth}
             tabIndex={-1}
           />
@@ -615,12 +622,13 @@ export function App() {
             backendMode={healthQuery.data?.codex.mode}
             repoName={activeRepoName}
             onBack={() => {
-              if (detailLocationState?.fromThreadList) {
-                navigate(-1);
-                return;
-              }
-
               navigate("/", { replace: true });
+
+              if (typeof window !== "undefined") {
+                window.requestAnimationFrame(() => {
+                  window.scrollTo({ top: 0, behavior: "auto" });
+                });
+              }
             }}
             onSubmit={async ({ prompt, files }) => {
               if (!selectedSessionId) {

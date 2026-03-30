@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { FloatingPortal } from "@floating-ui/react";
+import { useState } from "react";
 import type { Repository, SessionFilter, SessionSummary } from "@codex-remote/shared-types";
 import { SESSION_FILTERS } from "@codex-remote/shared-types";
 import { formatRelativeTime } from "../../components/formatters";
+import { useAnchoredMenu } from "../../hooks/use-anchored-menu";
 import { StatusMenu } from "../status/StatusMenu";
 import { sessionDisplayStatus } from "../sessions/session-state";
 import { useUiStore } from "../../store/ui-store";
@@ -52,19 +54,13 @@ function filterLabel(filter: SessionFilter) {
       return "Unread";
     case "completed":
       return "Completed";
+    case "interrupted":
+      return "Interrupted";
     case "error":
       return "Error";
     case "archived":
       return "Archived";
   }
-}
-
-function filterChipLabel(filter: SessionFilter) {
-  if (filter === "all") {
-    return "All";
-  }
-
-  return filterLabel(filter);
 }
 
 function groupByRepo(sessions: SessionSummary[]): RepoGroup[] {
@@ -112,12 +108,15 @@ export function SidebarPane({
   onHoverSession,
   onCreateSession
 }: Props) {
-  const listMenuRef = useRef<HTMLDivElement | null>(null);
   const [isListMenuOpen, setIsListMenuOpen] = useState(false);
   const collapsedRepos = useUiStore((state) => state.collapsedRepos);
   const toggleRepoCollapsed = useUiStore((state) => state.toggleRepoCollapsed);
   const collapseRepos = useUiStore((state) => state.collapseRepos);
   const expandRepos = useUiStore((state) => state.expandRepos);
+  const listMenu = useAnchoredMenu({
+    open: isListMenuOpen,
+    onOpenChange: setIsListMenuOpen
+  });
 
   const orderedRepos = [...repos].sort((left, right) => {
     if (left.pinned !== right.pinned) {
@@ -148,7 +147,6 @@ export function SidebarPane({
   const collapsedGroupCount = repoGroupNames.filter((repoName) => collapsedRepos.has(repoName)).length;
   const activeSummary = [
     selectedRepo ? formatRepoLabel(selectedRepo) : "All projects",
-    filterLabel(filter),
     search.trim() ? `Search: ${search.trim()}` : null
   ]
     .filter(Boolean)
@@ -162,32 +160,6 @@ export function SidebarPane({
     closeListMenu();
     onToggleSidebar();
   }
-
-  useEffect(() => {
-    if (!isListMenuOpen) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!listMenuRef.current?.contains(event.target as Node)) {
-        closeListMenu();
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        closeListMenu();
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isListMenuOpen]);
 
   return (
     <div className="sidebar-shell">
@@ -207,23 +179,10 @@ export function SidebarPane({
         <div className="sidebar-brand">
           <div className="sidebar-brand__lead">
             <div className="sidebar-brand__copy">
-              <h1>Threads</h1>
-              <p className="sidebar-toolbar__summary">{activeSummary}</p>
-              <div className="sidebar-filter-row" aria-label="Thread filters">
-                {SESSION_FILTERS.map((candidate) => {
-                  const isActive = candidate === filter;
-                  return (
-                    <button
-                      key={candidate}
-                      className={`filter-chip ${isActive ? "is-active" : ""}`}
-                      onClick={() => onFilterChange(candidate)}
-                      type="button"
-                      aria-pressed={isActive}
-                    >
-                      {filterChipLabel(candidate)}
-                    </button>
-                  );
-                })}
+              <div className="sidebar-brand__headline">
+                <h1>Threads</h1>
+                <p className="sidebar-toolbar__summary">{activeSummary}</p>
+                {filter !== "all" ? <span className="sidebar-brand__state">{filterLabel(filter)}</span> : null}
               </div>
             </div>
           </div>
@@ -231,13 +190,15 @@ export function SidebarPane({
           <div className="sidebar-brand__actions">
             <StatusMenu isMobileViewport={isMobileViewport} />
 
-            <div ref={listMenuRef} className="sidebar-menu">
+            <div className="sidebar-menu">
               <button
-                className="sidebar-menu__trigger"
-                onClick={() => setIsListMenuOpen((current) => !current)}
-                type="button"
-                aria-expanded={isListMenuOpen}
-                aria-label="Open list options"
+                ref={listMenu.refs.setReference}
+                {...listMenu.getReferenceProps({
+                  className: "sidebar-menu__trigger",
+                  type: "button",
+                  "aria-expanded": isListMenuOpen,
+                  "aria-label": "Open list options"
+                })}
               >
                 <span className="sr-only">Open list options</span>
                 <svg
@@ -255,106 +216,113 @@ export function SidebarPane({
               </button>
 
               {isListMenuOpen ? (
-                <div className="sidebar-menu__popover">
-                  <section className="sidebar-menu__section">
-                    <span className="sidebar-menu__section-title">State</span>
-                    <div className="sidebar-menu__list">
-                      {SESSION_FILTERS.map((candidate) => {
-                        const isActive = candidate === filter;
-                        return (
+                <FloatingPortal>
+                  <div
+                    ref={listMenu.refs.setFloating}
+                    className="sidebar-menu__popover sidebar-menu__popover--sidebar"
+                    style={listMenu.floatingStyles}
+                    {...listMenu.getFloatingProps()}
+                  >
+                    <section className="sidebar-menu__section">
+                      <span className="sidebar-menu__section-title">State</span>
+                      <div className="sidebar-menu__list">
+                        {SESSION_FILTERS.map((candidate) => {
+                          const isActive = candidate === filter;
+                          return (
+                            <button
+                              key={candidate}
+                              className={`sidebar-menu__item ${isActive ? "is-active" : ""}`}
+                              onClick={() => {
+                                onFilterChange(candidate);
+                                closeListMenu();
+                              }}
+                              type="button"
+                            >
+                              <span>{filterLabel(candidate)}</span>
+                              <span
+                                className={`sidebar-menu__check ${isActive ? "is-visible" : ""}`}
+                                aria-hidden="true"
+                              />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+
+                    <section className="sidebar-menu__section">
+                      <label className="workspace-picker">
+                        <span>Workspace</span>
+                        <select
+                          value={selectedRepoId ?? ""}
+                          onChange={(event) => {
+                            onSelectRepo(event.target.value || null);
+                            closeListMenu();
+                          }}
+                        >
+                          <option value="">All projects</option>
+                          {orderedRepos.map((repo) => (
+                            <option key={repo.id} value={repo.id}>
+                              {formatRepoLabel(repo)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </section>
+
+                    <section className="sidebar-menu__section">
+                      <label className="search-field search-field--sidebar">
+                        <span>Search threads</span>
+                        <div className="search-field__wrapper">
+                          <input
+                            placeholder="Search..."
+                            value={search}
+                            onChange={(event) => onSearchChange(event.target.value)}
+                          />
+                          {search ? (
+                            <button
+                              className="search-field__clear"
+                              onClick={() => onSearchChange("")}
+                              type="button"
+                              aria-label="Clear search"
+                            >
+                              ×
+                            </button>
+                          ) : null}
+                        </div>
+                      </label>
+                    </section>
+
+                    {!selectedRepoId && repoGroupNames.length > 0 ? (
+                      <section className="sidebar-menu__section">
+                        <span className="sidebar-menu__section-title">Repositories</span>
+                        <div className="sidebar-menu__list">
                           <button
-                            key={candidate}
-                            className={`sidebar-menu__item ${isActive ? "is-active" : ""}`}
+                            className="sidebar-menu__item"
                             onClick={() => {
-                              onFilterChange(candidate);
+                              collapseRepos(repoGroupNames);
                               closeListMenu();
                             }}
                             type="button"
+                            disabled={collapsedGroupCount === repoGroupNames.length}
                           >
-                            <span>{filterLabel(candidate)}</span>
-                            <span
-                              className={`sidebar-menu__check ${isActive ? "is-visible" : ""}`}
-                              aria-hidden="true"
-                            />
+                            <span>Collapse all repos</span>
                           </button>
-                        );
-                      })}
-                    </div>
-                  </section>
-
-                  <section className="sidebar-menu__section">
-                    <label className="workspace-picker">
-                      <span>Workspace</span>
-                      <select
-                        value={selectedRepoId ?? ""}
-                        onChange={(event) => {
-                          onSelectRepo(event.target.value || null);
-                          closeListMenu();
-                        }}
-                      >
-                        <option value="">All projects</option>
-                        {orderedRepos.map((repo) => (
-                          <option key={repo.id} value={repo.id}>
-                            {formatRepoLabel(repo)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </section>
-
-                  <section className="sidebar-menu__section">
-                    <label className="search-field search-field--sidebar">
-                      <span>Search threads</span>
-                      <div className="search-field__wrapper">
-                        <input
-                          placeholder="Search..."
-                          value={search}
-                          onChange={(event) => onSearchChange(event.target.value)}
-                        />
-                        {search ? (
                           <button
-                            className="search-field__clear"
-                            onClick={() => onSearchChange("")}
+                            className="sidebar-menu__item"
+                            onClick={() => {
+                              expandRepos(repoGroupNames);
+                              closeListMenu();
+                            }}
                             type="button"
-                            aria-label="Clear search"
+                            disabled={collapsedGroupCount === 0}
                           >
-                            ×
+                            <span>Expand all repos</span>
                           </button>
-                        ) : null}
-                      </div>
-                    </label>
-                  </section>
-
-                  {!selectedRepoId && repoGroupNames.length > 0 ? (
-                    <section className="sidebar-menu__section">
-                      <span className="sidebar-menu__section-title">Repositories</span>
-                      <div className="sidebar-menu__list">
-                        <button
-                          className="sidebar-menu__item"
-                          onClick={() => {
-                            collapseRepos(repoGroupNames);
-                            closeListMenu();
-                          }}
-                          type="button"
-                          disabled={collapsedGroupCount === repoGroupNames.length}
-                        >
-                          <span>Collapse all repos</span>
-                        </button>
-                        <button
-                          className="sidebar-menu__item"
-                          onClick={() => {
-                            expandRepos(repoGroupNames);
-                            closeListMenu();
-                          }}
-                          type="button"
-                          disabled={collapsedGroupCount === 0}
-                        >
-                          <span>Expand all repos</span>
-                        </button>
-                      </div>
-                    </section>
-                  ) : null}
-                </div>
+                        </div>
+                      </section>
+                    ) : null}
+                  </div>
+                </FloatingPortal>
               ) : null}
             </div>
 
@@ -511,6 +479,8 @@ function SessionRow({
   onHover: (id: string) => void;
   showRepo: boolean;
 }) {
+  const displayStatus = sessionDisplayStatus(session);
+
   return (
     <button
       className={`session-row session-row--sidebar ${isActive ? "is-active" : ""}`}
@@ -520,7 +490,7 @@ function SessionRow({
     >
       <div className="session-row__head">
         <div className="session-row__titleline">
-          <span className={`session-dot session-dot--${sessionDisplayStatus(session)}`} />
+          <span className={`session-dot session-dot--${displayStatus}`} />
           <strong>{session.title}</strong>
         </div>
         <span className="session-row__time">{formatRelativeTime(sessionSortAt(session))}</span>
@@ -528,6 +498,9 @@ function SessionRow({
       <p className="session-row__preview">{getPreviewText(session)}</p>
       <div className="session-row__meta">
         {showRepo && session.repoName ? <span>{session.repoName}</span> : null}
+        {session.status === "interrupted" ? (
+          <span className="badge badge--interrupted">interrupted</span>
+        ) : null}
         {session.status === "error" || session.hasUnreadError ? (
           <span className="badge badge--error">error</span>
         ) : null}
