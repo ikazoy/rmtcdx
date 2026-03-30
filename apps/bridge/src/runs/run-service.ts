@@ -88,7 +88,8 @@ export class RunService {
         ...(prompt.trim() ? [{ type: "text" as const, text: prompt, text_elements: [] }] : []),
         ...storedAttachments.map((attachment) => ({ type: "localImage" as const, path: attachment.path }))
       ],
-      threadId
+      threadId,
+      codex: params.codex
     });
     const effectiveSessionId = started.threadId;
 

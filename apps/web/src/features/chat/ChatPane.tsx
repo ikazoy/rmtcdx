@@ -14,6 +14,12 @@ import remend from "remend";
 import remarkGfm from "remark-gfm";
 
 import type {
+  CodexAvailableModel,
+  CodexApprovalPolicyPreset,
+  CodexDevRequestScenario,
+  CodexRunSettings,
+  CodexSandboxPreset,
+  CodexServiceTier,
   FileChangeEntry,
   LiveActivity,
   Message,
@@ -149,12 +155,26 @@ type Props = {
   liveActivities: LiveActivity[];
   isMobileViewport: boolean;
   optimisticMessage?: OptimisticUserMessage | null;
+  pendingCodexRequestCount: number;
+  runSettings: {
+    approvalPolicy: CodexApprovalPolicyPreset;
+    sandbox: CodexSandboxPreset;
+    serviceTier: CodexRunSettings["serviceTier"];
+    model: string;
+  };
+  availableModels: CodexAvailableModel[];
+  isLoadingModels: boolean;
+  modelsError: string | null;
+  devSimulatorAvailable: boolean;
   hasPendingResponse: boolean;
   canInterruptRun: boolean;
   wsState: string;
   backendMode: "real" | "mock" | undefined;
   onBack: () => void;
   onSubmit: (payload: { prompt: string; files: File[] }) => Promise<void>;
+  onRunSettingsChange: (settings: CodexRunSettings) => void;
+  onResetRunSettings: () => void;
+  onSimulateCodexRequest: (scenario: CodexDevRequestScenario) => Promise<void>;
   onInterrupt: () => Promise<void>;
   onRename: () => Promise<void>;
   onArchive: () => Promise<void>;
@@ -164,10 +184,69 @@ type Props = {
   isRenaming: boolean;
   isArchiving: boolean;
   isRestoring: boolean;
+  isSimulatingCodexRequest: boolean;
+  simulateCodexRequestError: string | null;
   canRename: boolean;
   canArchive: boolean;
   canRestore: boolean;
 };
+
+const DEFAULT_MODEL_OPTION = "__default";
+const CUSTOM_MODEL_OPTION = "__custom";
+const FAST_TIER_MODEL = "gpt-5.4";
+
+type ModelSelectionOption = {
+  value: string;
+  label: string;
+  model: string | null;
+  serviceTier: CodexServiceTier | null;
+  note: string;
+};
+
+function modelSelectionOptionValue(model: string, serviceTier: CodexServiceTier | null) {
+  return serviceTier ? `${model}::${serviceTier}` : model;
+}
+
+const APPROVAL_POLICY_OPTIONS: Array<{
+  value: CodexApprovalPolicyPreset;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "on-request",
+    label: "On request",
+    description: "Ask before actions that need approval."
+  },
+  {
+    value: "on-failure",
+    label: "On failure",
+    description: "Try first, then ask only if Codex cannot finish within current permissions."
+  },
+  {
+    value: "untrusted",
+    label: "Untrusted",
+    description: "Treat the workspace as untrusted and require tighter approval boundaries."
+  },
+  {
+    value: "never",
+    label: "Never",
+    description: "Do not ask. Codex must stay within the granted sandbox or fail."
+  }
+];
+
+const SANDBOX_OPTIONS: Array<{ value: CodexSandboxPreset; label: string }> = [
+  { value: "workspace-write", label: "Workspace write" },
+  { value: "read-only", label: "Read only" },
+  { value: "danger-full-access", label: "Danger full access" }
+];
+
+const DEV_REQUEST_OPTIONS: Array<{ value: CodexDevRequestScenario; label: string }> = [
+  { value: "command_approval", label: "Simulate command approval" },
+  { value: "file_change_approval", label: "Simulate file change approval" },
+  { value: "permissions_approval", label: "Simulate permissions approval" },
+  { value: "request_user_input", label: "Simulate input request" },
+  { value: "mcp_elicitation", label: "Simulate MCP confirmation" }
+];
 
 function timelineIsPinnedToBottom(timeline: HTMLDivElement) {
   return timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop <= timelinePinThresholdPx();
@@ -572,6 +651,81 @@ function SearchIcon() {
       <circle cx="11" cy="11" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.7" />
       <path d="m15 15 4 4" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
     </svg>
+  );
+}
+
+function CustomSelect({
+  label,
+  value,
+  options,
+  onChange
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string; description?: string }>;
+  onChange: (value: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const activeOption = options.find((opt) => opt.value === value) ?? options[0];
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [isOpen]);
+
+  return (
+    <div className="custom-select" ref={containerRef}>
+      <span className="custom-select__label">{label}</span>
+      <button
+        className="custom-select__trigger"
+        type="button"
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span className="custom-select__trigger-value">{activeOption?.label ?? value}</span>
+        <svg className="custom-select__chevron" viewBox="0 0 16 16" fill="none">
+          <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {isOpen ? (
+        <div className="custom-select__menu" role="listbox">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              className={`custom-select__option ${opt.value === value ? "is-active" : ""}`}
+              role="option"
+              aria-selected={opt.value === value}
+              onClick={() => {
+                onChange(opt.value);
+                setIsOpen(false);
+              }}
+              type="button"
+            >
+              <span className="custom-select__option-content">
+                <span className="custom-select__option-label">{opt.label}</span>
+                {opt.description ? (
+                  <span className="custom-select__option-desc">{opt.description}</span>
+                ) : null}
+              </span>
+              <span className="custom-select__option-check">
+                <svg viewBox="0 0 16 16" fill="none" width="16" height="16">
+                  <path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1307,12 +1461,21 @@ export function ChatPane({
   liveActivities,
   isMobileViewport,
   optimisticMessage,
+  pendingCodexRequestCount,
+  runSettings,
+  availableModels,
+  isLoadingModels,
+  modelsError,
+  devSimulatorAvailable,
   hasPendingResponse,
   canInterruptRun,
   wsState,
   backendMode,
   onBack,
   onSubmit,
+  onRunSettingsChange,
+  onResetRunSettings,
+  onSimulateCodexRequest,
   onInterrupt,
   onRename,
   onArchive,
@@ -1322,6 +1485,8 @@ export function ChatPane({
   isRenaming,
   isArchiving,
   isRestoring,
+  isSimulatingCodexRequest,
+  simulateCodexRequestError,
   canRename,
   canArchive,
   canRestore
@@ -1344,11 +1509,13 @@ export function ChatPane({
   const [sheetState, setSheetState] = useState<BottomSheetState>(null);
   const [imageViewerState, setImageViewerState] = useState<ImageViewerState>(null);
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+  const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [hasQueuedUpdates, setHasQueuedUpdates] = useState(false);
   const [composerShellHeight, setComposerShellHeight] = useState(0);
   const [visualViewportBottomInset, setVisualViewportBottomInset] = useState(0);
   const [copiedDebugField, setCopiedDebugField] = useState<string | null>(null);
+  const [isCustomModelInput, setIsCustomModelInput] = useState(false);
   const actionsMenu = useAnchoredMenu({
     open: isActionsMenuOpen,
     onOpenChange: setIsActionsMenuOpen
@@ -1374,7 +1541,78 @@ export function ChatPane({
     !streamingText && (Boolean(effectiveOptimisticMessage) || sessionIsRunning || isSubmitting || hasPendingResponse);
   const showComposerEmptyState =
     !isLoadingMessages && messages.length === 0 && !streamingText && !effectiveOptimisticMessage && !showPendingAssistant;
+  const approvalPolicyOption =
+    APPROVAL_POLICY_OPTIONS.find((option) => option.value === runSettings.approvalPolicy) ?? APPROVAL_POLICY_OPTIONS[0]!;
+  const selectedModel = runSettings.model.trim();
+  const selectedServiceTier = runSettings.serviceTier ?? null;
+  const defaultModel = availableModels.find((model) => model.isDefault) ?? null;
+  const modelSelectionOptions: ModelSelectionOption[] = availableModels.flatMap((model) => {
+    const options: ModelSelectionOption[] = [];
+    const note = `${model.description} Default reasoning: ${model.defaultReasoningEffort}.`;
+    if (defaultModel?.id !== model.id) {
+      options.push({
+        value: modelSelectionOptionValue(model.model, null),
+        label: model.displayName,
+        model: model.model,
+        serviceTier: null,
+        note
+      });
+    }
+
+    if (model.model === FAST_TIER_MODEL) {
+      options.push({
+        value: modelSelectionOptionValue(model.model, "fast"),
+        label: `${model.displayName} Fast`,
+        model: model.model,
+        serviceTier: "fast",
+        note: `${model.description} Uses the fast service tier. Default reasoning: ${model.defaultReasoningEffort}.`
+      });
+    }
+
+    return options;
+  });
+  const matchedModelSelectionOption =
+    modelSelectionOptions.find(
+      (option) => option.model === selectedModel && option.serviceTier === selectedServiceTier
+    ) ?? null;
+  const showModelPicker = availableModels.length > 0;
+  const showCustomModelInput =
+    !showModelPicker ||
+    isCustomModelInput ||
+    Boolean((selectedModel || selectedServiceTier) && !matchedModelSelectionOption);
+  const modelSelectionValue = showModelPicker
+    ? showCustomModelInput
+      ? CUSTOM_MODEL_OPTION
+      : matchedModelSelectionOption?.value ?? DEFAULT_MODEL_OPTION
+    : CUSTOM_MODEL_OPTION;
+  const defaultModelLabel = defaultModel ? `Default (${defaultModel.displayName})` : "Default";
+  const defaultModelNote = defaultModel
+    ? `${defaultModel.description} Uses the backend default model selection for the next run.`
+    : "Use the backend default model selection for the next run.";
+  const modelFieldNote = !showModelPicker
+    ? "Model discovery is unavailable right now. Enter a model id directly."
+    : showCustomModelInput
+      ? "Use a custom model id when the model is not listed. Fast tier is only exposed for GPT-5.4."
+      : matchedModelSelectionOption
+        ? matchedModelSelectionOption.note
+        : defaultModelNote;
   const usesRootScroll = isMobileViewport;
+
+  useEffect(() => {
+    if (!showModelPicker) {
+      setIsCustomModelInput(true);
+      return;
+    }
+
+    if ((selectedModel || selectedServiceTier) && !matchedModelSelectionOption) {
+      setIsCustomModelInput(true);
+      return;
+    }
+
+    if (!selectedModel && !selectedServiceTier) {
+      setIsCustomModelInput(false);
+    }
+  }, [matchedModelSelectionOption, selectedModel, selectedServiceTier, showModelPicker]);
 
   useEffect(() => {
     debugChatState("render-state", {
@@ -1971,45 +2209,158 @@ export function ChatPane({
                   </button>
                 </div>
                 <div className="chat-head__copy">
-                  <h2>
-                    <span
-                      className={["status-dot", `status-dot--${bannerRunState ?? sessionBadgeState}`].join(" ")}
-                    />
-                    {detail.session.title}
-                  </h2>
+                  <div className="chat-head__title">
+                    <h2>
+                      <span
+                        className={["status-dot", `status-dot--${bannerRunState ?? sessionBadgeState}`].join(" ")}
+                      />
+                      {detail.session.title}
+                    </h2>
+                    {pendingCodexRequestCount > 0 ? (
+                      <span className="badge badge--pending">{pendingCodexRequestCount} pending</span>
+                    ) : null}
+                  </div>
                   <p className="subtle">
                     Updated {formatRelativeTime(detail.session.updatedAt)} · {repoName ?? "unknown workspace"}
                   </p>
                 </div>
               </div>
-              {canRename || canArchive || canRestore ? (
-                <div className="sidebar-menu chat-head__menu">
-                  <button
-                    ref={actionsMenu.refs.setReference}
-                    {...actionsMenu.getReferenceProps({
-                      className: "sidebar-menu__trigger chat-head__menu-trigger",
-                      type: "button",
-                      "aria-expanded": isActionsMenuOpen,
-                      "aria-label": "Open thread actions"
-                    })}
-                  >
-                    <span className="sr-only">Open thread actions</span>
-                    <MoreActionsIcon />
-                  </button>
+              <div className="sidebar-menu chat-head__menu">
+                <button
+                  ref={actionsMenu.refs.setReference}
+                  {...actionsMenu.getReferenceProps({
+                    className: "sidebar-menu__trigger chat-head__menu-trigger",
+                    type: "button",
+                    "aria-expanded": isActionsMenuOpen,
+                    "aria-label": "Open thread actions"
+                  })}
+                >
+                  <span className="sr-only">Open thread actions</span>
+                  <MoreActionsIcon />
+                </button>
 
-                  {isActionsMenuOpen ? (
-                    <FloatingPortal>
-                      <div
-                        ref={actionsMenu.refs.setFloating}
-                        className="sidebar-menu__popover chat-head__menu-popover"
-                        style={actionsMenu.floatingStyles}
-                        {...actionsMenu.getFloatingProps()}
-                      >
+                {isActionsMenuOpen ? (
+                  <FloatingPortal>
+                    <div
+                      ref={actionsMenu.refs.setFloating}
+                      className="sidebar-menu__popover chat-head__menu-popover"
+                      style={actionsMenu.floatingStyles}
+                      {...actionsMenu.getFloatingProps()}
+                    >
+                      <section className="sidebar-menu__section">
+                        <p className="sidebar-menu__section-title">Run settings</p>
+                        <div className="chat-head__settings-form">
+                          <CustomSelect
+                            label="Approval policy"
+                            value={runSettings.approvalPolicy}
+                            options={APPROVAL_POLICY_OPTIONS.map((opt) => ({
+                              value: opt.value,
+                              label: opt.label,
+                              description: opt.description
+                            }))}
+                            onChange={(value) =>
+                              onRunSettingsChange({
+                                ...runSettings,
+                                approvalPolicy: value as CodexApprovalPolicyPreset
+                              })
+                            }
+                          />
+
+                          <CustomSelect
+                            label="Sandbox"
+                            value={runSettings.sandbox}
+                            options={SANDBOX_OPTIONS.map((opt) => ({
+                              value: opt.value,
+                              label: opt.label
+                            }))}
+                            onChange={(value) =>
+                              onRunSettingsChange({
+                                ...runSettings,
+                                sandbox: value as CodexSandboxPreset
+                              })
+                            }
+                          />
+
+                          {showModelPicker ? (
+                            <CustomSelect
+                              label="Model"
+                              value={modelSelectionValue}
+                              options={[
+                                { value: DEFAULT_MODEL_OPTION, label: defaultModelLabel, description: "Use the backend default model" },
+                                ...modelSelectionOptions.map((opt) => ({
+                                  value: opt.value,
+                                  label: opt.label
+                                })),
+                                { value: CUSTOM_MODEL_OPTION, label: "Custom model ID" }
+                              ]}
+                              onChange={(value) => {
+                                if (value === DEFAULT_MODEL_OPTION) {
+                                  setIsCustomModelInput(false);
+                                  onRunSettingsChange({ ...runSettings, serviceTier: null, model: "" });
+                                  return;
+                                }
+                                if (value === CUSTOM_MODEL_OPTION) {
+                                  setIsCustomModelInput(true);
+                                  onRunSettingsChange({
+                                    ...runSettings,
+                                    serviceTier: null,
+                                    model: matchedModelSelectionOption ? "" : selectedModel
+                                  });
+                                  return;
+                                }
+                                const selected = modelSelectionOptions.find((opt) => opt.value === value) ?? null;
+                                if (!selected) return;
+                                setIsCustomModelInput(false);
+                                onRunSettingsChange({
+                                  ...runSettings,
+                                  serviceTier: selected.serviceTier,
+                                  model: selected.model ?? ""
+                                });
+                              }}
+                            />
+                          ) : null}
+
+                          {showCustomModelInput ? (
+                            <label className="chat-head__settings-field">
+                              <span>{showModelPicker ? "Custom model ID" : "Model ID"}</span>
+                              <input
+                                type="text"
+                                value={runSettings.model}
+                                onChange={(event) =>
+                                  onRunSettingsChange({
+                                    ...runSettings,
+                                    serviceTier: null,
+                                    model: event.target.value
+                                  })
+                                }
+                                placeholder="gpt-5.4-mini"
+                              />
+                            </label>
+                          ) : null}
+
+                          <p className="chat-head__settings-hint">{modelFieldNote}</p>
+                          {isLoadingModels ? <p className="chat-head__settings-hint">Loading model list…</p> : null}
+                          {modelsError ? (
+                            <p className="chat-head__settings-error">
+                              Unable to load models. You can still enter a custom model id.
+                            </p>
+                          ) : null}
+
+                          <button className="settings-reset" onClick={() => onResetRunSettings()} type="button">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 2V6H6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M2.5 10A6 6 0 1 0 4 4.5L2 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                            Reset to defaults
+                          </button>
+                          <p className="settings-note">Applies to the next run for this thread.</p>
+                        </div>
+                      </section>
+
+                      {canRename || canArchive || canRestore ? (
                         <section className="sidebar-menu__section">
-                          <div className="sidebar-menu__list">
+                          <p className="sidebar-menu__section-title">Actions</p>
+                          <div className="action-row">
                             {canRename ? (
                               <button
-                                className="sidebar-menu__item"
+                                className="action-btn"
                                 disabled={isRenaming || isArchiving || isRestoring}
                                 onClick={() => {
                                   setIsActionsMenuOpen(false);
@@ -2017,13 +2368,17 @@ export function ChatPane({
                                 }}
                                 type="button"
                               >
-                                <span>{isRenaming ? "Renaming..." : "Rename"}</span>
+                                <svg className="action-btn__icon" viewBox="0 0 16 16" fill="none">
+                                  <path d="M11.5 2.5L13.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                                  <path d="M4.5 9.5L11 3L13 5L6.5 11.5L3.5 12.5L4.5 9.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                                </svg>
+                                {isRenaming ? "Renaming..." : "Rename"}
                               </button>
                             ) : null}
 
                             {canRestore ? (
                               <button
-                                className="sidebar-menu__item"
+                                className="action-btn"
                                 disabled={isRestoring || isRenaming || isArchiving}
                                 onClick={() => {
                                   setIsActionsMenuOpen(false);
@@ -2031,20 +2386,16 @@ export function ChatPane({
                                 }}
                                 type="button"
                               >
-                                <span>{isRestoring ? "Restoring..." : "Restore"}</span>
+                                {isRestoring ? "Restoring..." : "Restore"}
                               </button>
                             ) : null}
 
                             {canArchive ? (
                               <button
-                                className="sidebar-menu__item sidebar-menu__item--danger"
+                                className="action-btn action-btn--danger"
                                 disabled={
-                                  isArchiving ||
-                                  isRestoring ||
-                                  isRenaming ||
-                                  isSubmitting ||
-                                  isInterrupting ||
-                                  sessionIsRunning
+                                  isArchiving || isRestoring || isRenaming ||
+                                  isSubmitting || isInterrupting || sessionIsRunning
                                 }
                                 onClick={() => {
                                   setIsActionsMenuOpen(false);
@@ -2052,47 +2403,91 @@ export function ChatPane({
                                 }}
                                 type="button"
                               >
-                                <span>{isArchiving ? "Archiving..." : "Archive"}</span>
+                                <svg className="action-btn__icon" viewBox="0 0 16 16" fill="none">
+                                  <rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+                                  <path d="M2 6.5H14" stroke="currentColor" strokeWidth="1.5" />
+                                  <path d="M8 3V1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                                </svg>
+                                {isArchiving ? "Archiving..." : "Archive"}
                               </button>
                             ) : null}
                           </div>
                         </section>
+                      ) : null}
 
+                      {devSimulatorAvailable ? (
                         <section className="sidebar-menu__section">
-                          <p className="sidebar-menu__section-title">Debug</p>
-                          <div className="chat-head__debug-list">
-                            <div className="chat-head__debug-row chat-head__debug-row--split">
-                              <div className="chat-head__debug-copy-block">
-                                <span className="chat-head__debug-label">Session ID</span>
-                                <MiddleTruncate as="code" className="chat-head__debug-value" suffixLength={10} text={detail.session.id} />
-                              </div>
+                          <p className="sidebar-menu__section-title">Developer</p>
+                          <div className="sidebar-menu__list">
+                            {DEV_REQUEST_OPTIONS.map((option) => (
                               <button
-                                className={`chat-head__debug-copy-button ${copiedDebugField === "session-id" ? "is-copied" : ""}`}
+                                key={option.value}
+                                className="sidebar-menu__item"
+                                disabled={isSimulatingCodexRequest}
                                 onClick={() => {
-                                  void handleCopySessionId();
+                                  setIsActionsMenuOpen(false);
+                                  void onSimulateCodexRequest(option.value);
                                 }}
                                 type="button"
-                                aria-label={copiedDebugField === "session-id" ? "Session ID copied" : "Copy Session ID"}
-                                title={copiedDebugField === "session-id" ? "Copied" : "Copy Session ID"}
                               >
-                                <CopyIcon />
+                                <span>{option.label}</span>
                               </button>
-                            </div>
-                            <div className="chat-head__debug-row">
-                              <span className="chat-head__debug-label">latestTurn.status</span>
-                              <code className="chat-head__debug-value">{formatLatestTurnStatusDebug(detail)}</code>
-                            </div>
-                            <div className="chat-head__debug-row">
-                              <span className="chat-head__debug-label">thread.status.type</span>
-                              <code className="chat-head__debug-value">{formatThreadStatusTypeDebug(detail)}</code>
-                            </div>
+                            ))}
                           </div>
+                          {simulateCodexRequestError ? (
+                            <p className="chat-head__settings-error">{simulateCodexRequestError}</p>
+                          ) : null}
                         </section>
-                      </div>
-                    </FloatingPortal>
-                  ) : null}
-                </div>
-              ) : null}
+                      ) : null}
+
+                      <section className="sidebar-menu__section">
+                        <div className="debug-disclosure">
+                          <button
+                            className="debug-disclosure__trigger"
+                            type="button"
+                            aria-expanded={isDebugOpen}
+                            onClick={() => setIsDebugOpen(!isDebugOpen)}
+                          >
+                            <svg className="debug-disclosure__chevron" viewBox="0 0 16 16" fill="none">
+                              <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                            Debug
+                          </button>
+                          {isDebugOpen ? (
+                            <div className="debug-disclosure__body" style={{ display: "block" }}>
+                              <div className="chat-head__debug-list">
+                                <div className="chat-head__debug-row chat-head__debug-row--split">
+                                  <div className="chat-head__debug-copy-block">
+                                    <span className="chat-head__debug-label">Session ID</span>
+                                    <MiddleTruncate as="code" className="chat-head__debug-value" suffixLength={10} text={detail.session.id} />
+                                  </div>
+                                  <button
+                                    className={`chat-head__debug-copy-button ${copiedDebugField === "session-id" ? "is-copied" : ""}`}
+                                    onClick={() => { void handleCopySessionId(); }}
+                                    type="button"
+                                    aria-label={copiedDebugField === "session-id" ? "Session ID copied" : "Copy Session ID"}
+                                    title={copiedDebugField === "session-id" ? "Copied" : "Copy Session ID"}
+                                  >
+                                    <CopyIcon />
+                                  </button>
+                                </div>
+                                <div className="chat-head__debug-row">
+                                  <span className="chat-head__debug-label">latestTurn.status</span>
+                                  <code className="chat-head__debug-value">{formatLatestTurnStatusDebug(detail)}</code>
+                                </div>
+                                <div className="chat-head__debug-row">
+                                  <span className="chat-head__debug-label">thread.status.type</span>
+                                  <code className="chat-head__debug-value">{formatThreadStatusTypeDebug(detail)}</code>
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </section>
+                    </div>
+                  </FloatingPortal>
+                ) : null}
+              </div>
             </div>
 
             {bannerRunState === "error" ? (

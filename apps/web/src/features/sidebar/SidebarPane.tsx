@@ -1,5 +1,5 @@
 import { FloatingPortal } from "@floating-ui/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Repository, SessionFilter, SessionSummary } from "@codex-remote/shared-types";
 import { SESSION_FILTERS } from "@codex-remote/shared-types";
 import type { SidebarViewState } from "../../app/view-state";
@@ -15,6 +15,7 @@ type Props = {
   selectedRepoId: string | null;
   sessionsState: SidebarViewState;
   selectedSessionId: string | null;
+  selectedSessionPendingRequestCount: number;
   search: string;
   filter: SessionFilter;
   wsState: string;
@@ -95,6 +96,7 @@ export function SidebarPane({
   selectedRepoId,
   sessionsState,
   selectedSessionId,
+  selectedSessionPendingRequestCount,
   search,
   filter,
   isCreatingSession,
@@ -270,56 +272,42 @@ export function SidebarPane({
                   >
                     <section className="sidebar-menu__section">
                       <span className="sidebar-menu__section-title">State</span>
-                      <div className="sidebar-menu__list">
-                        {SESSION_FILTERS.map((candidate) => {
-                          const isActive = candidate === filter;
-                          return (
-                            <button
-                              key={candidate}
-                              className={`sidebar-menu__item ${isActive ? "is-active" : ""}`}
-                              onClick={() => {
-                                onFilterChange(candidate);
-                                closeListMenu();
-                              }}
-                              type="button"
-                            >
-                              <span>{filterLabel(candidate)}</span>
-                              <span
-                                className={`sidebar-menu__check ${isActive ? "is-visible" : ""}`}
-                                aria-hidden="true"
-                              />
-                            </button>
-                          );
-                        })}
+                      <div className="chip-track">
+                        {SESSION_FILTERS.map((candidate) => (
+                          <button
+                            key={candidate}
+                            className={`chip ${candidate === filter ? "is-active" : ""}`}
+                            onClick={() => {
+                              onFilterChange(candidate);
+                              closeListMenu();
+                            }}
+                            type="button"
+                          >
+                            {filterLabel(candidate)}
+                          </button>
+                        ))}
                       </div>
                     </section>
 
                     <section className="sidebar-menu__section">
-                      <label className="workspace-picker">
-                        <span>Workspace</span>
-                        <select
-                          value={selectedRepoId ?? ""}
-                          onChange={(event) => {
-                            onSelectRepo(event.target.value || null);
-                            closeListMenu();
-                          }}
-                        >
-                          <option value="">All projects</option>
-                          {orderedRepos.map((repo) => (
-                            <option key={repo.id} value={repo.id}>
-                              {formatRepoLabel(repo)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <span className="sidebar-menu__section-title">Workspace</span>
+                      <WorkspaceCombobox
+                        repos={orderedRepos}
+                        selectedRepoId={selectedRepoId}
+                        formatRepoLabel={formatRepoLabel}
+                        onSelectRepo={(repoId) => {
+                          onSelectRepo(repoId);
+                          closeListMenu();
+                        }}
+                      />
                     </section>
 
                     <section className="sidebar-menu__section">
-                      <label className="search-field search-field--sidebar">
-                        <span>Search threads</span>
+                      <span className="sidebar-menu__section-title">Search</span>
+                      <div className="search-field search-field--sidebar">
                         <div className="search-field__wrapper">
                           <input
-                            placeholder="Search..."
+                            placeholder="Search threads..."
                             value={search}
                             onChange={(event) => onSearchChange(event.target.value)}
                           />
@@ -334,7 +322,7 @@ export function SidebarPane({
                             </button>
                           ) : null}
                         </div>
-                      </label>
+                      </div>
                     </section>
 
                   </div>
@@ -403,6 +391,9 @@ export function SidebarPane({
                             key={session.id}
                             session={session}
                             isActive={selectedSessionId === session.id}
+                            pendingRequestCount={
+                              selectedSessionId === session.id ? selectedSessionPendingRequestCount : 0
+                            }
                             onSelect={onSelectSession}
                             onHover={onHoverSession}
                             showRepo={false}
@@ -421,6 +412,9 @@ export function SidebarPane({
                       key={session.id}
                       session={session}
                       isActive={selectedSessionId === session.id}
+                      pendingRequestCount={
+                        selectedSessionId === session.id ? selectedSessionPendingRequestCount : 0
+                      }
                       onSelect={onSelectSession}
                       onHover={onHoverSession}
                       showRepo={false}
@@ -520,15 +514,129 @@ function RepoGroupToggleIcon({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+function WorkspaceCombobox({
+  repos,
+  selectedRepoId,
+  formatRepoLabel,
+  onSelectRepo
+}: {
+  repos: Repository[];
+  selectedRepoId: string | null;
+  formatRepoLabel: (repo: Repository) => string;
+  onSelectRepo: (repoId: string | null) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const selectedLabel = selectedRepoId
+    ? (repos.find((r) => r.id === selectedRepoId)
+        ? formatRepoLabel(repos.find((r) => r.id === selectedRepoId)!)
+        : "All projects")
+    : "All projects";
+
+  const filtered = query
+    ? repos.filter((r) => formatRepoLabel(r).toLowerCase().includes(query.toLowerCase()))
+    : repos;
+
+  useEffect(() => {
+    if (isOpen) {
+      setQuery("");
+      setTimeout(() => searchRef.current?.focus(), 50);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [isOpen]);
+
+  return (
+    <div className="combobox" ref={containerRef}>
+      <button
+        className="combobox__trigger"
+        type="button"
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span className="combobox__trigger-text">{selectedLabel}</span>
+        <svg className="combobox__chevron" viewBox="0 0 16 16" fill="none">
+          <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {isOpen ? (
+        <div className="combobox__dropdown" role="listbox">
+          <div className="combobox__search">
+            <input
+              ref={searchRef}
+              className="combobox__search-input"
+              type="text"
+              placeholder="Search workspaces..."
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              autoComplete="off"
+            />
+          </div>
+          <div className="combobox__list">
+            {!query ? (
+              <button
+                className={`combobox__option ${selectedRepoId === null ? "is-active" : ""}`}
+                role="option"
+                aria-selected={selectedRepoId === null}
+                onClick={() => { onSelectRepo(null); setIsOpen(false); }}
+                type="button"
+              >
+                <span className="combobox__option-check">
+                  <svg viewBox="0 0 16 16" fill="none" width="16" height="16"><path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </span>
+                <span className="combobox__option-label">All projects</span>
+              </button>
+            ) : null}
+            {filtered.map((repo) => (
+              <button
+                key={repo.id}
+                className={`combobox__option ${selectedRepoId === repo.id ? "is-active" : ""}`}
+                role="option"
+                aria-selected={selectedRepoId === repo.id}
+                onClick={() => { onSelectRepo(repo.id); setIsOpen(false); }}
+                type="button"
+              >
+                <span className="combobox__option-check">
+                  <svg viewBox="0 0 16 16" fill="none" width="16" height="16"><path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </span>
+                <span className="combobox__option-label">{formatRepoLabel(repo)}</span>
+              </button>
+            ))}
+            {query && filtered.length === 0 ? (
+              <div className="combobox__empty">No matching workspaces</div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function SessionRow({
   session,
   isActive,
+  pendingRequestCount,
   onSelect,
   onHover,
   showRepo
 }: {
   session: SessionSummary;
   isActive: boolean;
+  pendingRequestCount: number;
   onSelect: (id: string) => void;
   onHover: (id: string) => void;
   showRepo: boolean;
@@ -558,6 +666,7 @@ function SessionRow({
         {displayStatus === "error" || session.hasUnreadError ? (
           <span className="badge badge--error">error</span>
         ) : null}
+        {pendingRequestCount > 0 ? <span className="badge badge--pending">{pendingRequestCount} pending</span> : null}
         {session.unreadCount > 0 ? <span className="badge">{session.unreadCount}</span> : null}
       </div>
     </button>

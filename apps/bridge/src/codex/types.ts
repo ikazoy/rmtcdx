@@ -1,5 +1,11 @@
 import { EventEmitter } from "node:events";
-import type { CodexPendingRequest, CodexPendingRequestResponse } from "@codex-remote/shared-types";
+import type {
+  CodexAvailableModel,
+  CodexDevRequestScenario,
+  CodexPendingRequest,
+  CodexPendingRequestResponse,
+  CodexRunSettings
+} from "@codex-remote/shared-types";
 
 export type CodexActivityKind = "command" | "tool" | "file" | "search" | "review";
 
@@ -168,6 +174,14 @@ export type StartRunParams = {
   cwd: string;
   input: CodexUserInput[];
   threadId?: string;
+  codex?: CodexRunSettings;
+};
+
+export type SimulatePendingRequestParams = {
+  sessionId: string;
+  threadId: string;
+  cwd: string;
+  scenario: CodexDevRequestScenario;
 };
 
 export type StartRunResult = {
@@ -181,6 +195,7 @@ export interface CodexBackend extends EventEmitter {
   createThread(cwd: string): Promise<{ threadId: string }>;
   listThreads(params?: ListThreadsParams): Promise<CodexThread[]>;
   readThread(threadId: string, options?: { includeTurns?: boolean }): Promise<CodexThread>;
+  listModels(): Promise<CodexAvailableModel[]>;
   readAccountRateLimits(): Promise<CodexAccountRateLimits | null>;
   setThreadName(threadId: string, name: string): Promise<void>;
   archiveThread(threadId: string): Promise<void>;
@@ -190,6 +205,7 @@ export interface CodexBackend extends EventEmitter {
   interruptRun(runId: string, threadId: string, turnId: string): Promise<void>;
   listPendingRequests(sessionId?: string): CodexPendingRequest[];
   respondToRequest(requestId: string, response: CodexPendingRequestResponse): Promise<CodexPendingRequest | null>;
+  simulatePendingRequest(params: SimulatePendingRequestParams): Promise<CodexPendingRequest>;
   getState(): CodexRuntimeState;
 }
 

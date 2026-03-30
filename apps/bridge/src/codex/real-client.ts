@@ -2,15 +2,7 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
-import type {
-  CodexCommandAction,
-  CodexCommandApprovalDecision,
-  CodexPendingRequest,
-  CodexPendingRequestResponse,
-  CodexRequestUserInputOption,
-  CodexRequestUserInputQuestion,
-  JsonValue
-} from "@codex-remote/shared-types";
+import type { CodexAvailableModel, CodexPendingRequest, CodexPendingRequestResponse, CodexReasoningEffort } from "@codex-remote/shared-types";
 
 import type {
   CodexAccountRateLimits,
@@ -30,6 +22,7 @@ import type {
 } from "./types";
 import type { CodexDebugLog } from "../observability/codex-debug-log";
 import { parseBridgeNotification } from "./parsers/bridge-events";
+import { parsePendingServerRequest, resultForPendingRequestResponse } from "./parsers/pending-requests";
 
 type JsonRpcMessage = {
   id?: number | string;
@@ -156,6 +149,26 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     return thread;
   }
 
+  async listModels(): Promise<CodexAvailableModel[]> {
+    await this.ensureReady();
+
+    const models: CodexAvailableModel[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const response = await this.request("model/list", {
+        cursor,
+        limit: 100,
+        includeHidden: false
+      });
+      const page = this.extractModelListPage(response);
+      models.push(...page.data);
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    return models;
+  }
+
   async readAccountRateLimits(): Promise<CodexAccountRateLimits | null> {
     await this.ensureReady();
     const response = await this.request("account/rateLimits/read", undefined);
@@ -194,6 +207,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
         cwd: params.cwd,
         approvalPolicy: params.codex?.approvalPolicy ?? "on-request",
         sandbox: params.codex?.sandbox ?? "workspace-write",
+        ...(params.codex?.serviceTier ? { serviceTier: params.codex.serviceTier } : {}),
         ...(params.codex?.model ? { model: params.codex.model } : {}),
         persistExtendedHistory: true
       });
@@ -235,6 +249,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       input: params.input,
       approvalPolicy: params.codex?.approvalPolicy ?? "on-request",
       sandboxPolicy: this.turnSandboxPolicy(params.codex?.sandbox),
+      ...(params.codex?.serviceTier ? { serviceTier: params.codex.serviceTier } : {}),
       ...(params.codex?.model ? { model: params.codex.model } : {})
     });
 
@@ -303,7 +318,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     if (pending.source === "server" && pending.rpcId !== null) {
       this.send({
         id: pending.rpcId,
-        result: this.resultForServerRequest(pending.request, response)
+        result: resultForPendingRequestResponse(pending.request, response)
       });
     }
     this.pendingServerRequests.delete(requestId);
@@ -591,7 +606,18 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
   }
 
   private handleServerRequest(id: number | string, method: string, params: unknown) {
-    const request = this.pendingRequestFromServerMessage(id, method, params);
+    this.debugLog?.write("server.request.received", {
+      requestId: String(id),
+      method,
+      params
+    });
+    const request = parsePendingServerRequest({
+      requestId: id,
+      method,
+      params,
+      createdAt: new Date().toISOString(),
+      sessionIdForRequest: (threadId, turnId) => this.sessionIdForRequest(threadId, turnId)
+    });
     if (!request) {
       return false;
     }
@@ -674,192 +700,6 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     }
   }
 
-  private pendingRequestFromServerMessage(
-    requestId: number | string,
-    method: string,
-    params: unknown
-  ): CodexPendingRequest | null {
-    const payload = asObject(params);
-    if (!payload) {
-      return null;
-    }
-
-    const id = String(requestId);
-    const createdAt = new Date().toISOString();
-
-    if (method === "item/commandExecution/requestApproval") {
-      const threadId = stringField(payload, "threadId");
-      const turnId = stringField(payload, "turnId");
-      if (!threadId || !turnId) {
-        return null;
-      }
-
-      return {
-        type: "command_approval",
-        id,
-        sessionId: this.sessionIdForRequest(threadId, turnId),
-        threadId,
-        turnId,
-        itemId: stringField(payload, "itemId") ?? null,
-        createdAt,
-        approvalId: stringField(payload, "approvalId") ?? null,
-        reason: stringField(payload, "reason") ?? null,
-        networkApprovalContext: this.networkApprovalContext(payload.networkApprovalContext),
-        command: stringField(payload, "command") ?? null,
-        cwd: stringField(payload, "cwd") ?? null,
-        commandActions: this.commandActions(payload.commandActions),
-        requestedPermissions: this.requestedPermissions(payload.additionalPermissions),
-        availableDecisions: this.commandApprovalDecisions(payload.availableDecisions)
-      };
-    }
-
-    if (method === "item/fileChange/requestApproval") {
-      const threadId = stringField(payload, "threadId");
-      const turnId = stringField(payload, "turnId");
-      if (!threadId || !turnId) {
-        return null;
-      }
-
-      return {
-        type: "file_change_approval",
-        id,
-        sessionId: this.sessionIdForRequest(threadId, turnId),
-        threadId,
-        turnId,
-        itemId: stringField(payload, "itemId") ?? null,
-        createdAt,
-        reason: stringField(payload, "reason") ?? null,
-        grantRoot: stringField(payload, "grantRoot") ?? null
-      };
-    }
-
-    if (method === "item/permissions/requestApproval") {
-      const threadId = stringField(payload, "threadId");
-      const turnId = stringField(payload, "turnId");
-      const permissions = this.requestedPermissions(payload.permissions);
-      if (!threadId || !turnId || !permissions) {
-        return null;
-      }
-
-      return {
-        type: "permissions_approval",
-        id,
-        sessionId: this.sessionIdForRequest(threadId, turnId),
-        threadId,
-        turnId,
-        itemId: stringField(payload, "itemId") ?? null,
-        createdAt,
-        reason: stringField(payload, "reason") ?? null,
-        permissions
-      };
-    }
-
-    if (method === "item/tool/requestUserInput") {
-      const threadId = stringField(payload, "threadId");
-      const turnId = stringField(payload, "turnId");
-      if (!threadId || !turnId) {
-        return null;
-      }
-
-      return {
-        type: "request_user_input",
-        id,
-        sessionId: this.sessionIdForRequest(threadId, turnId),
-        threadId,
-        turnId,
-        itemId: stringField(payload, "itemId") ?? null,
-        createdAt,
-        questions: this.requestUserInputQuestions(payload.questions)
-      };
-    }
-
-    if (method === "mcpServer/elicitation/request") {
-      const threadId = stringField(payload, "threadId");
-      const serverName = stringField(payload, "serverName");
-      const mode = stringField(payload, "mode");
-      const message = stringField(payload, "message");
-      if (!threadId || !serverName || !mode || !message) {
-        return null;
-      }
-
-      const turnId = stringField(payload, "turnId") ?? null;
-      const base = {
-        type: "mcp_elicitation" as const,
-        id,
-        sessionId: this.sessionIdForRequest(threadId, turnId),
-        threadId,
-        turnId,
-        itemId: null,
-        createdAt,
-        serverName,
-        message,
-        meta: this.jsonValue(payload._meta)
-      };
-
-      if (mode === "form") {
-        return {
-          ...base,
-          mode,
-          requestedSchema: this.jsonValue(payload.requestedSchema) ?? {}
-        };
-      }
-
-      if (mode === "url") {
-        const url = stringField(payload, "url");
-        const elicitationId = stringField(payload, "elicitationId");
-        if (!url || !elicitationId) {
-          return null;
-        }
-
-        return {
-          ...base,
-          mode,
-          url,
-          elicitationId
-        };
-      }
-    }
-
-    return null;
-  }
-
-  private resultForServerRequest(request: CodexPendingRequest, response: CodexPendingRequestResponse) {
-    if (request.type === "command_approval" && response.type === "command_approval") {
-      return {
-        decision: response.decision
-      };
-    }
-
-    if (request.type === "file_change_approval" && response.type === "file_change_approval") {
-      return {
-        decision: response.decision
-      };
-    }
-
-    if (request.type === "permissions_approval" && response.type === "permissions_approval") {
-      return {
-        permissions: response.permissions,
-        scope: response.scope
-      };
-    }
-
-    if (request.type === "request_user_input" && response.type === "request_user_input") {
-      return {
-        answers: response.answers
-      };
-    }
-
-    if (request.type === "mcp_elicitation" && response.type === "mcp_elicitation") {
-      return {
-        action: response.action,
-        content: response.content,
-        _meta: response.meta ?? null
-      };
-    }
-
-    throw new Error(`Unsupported Codex request response: ${request.type}`);
-  }
-
   private sessionIdForRequest(threadId: string, turnId: string | null) {
     if (turnId) {
       const mapping = this.runByTurn.get(turnId);
@@ -869,168 +709,6 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     }
 
     return this.sessionByThread.get(threadId) ?? threadId;
-  }
-
-  private networkApprovalContext(value: unknown) {
-    const payload = asObject(value);
-    const host = stringField(payload, "host");
-    const protocol = stringField(payload, "protocol");
-    return host && protocol ? { host, protocol } : null;
-  }
-
-  private commandActions(value: unknown): CodexCommandAction[] | null {
-    if (!Array.isArray(value)) {
-      return null;
-    }
-
-    const actions: CodexCommandAction[] = [];
-    for (const entry of value) {
-      const payload = asObject(entry);
-      if (!payload) {
-        continue;
-      }
-      const type = stringField(payload, "type");
-      const command = stringField(payload, "command");
-      if (!type || !command) {
-        continue;
-      }
-
-      if (type === "read") {
-        const name = stringField(payload, "name");
-        const path = stringField(payload, "path");
-        if (name && path) {
-          actions.push({ type, command, name, path });
-        }
-        continue;
-      }
-
-      if (type === "listFiles") {
-        actions.push({ type, command, path: stringField(payload, "path") ?? null });
-        continue;
-      }
-
-      if (type === "search") {
-        actions.push({
-          type,
-          command,
-          query: stringField(payload, "query") ?? null,
-          path: stringField(payload, "path") ?? null
-        });
-        continue;
-      }
-
-      if (type === "unknown") {
-        actions.push({ type, command });
-      }
-    }
-
-    return actions.length > 0 ? actions : null;
-  }
-
-  private commandApprovalDecisions(value: unknown): CodexCommandApprovalDecision[] {
-    if (!Array.isArray(value)) {
-      return ["accept", "decline", "cancel"];
-    }
-
-    const decisions: CodexCommandApprovalDecision[] = [];
-    for (const entry of value) {
-      if (
-        entry === "accept" ||
-        entry === "acceptForSession" ||
-        entry === "decline" ||
-        entry === "cancel"
-      ) {
-        decisions.push(entry);
-      }
-    }
-
-    return decisions.length > 0 ? decisions : ["accept", "decline", "cancel"];
-  }
-
-  private requestedPermissions(value: unknown) {
-    const payload = asObject(value);
-    if (!payload) {
-      return null;
-    }
-
-    const fileSystem = asObject(payload.fileSystem);
-    const network = asObject(payload.network);
-    const read = stringArray(fileSystem?.read);
-    const write = stringArray(fileSystem?.write);
-    const enabled = booleanField(network, "enabled");
-    const normalized = {
-      fileSystem: read || write ? { read, write } : null,
-      network: enabled !== undefined ? { enabled } : null
-    };
-
-    return normalized.fileSystem || normalized.network ? normalized : null;
-  }
-
-  private requestUserInputQuestions(value: unknown): CodexRequestUserInputQuestion[] {
-    if (!Array.isArray(value)) {
-      return [];
-    }
-
-    const questions: CodexRequestUserInputQuestion[] = [];
-    for (const entry of value) {
-      const payload = asObject(entry);
-      if (!payload) {
-        continue;
-      }
-      const id = stringField(payload, "id");
-      const header = stringField(payload, "header");
-      const question = stringField(payload, "question");
-      if (!id || !header || !question) {
-        continue;
-      }
-
-      questions.push({
-        id,
-        header,
-        question,
-        isOther: booleanField(payload, "isOther") ?? false,
-        isSecret: booleanField(payload, "isSecret") ?? false,
-        options: this.requestUserInputOptions(payload.options)
-      });
-    }
-
-    return questions;
-  }
-
-  private requestUserInputOptions(value: unknown): CodexRequestUserInputOption[] | null {
-    if (!Array.isArray(value)) {
-      return null;
-    }
-
-    const options: CodexRequestUserInputOption[] = [];
-    for (const entry of value) {
-      const payload = asObject(entry);
-      if (!payload) {
-        continue;
-      }
-      const label = stringField(payload, "label");
-      const description = stringField(payload, "description");
-      if (label && description) {
-        options.push({ label, description });
-      }
-    }
-
-    return options.length > 0 ? options : null;
-  }
-
-  private jsonValue(value: unknown): JsonValue | null {
-    if (
-      value === null ||
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean" ||
-      Array.isArray(value) ||
-      (value && typeof value === "object")
-    ) {
-      return value as JsonValue;
-    }
-
-    return null;
   }
 
   private turnSandboxPolicy(sandbox: StartRunParams["codex"] extends infer T
@@ -1055,12 +733,14 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       cwd,
       approvalPolicy: codex?.approvalPolicy ?? "on-request",
       sandbox: codex?.sandbox ?? "workspace-write",
+      serviceTier: codex?.serviceTier ?? null,
       model: codex?.model ?? null
     });
     const started = await this.request("thread/start", {
       cwd,
       approvalPolicy: codex?.approvalPolicy ?? "on-request",
       sandbox: codex?.sandbox ?? "workspace-write",
+      ...(codex?.serviceTier ? { serviceTier: codex.serviceTier } : {}),
       ...(codex?.model ? { model: codex.model } : {}),
       serviceName: "codex_remote_web",
       experimentalRawEvents: false,
@@ -1323,6 +1003,88 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     ];
 
     return typeof value === "string" && planTypes.includes(value as CodexPlanType) ? (value as CodexPlanType) : null;
+  }
+
+  private extractModelListPage(result: unknown): { data: CodexAvailableModel[]; nextCursor: string | null } {
+    const payload = asObject(result);
+    const data = Array.isArray(payload?.data)
+      ? payload.data.flatMap((entry) => {
+          const model = this.extractAvailableModel(entry);
+          return model ? [model] : [];
+        })
+      : [];
+
+    return {
+      data,
+      nextCursor: typeof payload?.nextCursor === "string" ? payload.nextCursor : null
+    };
+  }
+
+  private extractAvailableModel(value: unknown): CodexAvailableModel | null {
+    const payload = asObject(value);
+    const id = stringField(payload, "id");
+    const model = stringField(payload, "model");
+    const displayName = stringField(payload, "displayName");
+    const description = stringField(payload, "description");
+    const defaultReasoningEffort = this.extractReasoningEffort(payload?.defaultReasoningEffort);
+    const inputModalities = this.extractInputModalities(payload?.inputModalities);
+
+    if (!id || !model || !displayName || !description || !defaultReasoningEffort || inputModalities.length === 0) {
+      return null;
+    }
+
+    const supportedReasoningEfforts = Array.isArray(payload?.supportedReasoningEfforts)
+      ? payload.supportedReasoningEfforts.flatMap((entry) => {
+          const option = this.extractReasoningEffortOption(entry);
+          return option ? [option] : [];
+        })
+      : [];
+
+    return {
+      id,
+      model,
+      displayName,
+      description,
+      hidden: booleanField(payload, "hidden") ?? false,
+      supportedReasoningEfforts,
+      defaultReasoningEffort,
+      inputModalities,
+      supportsPersonality: booleanField(payload, "supportsPersonality") ?? false,
+      isDefault: booleanField(payload, "isDefault") ?? false
+    };
+  }
+
+  private extractReasoningEffortOption(value: unknown): CodexAvailableModel["supportedReasoningEfforts"][number] | null {
+    const payload = asObject(value);
+    const reasoningEffort = this.extractReasoningEffort(payload?.reasoningEffort);
+    const description = stringField(payload, "description");
+    if (!reasoningEffort || !description) {
+      return null;
+    }
+
+    return {
+      reasoningEffort,
+      description
+    };
+  }
+
+  private extractReasoningEffort(value: unknown): CodexReasoningEffort | null {
+    const efforts: CodexReasoningEffort[] = ["none", "minimal", "low", "medium", "high", "xhigh"];
+    return typeof value === "string" && efforts.includes(value as CodexReasoningEffort)
+      ? (value as CodexReasoningEffort)
+      : null;
+  }
+
+  private extractInputModalities(value: unknown): CodexAvailableModel["inputModalities"] {
+    if (!Array.isArray(value)) {
+      return ["text"];
+    }
+
+    const modalities = value.filter((entry): entry is CodexAvailableModel["inputModalities"][number] =>
+      entry === "text" || entry === "image"
+    );
+
+    return modalities.length > 0 ? modalities : ["text"];
   }
 }
 

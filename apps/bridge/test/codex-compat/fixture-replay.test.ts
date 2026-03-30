@@ -12,11 +12,12 @@ import type {
   CodexThread,
   EnsureThreadParams,
   ListThreadsParams,
+  SimulatePendingRequestParams,
   StartRunParams,
   StartRunResult
 } from "../../src/codex/types";
 import { ImageUploadService } from "../../src/uploads/image-upload-service";
-import type { CodexPendingRequest, CodexPendingRequestResponse } from "@codex-remote/shared-types";
+import type { CodexAvailableModel, CodexPendingRequest, CodexPendingRequestResponse } from "@codex-remote/shared-types";
 
 const fixturesDir = new URL("./fixtures/codex-cli-0.116.0/", import.meta.url);
 const uploads = new ImageUploadService("/tmp/compat-uploads", "/uploads/", 5, 10_485_760);
@@ -158,6 +159,10 @@ class FixtureCodexBackend extends EventEmitter implements CodexBackend {
     return thread;
   }
 
+  async listModels(): Promise<CodexAvailableModel[]> {
+    return [];
+  }
+
   async readAccountRateLimits(): Promise<CodexAccountRateLimits | null> {
     return null;
   }
@@ -195,6 +200,10 @@ class FixtureCodexBackend extends EventEmitter implements CodexBackend {
     _response: CodexPendingRequestResponse
   ): Promise<CodexPendingRequest | null> {
     return null;
+  }
+
+  async simulatePendingRequest(_params: SimulatePendingRequestParams): Promise<CodexPendingRequest> {
+    throw new Error("Not implemented in fixture backend");
   }
 
   getState(): CodexRuntimeState {

@@ -24,6 +24,7 @@ export type AppConfig = {
   maxPromptLength: number;
   maxImageAttachments: number;
   maxImageAttachmentBytes: number;
+  devSimulatorEnabled: boolean;
   vapidPublicKey?: string;
   vapidPrivateKey?: string;
   vapidSubject?: string;
@@ -170,6 +171,7 @@ export function loadConfig(): AppConfig {
     maxPromptLength: Number(process.env.MAX_PROMPT_LENGTH ?? 12000),
     maxImageAttachments: Number(process.env.MAX_IMAGE_ATTACHMENTS ?? 5),
     maxImageAttachmentBytes: Number(process.env.MAX_IMAGE_ATTACHMENT_BYTES ?? 10 * 1024 * 1024),
+    devSimulatorEnabled: process.env.CODEX_ENABLE_DEV_TOOLS === "1",
     vapidPublicKey: process.env.VAPID_PUBLIC_KEY,
     vapidPrivateKey: process.env.VAPID_PRIVATE_KEY,
     vapidSubject: process.env.VAPID_SUBJECT

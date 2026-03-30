@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
-import type { CodexPendingRequest, CodexPendingRequestResponse } from "@codex-remote/shared-types";
+import type { CodexAvailableModel, CodexPendingRequest, CodexPendingRequestResponse } from "@codex-remote/shared-types";
 
 import type {
   CodexAccountRateLimits,
@@ -14,6 +14,7 @@ import type {
   EnsureThreadParams,
   ListThreadsParams,
   LoggerLike,
+  SimulatePendingRequestParams,
   StartRunParams
 } from "./types";
 
@@ -29,6 +30,7 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
   private readonly runs = new Map<string, MockRunHandle>();
   private readonly threads = new Map<string, CodexThread>();
   private readonly archivedThreadIds = new Set<string>();
+  private readonly pendingRequests = new Map<string, CodexPendingRequest>();
 
   constructor(private readonly logger: LoggerLike) {
     super();
@@ -90,6 +92,60 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
       throw new Error(`Unknown mock thread: ${threadId}`);
     }
     return thread;
+  }
+
+  async listModels(): Promise<CodexAvailableModel[]> {
+    return [
+      {
+        id: "mock-gpt-5_4",
+        model: "gpt-5.4",
+        displayName: "GPT-5.4",
+        description: "Default mock frontier model.",
+        hidden: false,
+        supportedReasoningEfforts: [
+          { reasoningEffort: "low", description: "Faster responses with lighter reasoning." },
+          { reasoningEffort: "medium", description: "Balanced speed and depth." },
+          { reasoningEffort: "high", description: "Deeper reasoning for harder tasks." },
+          { reasoningEffort: "xhigh", description: "Maximum reasoning depth." }
+        ],
+        defaultReasoningEffort: "medium",
+        inputModalities: ["text", "image"],
+        supportsPersonality: true,
+        isDefault: true
+      },
+      {
+        id: "mock-gpt-5_4-mini",
+        model: "gpt-5.4-mini",
+        displayName: "GPT-5.4 Mini",
+        description: "Smaller frontier model for faster iteration.",
+        hidden: false,
+        supportedReasoningEfforts: [
+          { reasoningEffort: "low", description: "Fastest response." },
+          { reasoningEffort: "medium", description: "Balanced default." },
+          { reasoningEffort: "high", description: "More reasoning for harder tasks." }
+        ],
+        defaultReasoningEffort: "medium",
+        inputModalities: ["text", "image"],
+        supportsPersonality: true,
+        isDefault: false
+      },
+      {
+        id: "mock-gpt-5_3-codex",
+        model: "gpt-5.3-codex",
+        displayName: "GPT-5.3 Codex",
+        description: "Codex-optimized model for code-heavy tasks.",
+        hidden: false,
+        supportedReasoningEfforts: [
+          { reasoningEffort: "low", description: "Fast coding assistance." },
+          { reasoningEffort: "medium", description: "Balanced coding mode." },
+          { reasoningEffort: "high", description: "Deeper reasoning for complex code." }
+        ],
+        defaultReasoningEffort: "medium",
+        inputModalities: ["text", "image"],
+        supportsPersonality: true,
+        isDefault: false
+      }
+    ];
   }
 
   async readAccountRateLimits(): Promise<CodexAccountRateLimits | null> {
@@ -238,14 +294,36 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
   }
 
   listPendingRequests(_sessionId?: string): CodexPendingRequest[] {
-    return [];
+    return [...this.pendingRequests.values()].filter((request) => (_sessionId ? request.sessionId === _sessionId : true));
   }
 
   async respondToRequest(
-    _requestId: string,
+    requestId: string,
     _response: CodexPendingRequestResponse
   ): Promise<CodexPendingRequest | null> {
-    return null;
+    const request = this.pendingRequests.get(requestId) ?? null;
+    if (!request) {
+      return null;
+    }
+
+    this.pendingRequests.delete(requestId);
+    this.emit("event", {
+      type: "request.resolved",
+      sessionId: request.sessionId,
+      requestId
+    });
+    return request;
+  }
+
+  async simulatePendingRequest(params: SimulatePendingRequestParams): Promise<CodexPendingRequest> {
+    const request = this.pendingRequestFromSimulation(params);
+    this.pendingRequests.set(request.id, request);
+    this.emit("event", {
+      type: "request.created",
+      sessionId: request.sessionId,
+      request
+    });
+    return request;
   }
 
   getState(): CodexRuntimeState {
@@ -341,5 +419,115 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
           : turn
       )
     });
+  }
+
+  private pendingRequestFromSimulation(params: SimulatePendingRequestParams): CodexPendingRequest {
+    const id = `mock_dev_req_${randomUUID()}`;
+    const createdAt = new Date().toISOString();
+    const cwd = params.cwd;
+
+    switch (params.scenario) {
+      case "command_approval":
+        return {
+          type: "command_approval",
+          id,
+          sessionId: params.sessionId,
+          threadId: params.threadId,
+          turnId: null,
+          itemId: null,
+          createdAt,
+          approvalId: null,
+          reason: "Simulated command approval for UI verification.",
+          networkApprovalContext: null,
+          command: "npm test -- --runInBand",
+          cwd,
+          commandActions: [
+            { type: "read", command: "cat package.json", name: "cat", path: `${cwd}/package.json` }
+          ],
+          requestedPermissions: {
+            network: { enabled: true },
+            fileSystem: {
+              read: [`${cwd}/package.json`],
+              write: [`${cwd}/tmp`]
+            }
+          },
+          availableDecisions: ["accept", "acceptForSession", "decline", "cancel"]
+        };
+      case "file_change_approval":
+        return {
+          type: "file_change_approval",
+          id,
+          sessionId: params.sessionId,
+          threadId: params.threadId,
+          turnId: null,
+          itemId: null,
+          createdAt,
+          reason: "Simulated file change approval for UI verification.",
+          grantRoot: cwd
+        };
+      case "permissions_approval":
+        return {
+          type: "permissions_approval",
+          id,
+          sessionId: params.sessionId,
+          threadId: params.threadId,
+          turnId: null,
+          itemId: null,
+          createdAt,
+          reason: "Simulated additional permissions request for UI verification.",
+          permissions: {
+            network: { enabled: true },
+            fileSystem: {
+              read: [`${cwd}/docs`],
+              write: [`${cwd}/apps/web/src`]
+            }
+          }
+        };
+      case "request_user_input":
+        return {
+          type: "request_user_input",
+          id,
+          sessionId: params.sessionId,
+          threadId: params.threadId,
+          turnId: null,
+          itemId: null,
+          createdAt,
+          questions: [
+            {
+              id: "target_env",
+              header: "Target env",
+              question: "Which environment should Codex use?",
+              isOther: false,
+              isSecret: false,
+              options: [
+                { label: "staging", description: "Use staging configuration." },
+                { label: "production", description: "Use production configuration." }
+              ]
+            }
+          ]
+        };
+      case "mcp_elicitation":
+        return {
+          type: "mcp_elicitation",
+          id,
+          sessionId: params.sessionId,
+          threadId: params.threadId,
+          turnId: null,
+          itemId: null,
+          createdAt,
+          mode: "form",
+          serverName: "github",
+          message: "Simulated MCP confirmation for UI verification.",
+          meta: { requestId: id },
+          requestedSchema: {
+            type: "object",
+            properties: {
+              owner: { type: "string" },
+              repo: { type: "string" }
+            },
+            required: ["owner", "repo"]
+          }
+        };
+    }
   }
 }

@@ -1,15 +1,20 @@
 import type {
   AccountRateLimitsResponse,
+  CodexModelsResponse,
+  CodexPendingRequestResponse,
   CreateRunRequest,
   CreateSessionRequest,
   DeletePushSubscriptionRequest,
   HealthResponse,
   MessagesResponse,
   NotificationsConfigResponse,
+  PendingCodexRequestsResponse,
   ReposResponse,
   RunResponse,
   SavePushSubscriptionRequest,
   SessionDetail,
+  SimulateCodexRequestRequest,
+  SimulateCodexRequestResponse,
   SessionsResponse,
   UpdateSessionRequest
 } from "@codex-remote/shared-types";
@@ -35,6 +40,7 @@ async function request<T>(input: string, init?: RequestInit) {
 
 export const api = {
   health: () => request<HealthResponse>("/healthz"),
+  codexModels: () => request<CodexModelsResponse>("/api/codex/models"),
   accountRateLimits: () => request<AccountRateLimitsResponse>("/api/account/rate-limits"),
   notificationsConfig: () => request<NotificationsConfigResponse>("/api/notifications/config"),
   repos: () => request<ReposResponse>("/api/repos"),
@@ -54,6 +60,8 @@ export const api = {
   },
   session: (sessionId: string) => request<SessionDetail>(`/api/sessions/${sessionId}`),
   messages: (sessionId: string) => request<MessagesResponse>(`/api/sessions/${sessionId}/messages`),
+  pendingCodexRequests: (sessionId: string) =>
+    request<PendingCodexRequestsResponse>(`/api/sessions/${sessionId}/codex/requests`),
   createSession: (payload: CreateSessionRequest) =>
     request<{ session: SessionDetail["session"] }>("/api/sessions", {
       method: "POST",
@@ -84,6 +92,16 @@ export const api = {
   interruptRun: (runId: string) =>
     request<{ ok: true }>(`/api/runs/${runId}/interrupt`, {
       method: "POST"
+    }),
+  respondToCodexRequest: (requestId: string, payload: CodexPendingRequestResponse) =>
+    request<{ ok: true }>(`/api/codex/requests/${requestId}/respond`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  simulateCodexRequest: (sessionId: string, payload: SimulateCodexRequestRequest) =>
+    request<SimulateCodexRequestResponse>(`/api/dev/sessions/${sessionId}/codex/requests`, {
+      method: "POST",
+      body: JSON.stringify(payload)
     }),
   savePushSubscription: (payload: SavePushSubscriptionRequest) =>
     request<{ ok: true }>("/api/notifications/subscriptions", {

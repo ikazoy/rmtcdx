@@ -85,8 +85,13 @@ export function useRealtime() {
             clearStreaming(event.sessionId);
             void queryClient.invalidateQueries({ queryKey: queryKeys.messages(event.sessionId) });
             void queryClient.invalidateQueries({ queryKey: queryKeys.session(event.sessionId) });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.pendingCodexRequests(event.sessionId) });
             void queryClient.invalidateQueries({ queryKey: ["sessions"] });
             void queryClient.invalidateQueries({ queryKey: queryKeys.accountRateLimits });
+            return;
+          case "codex.request.created":
+          case "codex.request.resolved":
+            void queryClient.invalidateQueries({ queryKey: queryKeys.pendingCodexRequests(event.sessionId) });
             return;
           case "activity.started":
             upsertActivity(event.activity);
@@ -103,6 +108,7 @@ export function useRealtime() {
           case "run.interrupted":
             clearActivities(event.run.sessionId);
             void queryClient.invalidateQueries({ queryKey: queryKeys.session(event.run.sessionId) });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.pendingCodexRequests(event.run.sessionId) });
             void queryClient.invalidateQueries({ queryKey: ["sessions"] });
             void queryClient.invalidateQueries({ queryKey: queryKeys.accountRateLimits });
             return;
@@ -110,6 +116,7 @@ export function useRealtime() {
             setBackendBanner(event.reason);
             return;
           case "hello":
+            void queryClient.invalidateQueries({ queryKey: queryKeys.codexModels });
             void queryClient.invalidateQueries({ queryKey: queryKeys.accountRateLimits });
             return;
           case "notification.unread":

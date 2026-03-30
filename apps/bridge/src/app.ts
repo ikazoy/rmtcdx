@@ -9,14 +9,19 @@ import { z } from "zod";
 import type {
   AccountRateLimitsResponse,
   ClientWsEvent,
+  CodexModelsResponse,
+  CodexPendingRequestResponse,
   CreateRunRequest,
   CreateSessionRequest,
   DeletePushSubscriptionRequest,
   NotificationsConfigResponse,
+  PendingCodexRequestsResponse,
   SavePushSubscriptionRequest,
   SessionDetail,
   SessionFilter,
-  SessionSummary
+  SessionSummary,
+  SimulateCodexRequestRequest,
+  SimulateCodexRequestResponse
 } from "@codex-remote/shared-types";
 import { presentAccountRateLimits, unavailableAccountRateLimits } from "./account/rate-limits";
 import { LiveCatalogService } from "./catalog/live-catalog-service";
@@ -46,6 +51,68 @@ const savePushSubscriptionSchema = z.object({
 const deletePushSubscriptionSchema = z.object({
   endpoint: z.string().url()
 });
+const codexCommandDecisionSchema = z.enum(["accept", "acceptForSession", "decline", "cancel"]);
+const codexApprovalPolicySchema = z.enum(["untrusted", "on-failure", "on-request", "never"]);
+const codexSandboxSchema = z.enum(["read-only", "workspace-write", "danger-full-access"]);
+const codexServiceTierSchema = z.enum(["fast", "flex"]);
+const codexPermissionProfileSchema = z.object({
+  network: z
+    .object({
+      enabled: z.boolean().nullable()
+    })
+    .optional(),
+  fileSystem: z
+    .object({
+      read: z.array(z.string()).nullable(),
+      write: z.array(z.string()).nullable()
+    })
+    .optional()
+});
+const codexRunSettingsSchema = z.object({
+  approvalPolicy: codexApprovalPolicySchema.nullable().optional(),
+  sandbox: codexSandboxSchema.nullable().optional(),
+  serviceTier: codexServiceTierSchema.nullable().optional(),
+  model: z.string().trim().min(1).nullable().optional()
+});
+const simulateCodexRequestSchema = z.object({
+  scenario: z.enum([
+    "command_approval",
+    "file_change_approval",
+    "permissions_approval",
+    "request_user_input",
+    "mcp_elicitation"
+  ])
+});
+const codexPendingRequestResponseSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("command_approval"),
+    decision: codexCommandDecisionSchema
+  }),
+  z.object({
+    type: z.literal("file_change_approval"),
+    decision: codexCommandDecisionSchema
+  }),
+  z.object({
+    type: z.literal("permissions_approval"),
+    permissions: codexPermissionProfileSchema,
+    scope: z.enum(["turn", "session"])
+  }),
+  z.object({
+    type: z.literal("request_user_input"),
+    answers: z.record(
+      z.string(),
+      z.object({
+        answers: z.array(z.string())
+      })
+    )
+  }),
+  z.object({
+    type: z.literal("mcp_elicitation"),
+    action: z.enum(["accept", "decline", "cancel"]),
+    content: z.unknown().nullable(),
+    meta: z.unknown().nullable().optional()
+  })
+]);
 
 export async function buildApp() {
   const config = loadConfig();
@@ -67,7 +134,8 @@ export async function buildApp() {
       sessionId: z.string().min(1).optional(),
       repoId: z.string().min(1).optional(),
       prompt: z.string().default(""),
-      attachments: z.array(imageAttachmentSchema).max(config.maxImageAttachments).default([])
+      attachments: z.array(imageAttachmentSchema).max(config.maxImageAttachments).default([]),
+      codex: codexRunSettingsSchema.optional()
     })
     .refine((value) => Boolean(value.sessionId || value.repoId), {
       message: "sessionId or repoId is required"
@@ -125,6 +193,9 @@ export async function buildApp() {
     metrics: {
       activeWebSockets: realtime.getConnectionCount(),
       activeRuns: runs.getActiveRunsCount()
+    },
+    devTools: {
+      codexRequestSimulator: config.devSimulatorEnabled
     }
   }));
 
@@ -153,6 +224,10 @@ export async function buildApp() {
       return unavailableAccountRateLimits("Usage limits are not available right now.");
     }
   });
+
+  app.get("/api/codex/models", async (): Promise<CodexModelsResponse> => ({
+    models: await codex.listModels()
+  }));
 
   app.post("/api/notifications/subscriptions", async (request) => {
     const body = savePushSubscriptionSchema.parse(request.body) as SavePushSubscriptionRequest;
@@ -240,6 +315,18 @@ export async function buildApp() {
     }
     return {
       messages: await catalog.listMessages(params.sessionId)
+    };
+  });
+
+  app.get("/api/sessions/:sessionId/codex/requests", async (request, reply): Promise<PendingCodexRequestsResponse> => {
+    const params = z.object({ sessionId: z.string().min(1) }).parse(request.params);
+    const detail = await catalog.getSessionDetail(params.sessionId);
+    if (!detail) {
+      return reply.code(404).send({ message: "Session not found" }) as never;
+    }
+
+    return {
+      requests: codex.listPendingRequests(params.sessionId)
     };
   });
 
@@ -359,6 +446,48 @@ export async function buildApp() {
       return reply.code(404).send({ message: "Run not found or not interruptible" });
     }
     return { ok: true };
+  });
+
+  app.post("/api/codex/requests/:requestId/respond", async (request, reply) => {
+    const params = z.object({ requestId: z.string().min(1) }).parse(request.params);
+
+    try {
+      const body = codexPendingRequestResponseSchema.parse(request.body) as CodexPendingRequestResponse;
+      const responded = await codex.respondToRequest(params.requestId, body);
+      if (!responded) {
+        return reply.code(404).send({ message: "Codex request not found" });
+      }
+
+      return { ok: true };
+    } catch (error) {
+      return reply.code(400).send({ message: error instanceof Error ? error.message : "Unable to respond to Codex request" });
+    }
+  });
+
+  app.post("/api/dev/sessions/:sessionId/codex/requests", async (request, reply): Promise<SimulateCodexRequestResponse> => {
+    if (!config.devSimulatorEnabled) {
+      return reply.code(404).send({ message: "Dev Codex simulator is not enabled." }) as never;
+    }
+
+    const params = z.object({ sessionId: z.string().min(1) }).parse(request.params);
+    const detail = await catalog.getSessionDetail(params.sessionId);
+    if (!detail) {
+      return reply.code(404).send({ message: "Session not found" }) as never;
+    }
+
+    try {
+      const body = simulateCodexRequestSchema.parse(request.body) as SimulateCodexRequestRequest;
+      const thread = await catalog.getThread(params.sessionId);
+      const simulated = await codex.simulatePendingRequest({
+        sessionId: params.sessionId,
+        threadId: thread.id,
+        cwd: thread.cwd,
+        scenario: body.scenario
+      });
+      return { request: simulated };
+    } catch (error) {
+      return reply.code(400).send({ message: error instanceof Error ? error.message : "Unable to simulate Codex request" }) as never;
+    }
   });
 
   app.route({

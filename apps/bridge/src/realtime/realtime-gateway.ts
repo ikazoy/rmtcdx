@@ -1,5 +1,6 @@
 import type {
   ClientWsEvent,
+  CodexPendingRequest,
   LiveActivity,
   Message,
   Repository,
@@ -99,6 +100,14 @@ export class RealtimeGateway {
 
   broadcastMessageFinal(sessionId: string, runId: string, message: Message & { role: "assistant" }) {
     this.broadcast({ type: "message.final", sessionId, runId, message });
+  }
+
+  broadcastCodexRequestCreated(sessionId: string, request: CodexPendingRequest) {
+    this.broadcast({ type: "codex.request.created", sessionId, request });
+  }
+
+  broadcastCodexRequestResolved(sessionId: string, requestId: string) {
+    this.broadcast({ type: "codex.request.resolved", sessionId, requestId });
   }
 
   broadcastBackendDegraded(reason: string) {

@@ -148,6 +148,36 @@ export type CodexCommandApprovalDecision = "accept" | "acceptForSession" | "decl
 export type CodexFileChangeApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
 export type CodexPermissionGrantScope = "turn" | "session";
 export type CodexMcpElicitationAction = "accept" | "decline" | "cancel";
+export type CodexApprovalPolicyPreset = "untrusted" | "on-failure" | "on-request" | "never";
+export type CodexSandboxPreset = "read-only" | "workspace-write" | "danger-full-access";
+export type CodexServiceTier = "fast" | "flex";
+export type CodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type CodexInputModality = "text" | "image";
+
+export type CodexRunSettings = {
+  approvalPolicy?: CodexApprovalPolicyPreset | null;
+  sandbox?: CodexSandboxPreset | null;
+  serviceTier?: CodexServiceTier | null;
+  model?: string | null;
+};
+
+export type CodexReasoningEffortOption = {
+  reasoningEffort: CodexReasoningEffort;
+  description: string;
+};
+
+export type CodexAvailableModel = {
+  id: string;
+  model: string;
+  displayName: string;
+  description: string;
+  hidden: boolean;
+  supportedReasoningEfforts: CodexReasoningEffortOption[];
+  defaultReasoningEffort: CodexReasoningEffort;
+  inputModalities: CodexInputModality[];
+  supportsPersonality: boolean;
+  isDefault: boolean;
+};
 
 export type CodexRequestUserInputOption = {
   label: string;
@@ -274,6 +304,9 @@ export type HealthResponse = {
     activeWebSockets: number;
     activeRuns: number;
   };
+  devTools: {
+    codexRequestSimulator: boolean;
+  };
 };
 
 export type ReposResponse = { repos: Repository[] };
@@ -281,6 +314,7 @@ export type SessionsResponse = { sessions: SessionSummary[] };
 export type SessionResponse = SessionDetail;
 export type MessagesResponse = { messages: Message[] };
 export type RunResponse = { run: Run };
+export type CodexModelsResponse = { models: CodexAvailableModel[] };
 export type PendingCodexRequestsResponse = { requests: CodexPendingRequest[] };
 
 export type CreateSessionRequest = {
@@ -293,6 +327,22 @@ export type CreateRunRequest = {
   sessionId?: string;
   repoId?: string;
   attachments?: ImageAttachmentInput[];
+  codex?: CodexRunSettings;
+};
+
+export type CodexDevRequestScenario =
+  | "command_approval"
+  | "file_change_approval"
+  | "permissions_approval"
+  | "request_user_input"
+  | "mcp_elicitation";
+
+export type SimulateCodexRequestRequest = {
+  scenario: CodexDevRequestScenario;
+};
+
+export type SimulateCodexRequestResponse = {
+  request: CodexPendingRequest;
 };
 
 export type ImageAttachmentInput = {

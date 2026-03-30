@@ -4,6 +4,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import type {
+  CodexDevRequestScenario,
+  CodexRunSettings,
+  CodexPendingRequestResponse,
   ImageAttachmentInput,
   LiveActivity,
   Message,
@@ -24,6 +27,7 @@ import {
 } from "./view-state";
 import type { PendingThread } from "./view-state";
 import { ChatPane } from "../features/chat/ChatPane";
+import { CodexRequestDialog } from "../features/codex-requests/CodexRequestDialog";
 import { SidebarPane } from "../features/sidebar/SidebarPane";
 import { useRealtime } from "../hooks/use-realtime";
 import { useUiStore } from "../store/ui-store";
@@ -37,6 +41,19 @@ const SIDEBAR_DEFAULT_WIDTH_PX = 320;
 const SIDEBAR_MAX_WIDTH_PX = 640;
 const SIDEBAR_CHAT_GUTTER_PX = 420;
 const EMPTY_ACTIVITY_MAP: Record<string, LiveActivity> = {};
+type ResolvedRunSettings = {
+  approvalPolicy: NonNullable<CodexRunSettings["approvalPolicy"]>;
+  sandbox: NonNullable<CodexRunSettings["sandbox"]>;
+  serviceTier: CodexRunSettings["serviceTier"];
+  model: string;
+};
+
+const DEFAULT_RUN_SETTINGS: ResolvedRunSettings = {
+  approvalPolicy: "on-request",
+  sandbox: "workspace-write",
+  serviceTier: null,
+  model: ""
+};
 
 function readStoredThreadFilters() {
   if (typeof window === "undefined") {
@@ -218,6 +235,27 @@ function sessionIdsForSelection(selectedSessionId: string | null, transition: Se
   return sessionIds;
 }
 
+function resolvedRunSettings(settings: CodexRunSettings | undefined | null): ResolvedRunSettings {
+  return {
+    approvalPolicy: settings?.approvalPolicy ?? DEFAULT_RUN_SETTINGS.approvalPolicy,
+    sandbox: settings?.sandbox ?? DEFAULT_RUN_SETTINGS.sandbox,
+    serviceTier: settings?.serviceTier ?? DEFAULT_RUN_SETTINGS.serviceTier,
+    model: settings?.model ?? DEFAULT_RUN_SETTINGS.model
+  };
+}
+
+function runSettingsForRequest(settings: CodexRunSettings | undefined | null): CodexRunSettings {
+  const resolved = resolvedRunSettings(settings);
+  const model = resolved.model.trim();
+
+  return {
+    approvalPolicy: resolved.approvalPolicy,
+    sandbox: resolved.sandbox,
+    serviceTier: model ? (resolved.serviceTier ?? null) : null,
+    model: model ? model : null
+  };
+}
+
 export function App() {
   useRealtime();
   const queryClient = useQueryClient();
@@ -251,6 +289,10 @@ export function App() {
   useEffect(() => () => revokeOptimisticAttachments(optimisticMessageRef.current), []);
 
   const selectedRepoId = useUiStore((state) => state.selectedRepoId);
+  const runSettingsBySession = useUiStore((state) => state.runSettingsBySession);
+  const setRunSettingsForSession = useUiStore((state) => state.setRunSettingsForSession);
+  const resetRunSettingsForSession = useUiStore((state) => state.resetRunSettingsForSession);
+  const copyRunSettings = useUiStore((state) => state.copyRunSettings);
   const selectedSessionId = routeSessionId;
   const isDraftSession = Boolean(selectedSessionId?.startsWith("draft:"));
   const selectedSessionIds = useMemo(
@@ -291,6 +333,12 @@ export function App() {
     refetchInterval: 15000
   });
 
+  const codexModelsQuery = useQuery({
+    queryKey: queryKeys.codexModels,
+    queryFn: api.codexModels,
+    staleTime: 5 * 60 * 1000
+  });
+
   const reposQuery = useQuery({
     queryKey: queryKeys.repos,
     queryFn: api.repos
@@ -311,6 +359,12 @@ export function App() {
   const messagesQuery = useQuery({
     queryKey: queryKeys.messages(selectedSessionId),
     queryFn: () => api.messages(selectedSessionId!),
+    enabled: Boolean(selectedSessionId) && !isDraftSession
+  });
+
+  const pendingCodexRequestsQuery = useQuery({
+    queryKey: queryKeys.pendingCodexRequests(selectedSessionId),
+    queryFn: () => api.pendingCodexRequests(selectedSessionId!),
     enabled: Boolean(selectedSessionId) && !isDraftSession
   });
 
@@ -379,16 +433,18 @@ export function App() {
   const runMutation = useMutation({
     mutationFn: ({
       prompt,
-      attachments
+      attachments,
+      codexSettings
     }: {
       prompt: string;
       attachments: ImageAttachmentInput[];
       clientSessionId: string;
+      codexSettings: CodexRunSettings;
     }) =>
       api.startRun(
         isDraftSession
-          ? { repoId: selectedRepoId!, prompt, attachments }
-          : { sessionId: selectedSessionId!, prompt, attachments }
+          ? { repoId: selectedRepoId!, prompt, attachments, codex: runSettingsForRequest(codexSettings) }
+          : { sessionId: selectedSessionId!, prompt, attachments, codex: runSettingsForRequest(codexSettings) }
       ),
     onSuccess: (data, variables) => {
       setOptimisticMessage((current) =>
@@ -409,6 +465,7 @@ export function App() {
         runId: data.run.id
       });
       if (variables.clientSessionId.startsWith("draft:") && variables.clientSessionId !== data.run.sessionId) {
+        copyRunSettings(variables.clientSessionId, data.run.sessionId);
         setSessionTransition({
           draftId: variables.clientSessionId,
           realId: data.run.sessionId
@@ -492,6 +549,37 @@ export function App() {
     }
   });
 
+  const codexRequestMutation = useMutation({
+    mutationFn: ({ requestId, payload }: { requestId: string; payload: CodexPendingRequestResponse }) =>
+      api.respondToCodexRequest(requestId, payload),
+    onSuccess: async (_data, variables) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.pendingCodexRequests(selectedSessionId) });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.session(selectedSessionId) });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.messages(selectedSessionId) });
+      debugUiState("codex-request-responded", {
+        requestId: variables.requestId,
+        selectedSessionId
+      });
+    }
+  });
+
+  const simulateCodexRequestMutation = useMutation({
+    mutationFn: ({
+      sessionId,
+      scenario
+    }: {
+      sessionId: string;
+      scenario: CodexDevRequestScenario;
+    }) => api.simulateCodexRequest(sessionId, { scenario }),
+    onSuccess: async (_data, variables) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.pendingCodexRequests(variables.sessionId) });
+      debugUiState("codex-request-simulated", {
+        sessionId: variables.sessionId,
+        scenario: variables.scenario
+      });
+    }
+  });
+
   const repos = reposQuery.data?.repos ?? [];
   const sessions = sessionsQuery.data?.sessions ?? [];
   const visibleSessions = buildVisibleSessions(sessions, selectedRepoId, pendingThread);
@@ -517,6 +605,13 @@ export function App() {
         : buildDraftSessionDetail(selectedSessionId!, selectedRepo, draftCreatedAt)
       : null;
   const messages = isDraftSession ? [] : messagesQuery.data?.messages ?? [];
+  const pendingCodexRequests = isDraftSession ? [] : pendingCodexRequestsQuery.data?.requests ?? [];
+  const currentPendingCodexRequest = pendingCodexRequests[0] ?? null;
+  const currentRunSettings = selectedSessionId
+    ? resolvedRunSettings(runSettingsBySession[selectedSessionId])
+    : DEFAULT_RUN_SETTINGS;
+  const availableModels = codexModelsQuery.data?.models ?? [];
+  const devSimulatorAvailable = healthQuery.data?.devTools.codexRequestSimulator === true;
   const activeRepoName = selectedRepo?.name ?? sessionDetailQuery.data?.session.repoName ?? selectedSessionSummary?.repoName;
   const optimisticMessageForSession =
     optimisticMessage && selectedSessionIds.has(optimisticMessage.sessionId) ? optimisticMessage : null;
@@ -727,6 +822,19 @@ export function App() {
   return (
     <div className={`app-shell ${isResizingSidebar ? "is-resizing" : ""}`}>
       {backendBanner ? <div className="banner">{backendBanner}</div> : null}
+      <CodexRequestDialog
+        request={currentPendingCodexRequest}
+        isSubmitting={codexRequestMutation.isPending}
+        submitError={codexRequestMutation.error instanceof Error ? codexRequestMutation.error.message : null}
+        onRespond={(payload) =>
+          currentPendingCodexRequest
+            ? codexRequestMutation.mutateAsync({
+                requestId: currentPendingCodexRequest.id,
+                payload
+              }).then(() => undefined)
+            : Promise.resolve()
+        }
+      />
 
       <main
         className="workspace-shell"
@@ -741,6 +849,7 @@ export function App() {
             selectedRepoId={selectedRepoId}
             sessionsState={sidebarViewState}
             selectedSessionId={selectedSidebarSessionId}
+            selectedSessionPendingRequestCount={pendingCodexRequests.length}
             search={search}
             filter={filter}
             wsState={wsState}
@@ -796,6 +905,12 @@ export function App() {
             liveActivities={liveActivities}
             isMobileViewport={isMobileViewport}
             optimisticMessage={optimisticMessageForSession}
+            pendingCodexRequestCount={pendingCodexRequests.length}
+            runSettings={currentRunSettings}
+            availableModels={availableModels}
+            isLoadingModels={codexModelsQuery.isPending}
+            modelsError={codexModelsQuery.error instanceof Error ? codexModelsQuery.error.message : null}
+            devSimulatorAvailable={devSimulatorAvailable && !isDraftSession && hasResolvedSessionDetail}
             hasPendingResponse={Boolean(pendingResponseSessionId && selectedSessionIds.has(pendingResponseSessionId))}
             canInterruptRun={Boolean(interruptibleRunId)}
             wsState={wsState}
@@ -858,8 +973,32 @@ export function App() {
               await runMutation.mutateAsync({
                 prompt,
                 attachments,
+                codexSettings: currentRunSettings,
                 clientSessionId: selectedSessionId
               });
+            }}
+            onRunSettingsChange={(settings) => {
+              if (!selectedSessionId) {
+                return;
+              }
+              setRunSettingsForSession(selectedSessionId, settings);
+            }}
+            onResetRunSettings={() => {
+              if (!selectedSessionId) {
+                return;
+              }
+              resetRunSettingsForSession(selectedSessionId);
+            }}
+            onSimulateCodexRequest={(scenario) => {
+              if (!selectedSessionId || isDraftSession) {
+                return Promise.resolve();
+              }
+              return simulateCodexRequestMutation
+                .mutateAsync({
+                  sessionId: selectedSessionId,
+                  scenario
+                })
+                .then(() => undefined);
             }}
             onInterrupt={async () => {
               if (!interruptibleRunId) {
@@ -919,6 +1058,12 @@ export function App() {
             isRenaming={renameMutation.isPending}
             isArchiving={archiveMutation.isPending}
             isRestoring={restoreMutation.isPending}
+            isSimulatingCodexRequest={simulateCodexRequestMutation.isPending}
+            simulateCodexRequestError={
+              simulateCodexRequestMutation.error instanceof Error
+                ? simulateCodexRequestMutation.error.message
+                : null
+            }
             canRename={!isDraftSession && hasResolvedSessionDetail}
             canArchive={!isDraftSession && hasResolvedSessionDetail && !Boolean(actionableDetail?.session.isArchived)}
             canRestore={!isDraftSession && hasResolvedSessionDetail && Boolean(actionableDetail?.session.isArchived)}
