@@ -6,11 +6,11 @@ Codex Remote Web Client は、mobile-first の Web UI から OpenAI Codex CLI �
 
 ## できること
 
-- `repos.json` に定義したローカル workspace を選択できる
+- Codex thread から見つけた repository を一覧表示し、必要なら `repos.json` で preset を足せる
 - session 一覧の検索、filter、未読管理、rename、archive
 - 画像添付付き prompt の送信
 - WebSocket による run 状態と message のリアルタイム更新
-- SQLite による session と message の永続化
+- ブラウザ push 通知と Codex 利用量表示
 - session list と chat を行き来しやすい mobile-first レイアウト
 
 ## 前提
@@ -19,18 +19,25 @@ Codex Remote Web Client は、mobile-first の Web UI から OpenAI Codex CLI �
 - npm
 - Codex と接続して動かす場合はローカルに `codex` CLI が入っていること
 
+## 現在の配布形態
+
+現時点での正式な起動方法は、この repository を clone して source checkout から起動する形です。
+
 ## Quick Start
 
 ```bash
 git clone https://github.com/ikazoy/remote-control-codex.git
 cd remote-control-codex
-cp repos.example.json repos.json
 npm install
 npm run build
+# 任意: 初回の空状態用に repository picker を先に埋める
+cp repos.example.json repos.json
 PORT=3210 npm run start
 ```
 
 `npm run start` は既定で `CODEX_MODE=auto` を使います。`codex` CLI が利用できれば bridge はそれに接続し、利用できない場合は自動で mock mode にフォールバックします。
+
+`repos.json` が無くてもアプリは起動します。その場合の repository picker は、既存の Codex thread から自動で作られます。まだ thread が 1 件も無い場合は、`repos.example.json` をコピーして最初の workspace を用意するのが一番簡単です。
 
 起動後:
 
@@ -67,7 +74,11 @@ tailscale serve off
 
 ## `repos.json` を準備する
 
-bridge は操作対象リポジトリの一覧を `repos.json` から読み込みます。まずはテンプレートをコピーしてください。
+`repos.json` は任意です。ファイルがある場合、bridge はそれを使って repository picker を先に埋めたり、表示名、description、pinned 状態を上書きしたりします。
+
+`repos.json` が無い場合、アプリは既存の Codex thread から repository を見つけて表示します。Codex の履歴が完全に空の状態から始めるなら、`repos.json` を追加するのが最も簡単です。
+
+preset を追加したい場合は、まずテンプレートをコピーしてください。
 
 ```bash
 cp repos.example.json repos.json
@@ -140,9 +151,9 @@ rg '"listenPort":3210|"listenPort":3000' data/codex-app-server.jsonl
 | `CODEX_DEBUG_LOG_FILE` | `<workspace>/data/codex-app-server.jsonl` | Codex app-server のライフサイクルを記録する JSONL デバッグログ |
 | `HOST` | `127.0.0.1` | bridge の listen host |
 | `PORT` | `3210` | bridge の listen port |
-| `REPO_CONFIG_PATH` | `<workspace>/repos.json` | repo 一覧ファイル |
+| `REPO_CONFIG_PATH` | `<workspace>/repos.json` | 任意の repository preset ファイル |
 | `DATA_DIR` | `<workspace>/data` | アプリデータの保存先 |
-| `DB_FILE` | `<workspace>/data/remote-control.db` | SQLite DB ファイル |
+| `DB_FILE` | `<workspace>/data/remote-control.db` | push subscription と notification 設定を保存する SQLite DB |
 | `UPLOADS_DIR` | `<workspace>/data/uploads` | アップロード画像の保存先 |
 | `WEB_DIST_DIR` | `<workspace>/apps/web/dist` | bridge から配信する build 済み frontend |
 | `WORKSPACE_ROOT` | auto-detected | workspace ルート解決を上書きしたい場合に使う |
@@ -160,20 +171,20 @@ curl http://127.0.0.1:3210/api/repos
 最低限の確認ポイント:
 
 - `healthz` で `ok: true` が返る
-- `api/repos` で `repos.json` に定義した repo 一覧が返る
+- `api/repos` が JSON を返る。既存 thread も `repos.json` も無い場合、`repos` は空でも正常
 
 ## 構成
 
-- `apps/bridge`: Fastify backend、SQLite 永続化、WebSocket gateway、Codex bridge
+- `apps/bridge`: Fastify backend、Codex bridge、push 通知用の保存領域、WebSocket gateway
 - `apps/web`: Vite で build する React SPA
 - `packages/shared-types`: bridge と web で共有している TypeScript 型
 - `docs/`: 補助的な設計メモや設計方針
 
 ## トラブルシュート
 
-### `Repository config not found`
+### repository picker が空のまま
 
-テンプレートから `repos.json` を作成してください。
+既存の Codex thread がまだ無い場合は、テンプレートから `repos.json` を作って最初の workspace を用意してください。
 
 ```bash
 cp repos.example.json repos.json

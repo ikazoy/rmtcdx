@@ -6,11 +6,11 @@ Codex Remote Web Client is a mobile-first web UI for remotely operating OpenAI C
 
 ## Features
 
-- Repository picker for local workspaces defined in `repos.json`
+- Repository picker built from discovered Codex threads, with optional `repos.json` presets
 - Session list with search, filters, unread state, rename, and archive
 - Prompt submission with optional image attachments
 - Live run updates and message streaming over WebSocket
-- SQLite-backed persistence for sessions and messages
+- Browser push notifications and Codex usage-limit status
 - Mobile-first layout for moving between the session list and chat view
 
 ## Requirements
@@ -19,18 +19,25 @@ Codex Remote Web Client is a mobile-first web UI for remotely operating OpenAI C
 - npm
 - `codex` CLI installed locally if you want the bridge to drive a live Codex backend
 
+## Current Packaging
+
+The supported way to run the app today is from a source checkout of this repository.
+
 ## Quick Start
 
 ```bash
 git clone https://github.com/ikazoy/remote-control-codex.git
 cd remote-control-codex
-cp repos.example.json repos.json
 npm install
 npm run build
+# Optional: pre-seed the repository picker for an empty-state setup
+cp repos.example.json repos.json
 PORT=3210 npm run start
 ```
 
 `npm run start` uses `CODEX_MODE=auto` by default. If the `codex` CLI is available, the bridge connects to it. If not, it falls back to mock mode.
+
+If `repos.json` is missing, the app still starts. In that case, the repository picker is built from existing Codex threads. If you have no existing threads yet, copying `repos.example.json` is the easiest way to seed the first workspace.
 
 After startup:
 
@@ -67,7 +74,11 @@ Notes:
 
 ## Configure `repos.json`
 
-The bridge reads the list of target repositories from `repos.json`. Start by copying the example file:
+`repos.json` is optional. When present, the bridge uses it to pre-seed the repository picker and override repository labels, descriptions, and pinned state.
+
+Without `repos.json`, the app discovers repositories from existing Codex threads. If you are starting from a completely empty Codex history, adding `repos.json` is the easiest way to make the first workspace selectable.
+
+To add presets, start by copying the example file:
 
 ```bash
 cp repos.example.json repos.json
@@ -140,9 +151,9 @@ rg '"listenPort":3210|"listenPort":3000' data/codex-app-server.jsonl
 | `CODEX_DEBUG_LOG_FILE` | `<workspace>/data/codex-app-server.jsonl` | JSONL debug log for Codex app-server lifecycle |
 | `HOST` | `127.0.0.1` | Bridge listen host |
 | `PORT` | `3210` | Bridge listen port |
-| `REPO_CONFIG_PATH` | `<workspace>/repos.json` | Repository list file |
+| `REPO_CONFIG_PATH` | `<workspace>/repos.json` | Optional repository preset file |
 | `DATA_DIR` | `<workspace>/data` | Application data directory |
-| `DB_FILE` | `<workspace>/data/remote-control.db` | SQLite database file |
+| `DB_FILE` | `<workspace>/data/remote-control.db` | SQLite file used for push subscriptions and notification settings |
 | `UPLOADS_DIR` | `<workspace>/data/uploads` | Uploaded image storage |
 | `WEB_DIST_DIR` | `<workspace>/apps/web/dist` | Built frontend served by the bridge |
 | `WORKSPACE_ROOT` | auto-detected | Override workspace root resolution |
@@ -160,20 +171,20 @@ curl http://127.0.0.1:3210/api/repos
 You should see:
 
 - `ok: true` from `healthz`
-- The repositories defined in `repos.json` from `api/repos`
+- A JSON response from `api/repos`; if you have no existing threads and no `repos.json`, `repos` can be empty
 
 ## Project Structure
 
-- `apps/bridge`: Fastify backend, SQLite persistence, WebSocket gateway, and Codex bridge
+- `apps/bridge`: Fastify backend, Codex bridge, push-notification storage, and WebSocket gateway
 - `apps/web`: React SPA built with Vite
 - `packages/shared-types`: shared TypeScript types used by bridge and web
 - `docs/`: supporting design and architecture notes
 
 ## Troubleshooting
 
-### `Repository config not found`
+### The repository picker is empty
 
-Create `repos.json` from the example template:
+If you do not have any existing Codex threads yet, create `repos.json` from the example template to seed the first workspace:
 
 ```bash
 cp repos.example.json repos.json
