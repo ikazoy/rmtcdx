@@ -220,7 +220,7 @@ const APPROVAL_POLICY_OPTIONS: Array<{
   {
     value: "on-failure",
     label: "On failure",
-    description: "Try first, then ask only if Codex cannot finish within current permissions."
+    description: "Try first, then ask only if the assistant cannot finish within current permissions."
   },
   {
     value: "untrusted",
@@ -230,7 +230,7 @@ const APPROVAL_POLICY_OPTIONS: Array<{
   {
     value: "never",
     label: "Never",
-    description: "Do not ask. Codex must stay within the granted sandbox or fail."
+    description: "Do not ask. The assistant must stay within the granted sandbox or fail."
   }
 ];
 

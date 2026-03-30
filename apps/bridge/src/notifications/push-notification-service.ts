@@ -68,16 +68,19 @@ type PushPayload = {
   };
 };
 
+const notifiableRunStatuses = new Set<Run["status"]>(["completed", "interrupted", "error"]);
+
+function isNotifiableRunStatus(status: Run["status"]): status is Extract<Run["status"], "completed" | "interrupted" | "error"> {
+  return notifiableRunStatuses.has(status);
+}
+
 function buildPayload(detail: SessionDetail, run: Run): PushPayload {
   const encodedSessionId = encodeURIComponent(detail.session.id);
-  const title = run.status === "error" ? "Codex Remote · Error" : "Codex Remote · Completed";
-  const body =
-    run.status === "error"
-      ? `${detail.session.title} がエラーで終了しました。`
-      : `${detail.session.title} が完了しました。`;
+  const statusLabel = run.status.slice(0, 1).toUpperCase() + run.status.slice(1);
+  const body = `Thread: ${detail.session.title} · Status: ${run.status}`;
 
   return {
-    title,
+    title: `Remodex · ${statusLabel}`,
     body,
     tag: `run:${run.id}`,
     icon: "/icon-192.png",
@@ -164,7 +167,7 @@ export class PushNotificationService {
   }
 
   async notifyRun(detail: SessionDetail, run: Run) {
-    if (run.status !== "completed" && run.status !== "error") {
+    if (!isNotifiableRunStatus(run.status)) {
       return;
     }
 

@@ -528,7 +528,6 @@ function WorkspaceCombobox({
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
 
   const selectedLabel = selectedRepoId
     ? (repos.find((r) => r.id === selectedRepoId)
@@ -547,25 +546,12 @@ function WorkspaceCombobox({
     }
   }, [isOpen]);
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    if (isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [isOpen]);
-
   return (
-    <div className="combobox" ref={containerRef}>
+    <div className="combobox combobox--inline">
       <button
         className="combobox__trigger"
         type="button"
         aria-expanded={isOpen}
-        aria-haspopup="listbox"
         onClick={() => setIsOpen(!isOpen)}
       >
         <span className="combobox__trigger-text">{selectedLabel}</span>
@@ -574,7 +560,7 @@ function WorkspaceCombobox({
         </svg>
       </button>
       {isOpen ? (
-        <div className="combobox__dropdown" role="listbox">
+        <div className="combobox__inline-body">
           <div className="combobox__search">
             <input
               ref={searchRef}
@@ -586,7 +572,7 @@ function WorkspaceCombobox({
               autoComplete="off"
             />
           </div>
-          <div className="combobox__list">
+          <div className="combobox__list" role="listbox">
             {!query ? (
               <button
                 className={`combobox__option ${selectedRepoId === null ? "is-active" : ""}`}

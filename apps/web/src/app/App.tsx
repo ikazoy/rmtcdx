@@ -412,7 +412,7 @@ export function App() {
   useEffect(() => {
     const sessions = sessionsQuery.data?.sessions ?? [];
     const unread = sessions.filter((session) => session.hasUnreadCompletion || session.hasUnreadError).length;
-    document.title = unread > 0 ? `(${unread}) Codex Remote` : "Codex Remote";
+    document.title = unread > 0 ? `(${unread}) Remodex` : "Remodex";
   }, [sessionsQuery.data?.sessions]);
 
   useEffect(() => {

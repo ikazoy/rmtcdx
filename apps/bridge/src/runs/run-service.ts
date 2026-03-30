@@ -18,6 +18,14 @@ import { RealtimeGateway } from "../realtime/realtime-gateway";
 import { ImageUploadService } from "../uploads/image-upload-service";
 import { nowIso } from "../utils/time";
 
+function isRunInProgress(status: Run["status"]) {
+  return status === "queued" || status === "running";
+}
+
+function isTerminalRunStatus(status: Run["status"]): status is Extract<Run["status"], "completed" | "interrupted" | "error"> {
+  return status === "completed" || status === "interrupted" || status === "error";
+}
+
 export class RunService {
   private readonly runsById = new Map<string, Run>();
   private readonly activeRunBySession = new Map<string, string>();
@@ -297,13 +305,14 @@ export class RunService {
       finishedAt,
       errorMessage: event.type === "run.error" ? event.message : undefined
     };
+    const shouldNotifyTerminalTransition = isRunInProgress(current.status) && isTerminalRunStatus(next.status);
 
     this.runsById.set(event.runId, next);
     this.activeRunBySession.delete(event.sessionId);
     this.latestRunBySession.set(event.sessionId, event.runId);
     this.realtime.broadcastRun(event.type, next);
 
-    if (event.type === "run.completed" || event.type === "run.error") {
+    if (shouldNotifyTerminalTransition) {
       try {
         const detail = await this.catalog.getSessionDetail(event.sessionId);
         await this.pushNotifications.notifyRun(this.presentSessionDetail(detail), next);

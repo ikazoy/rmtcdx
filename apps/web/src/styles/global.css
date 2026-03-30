@@ -636,7 +636,8 @@ button {
 }
 
 .sidebar-menu__popover--sidebar {
-  width: min(16rem, calc(100vw - 2rem));
+  width: min(18rem, calc(100vw - 1rem));
+  max-height: calc(100dvh - 1rem);
 }
 
 .status-menu__popover {
@@ -3787,6 +3788,38 @@ button {
   text-align: center;
   color: #686862;
   font-size: 0.8125rem;
+}
+
+/* Inline variant: expands in-place instead of absolute dropdown */
+.combobox--inline {
+  position: static;
+  width: 100%;
+  min-width: 0;
+}
+
+.combobox--inline .combobox__trigger[aria-expanded="true"] {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-color: transparent;
+}
+
+.combobox__inline-body {
+  border: 1px solid rgba(232, 115, 74, 0.5);
+  border-top: none;
+  border-radius: 0 0 0.625rem 0.625rem;
+  background: #242424;
+  animation: combobox-dropdown-in 150ms ease;
+}
+
+.combobox__inline-body .combobox__search {
+  position: static;
+  background: transparent;
+}
+
+
+.combobox__inline-body .combobox__list {
+  max-height: 11rem;
+  overflow-y: auto;
 }
 
 /* ═══════════════════════════════════════════

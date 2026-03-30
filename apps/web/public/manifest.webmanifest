@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Codex Remote",
-  "short_name": "Codex",
-  "description": "A mobile-friendly web client for remotely controlling OpenAI Codex CLI sessions and runs.",
+  "name": "Remodex",
+  "short_name": "Remodex",
+  "description": "A mobile-friendly web client for remotely controlling coding sessions and runs.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

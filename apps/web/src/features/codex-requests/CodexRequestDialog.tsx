@@ -41,11 +41,11 @@ function requestTitle(request: CodexPendingRequest) {
 function requestSubtitle(request: CodexPendingRequest) {
   switch (request.type) {
     case "command_approval":
-      return request.command ?? "Codex wants to run a command.";
+      return request.command ?? "The assistant wants to run a command.";
     case "file_change_approval":
-      return request.reason ?? "Codex wants to apply file changes.";
+      return request.reason ?? "The assistant wants to apply file changes.";
     case "permissions_approval":
-      return request.reason ?? "Codex wants additional access.";
+      return request.reason ?? "The assistant wants additional access.";
     case "request_user_input":
       return `${request.questions.length} question${request.questions.length === 1 ? "" : "s"}`;
     case "mcp_elicitation":
@@ -110,7 +110,7 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
     try {
       await onRespond(response);
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : "Unable to respond to Codex request.");
+      setLocalError(error instanceof Error ? error.message : "Unable to respond to the assistant request.");
     }
   };
 
@@ -275,7 +275,7 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
             {request.type === "file_change_approval" ? (
               <>
                 <RequestSection title="Reason">
-                  <p className="codex-request-copy">{request.reason ?? "Codex wants to apply file changes."}</p>
+                  <p className="codex-request-copy">{request.reason ?? "The assistant wants to apply file changes."}</p>
                 </RequestSection>
 
                 {request.grantRoot ? (
@@ -324,7 +324,7 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
             {request.type === "permissions_approval" ? (
               <>
                 <RequestSection title="Reason">
-                  <p className="codex-request-copy">{request.reason ?? "Codex wants additional access."}</p>
+                  <p className="codex-request-copy">{request.reason ?? "The assistant wants additional access."}</p>
                 </RequestSection>
 
                 {requestSummary ? (

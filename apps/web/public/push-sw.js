@@ -1,6 +1,6 @@
 self.addEventListener("push", (event) => {
   const payload = event.data ? event.data.json() : {};
-  const title = payload.title || "Codex Remote";
+  const title = payload.title || "Remodex";
   const options = {
     body: payload.body || "A run has finished.",
     icon: payload.icon || "/icon-192.png",
