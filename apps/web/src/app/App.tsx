@@ -11,8 +11,8 @@ import type {
   SessionDetail,
   SessionFilter,
   SessionsResponse
-} from "../../../../packages/shared-types/src/index";
-import { SESSION_FILTERS } from "../../../../packages/shared-types/src/index";
+} from "@codex-remote/shared-types";
+import { SESSION_FILTERS } from "@codex-remote/shared-types";
 import { api } from "../api/client";
 import { queryKeys } from "./query";
 import { ChatPane } from "../features/chat/ChatPane";

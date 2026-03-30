@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { Repository, SessionFilter, SessionSummary } from "../../../../../packages/shared-types/src/index";
-import { SESSION_FILTERS } from "../../../../../packages/shared-types/src/index";
+import type { Repository, SessionFilter, SessionSummary } from "@codex-remote/shared-types";
+import { SESSION_FILTERS } from "@codex-remote/shared-types";
 import { formatRelativeTime } from "../../components/formatters";
 import { StatusMenu } from "../status/StatusMenu";
 import { sessionDisplayStatus } from "../sessions/session-state";

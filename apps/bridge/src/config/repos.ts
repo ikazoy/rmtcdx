@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -36,6 +38,31 @@ function parseRepoConfig(filePath: string) {
   });
 }
 
+function inferRepoConfigFromCwd(cwd: string) {
+  try {
+    const rootPath = execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+
+    if (!rootPath || !fs.existsSync(rootPath)) {
+      return [] satisfies RepoConfig[];
+    }
+
+    return [
+      {
+        id: `repo_${createHash("sha1").update(rootPath).digest("hex").slice(0, 12)}`,
+        name: path.basename(rootPath),
+        path: rootPath,
+        description: "Implicit repository from the current working directory",
+        pinned: true
+      }
+    ] satisfies RepoConfig[];
+  } catch {
+    return [] satisfies RepoConfig[];
+  }
+}
+
 export function readRepoConfig(filePath: string) {
   if (!fs.existsSync(filePath)) {
     const examplePath = path.join(path.dirname(filePath), "repos.example.json");
@@ -48,9 +75,9 @@ export function readRepoConfig(filePath: string) {
   return parseRepoConfig(filePath);
 }
 
-export function readRepoConfigOptional(filePath: string) {
+export function readRepoConfigOptional(filePath: string, options?: { fallbackCwd?: string }) {
   if (!fs.existsSync(filePath)) {
-    return [] satisfies RepoConfig[];
+    return inferRepoConfigFromCwd(options?.fallbackCwd ?? process.cwd());
   }
 
   return parseRepoConfig(filePath);

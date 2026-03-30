@@ -1,5 +1,5 @@
-import type { SessionFilter, SessionSummary } from "../../../../../packages/shared-types/src/index";
-import { SESSION_FILTERS } from "../../../../../packages/shared-types/src/index";
+import type { SessionFilter, SessionSummary } from "@codex-remote/shared-types";
+import { SESSION_FILTERS } from "@codex-remote/shared-types";
 import { formatRelativeTime } from "../../components/formatters";
 import { sessionDisplayStatus } from "./session-state";
 

@@ -1,4 +1,4 @@
-import type { Repository } from "../../../../../packages/shared-types/src/index";
+import type { Repository } from "@codex-remote/shared-types";
 import { formatRelativeTime } from "../../components/formatters";
 
 type Props = {

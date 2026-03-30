@@ -7,7 +7,7 @@ import type {
   ServerWsEvent,
   SessionDetail,
   SessionSummary
-} from "../../../../packages/shared-types/src/index";
+} from "@codex-remote/shared-types";
 
 type SocketLike = {
   readyState: number;

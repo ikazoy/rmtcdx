@@ -37,7 +37,7 @@ npm install
 # bridge + web を同時開発
 npm run dev
 
-# production build (bridge → web の順)
+# production build
 npm run build
 
 # build 済みアプリを起動
@@ -46,9 +46,9 @@ CODEX_MODE=mock npm run start       # mock mode
 CODEX_MODE=real npm run start       # Codex CLI 必須
 
 # 個別ワークスペース
-npm run dev -w @codex-remote/bridge
+npm run dev -w remote-control-codex
 npm run dev -w @codex-remote/web
-npm run build -w @codex-remote/bridge
+npm run build -w remote-control-codex
 npm run build -w @codex-remote/web
 ```
 
@@ -57,7 +57,7 @@ npm run build -w @codex-remote/web
 | Variable | Default | Description |
 |---|---|---|
 | `CODEX_MODE` | `auto` | `auto` / `real` / `mock` |
-| `PORT` | `3000` | bridge listen port |
+| `PORT` | `3210` | bridge listen port |
 | `HOST` | `127.0.0.1` | bridge listen host |
 | `REPO_CONFIG_PATH` | `<workspace>/repos.json` | repo config file |
 | `DATA_DIR` | `<workspace>/data` | app data directory |
