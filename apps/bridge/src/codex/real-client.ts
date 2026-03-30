@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
@@ -24,6 +25,7 @@ import type {
   EnsureThreadParams,
   ListThreadsParams,
   LoggerLike,
+  SimulatePendingRequestParams,
   StartRunParams
 } from "./types";
 import type { CodexDebugLog } from "../observability/codex-debug-log";
@@ -49,8 +51,9 @@ type RunMapping = {
 };
 
 type PendingServerRequest = {
-  id: number | string;
+  rpcId: number | string | null;
   method: string;
+  source: "server" | "simulated";
   request: CodexPendingRequest;
 };
 
@@ -114,22 +117,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
   }
 
   async createThread(cwd: string) {
-    await this.ensureReady();
-    this.debugLog?.write("thread.create.request", { cwd });
-    const started = await this.request("thread/start", {
-      cwd,
-      approvalPolicy: "on-request",
-      sandbox: "workspace-write",
-      serviceName: "codex_remote_web",
-      experimentalRawEvents: false,
-      persistExtendedHistory: true
-    });
-    const threadId = this.extractThreadId(started);
-    if (!threadId) {
-      throw new Error("Codex did not return a thread id");
-    }
-    this.debugLog?.write("thread.create.result", { cwd, threadId });
-    return { threadId };
+    return this.requestNewThread(cwd);
   }
 
   async listThreads(params: ListThreadsParams = {}) {
@@ -192,7 +180,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     await this.request("thread/unarchive", { threadId });
   }
 
-  async ensureThread(params: EnsureThreadParams) {
+  async ensureThread(params: EnsureThreadParams & { codex?: StartRunParams["codex"] }) {
     await this.ensureReady();
     if (params.threadId) {
       this.debugLog?.write("thread.resume.request", {
@@ -204,8 +192,9 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
         threadId: params.threadId,
         path: params.path ?? null,
         cwd: params.cwd,
-        approvalPolicy: "on-request",
-        sandbox: "workspace-write",
+        approvalPolicy: params.codex?.approvalPolicy ?? "on-request",
+        sandbox: params.codex?.sandbox ?? "workspace-write",
+        ...(params.codex?.model ? { model: params.codex.model } : {}),
         persistExtendedHistory: true
       });
       if (params.sessionId) {
@@ -220,7 +209,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       return { threadId };
     }
 
-    const { threadId } = await this.createThread(params.cwd);
+    const { threadId } = await this.requestNewThread(params.cwd, params.codex);
 
     if (params.sessionId) {
       this.sessionByThread.set(threadId, params.sessionId);
@@ -232,7 +221,8 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     const ensured = await this.ensureThread({
       sessionId: params.sessionId,
       cwd: params.cwd,
-      threadId: params.threadId
+      threadId: params.threadId,
+      codex: params.codex
     });
     this.debugLog?.write("turn.start.request", {
       runId: params.runId,
@@ -242,7 +232,10 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     });
     const response = await this.request("turn/start", {
       threadId: ensured.threadId,
-      input: params.input
+      input: params.input,
+      approvalPolicy: params.codex?.approvalPolicy ?? "on-request",
+      sandboxPolicy: this.turnSandboxPolicy(params.codex?.sandbox),
+      ...(params.codex?.model ? { model: params.codex.model } : {})
     });
 
     const turnId = this.extractTurnId(response);
@@ -307,10 +300,12 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       throw new Error(`Codex request ${requestId} expects ${pending.request.type}, received ${response.type}`);
     }
 
-    this.send({
-      id: pending.id,
-      result: this.resultForServerRequest(pending.request, response)
-    });
+    if (pending.source === "server" && pending.rpcId !== null) {
+      this.send({
+        id: pending.rpcId,
+        result: this.resultForServerRequest(pending.request, response)
+      });
+    }
     this.pendingServerRequests.delete(requestId);
     this.emitBridgeEvent({
       type: "request.resolved",
@@ -318,6 +313,28 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
       requestId
     });
     return pending.request;
+  }
+
+  async simulatePendingRequest(params: SimulatePendingRequestParams) {
+    const request = this.pendingRequestFromSimulation(params);
+    this.pendingServerRequests.set(request.id, {
+      rpcId: null,
+      method: `dev/${params.scenario}`,
+      source: "simulated",
+      request
+    });
+    this.debugLog?.write("server.request.simulated", {
+      requestId: request.id,
+      scenario: params.scenario,
+      sessionId: request.sessionId,
+      threadId: request.threadId
+    });
+    this.emitBridgeEvent({
+      type: "request.created",
+      sessionId: request.sessionId,
+      request
+    });
+    return request;
   }
 
   getState(): CodexRuntimeState {
@@ -534,6 +551,8 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
   }
 
   private handleNotification(method: string, params: unknown) {
+    this.debugLog?.write("notification.received", { method });
+
     if (method === "serverRequest/resolved") {
       const payload = asObject(params);
       const requestId = payload?.requestId;
@@ -578,8 +597,9 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     }
 
     this.pendingServerRequests.set(request.id, {
-      id,
+      rpcId: id,
       method,
+      source: "server",
       request
     });
     this.debugLog?.write("server.request.queued", {
@@ -1011,6 +1031,166 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     }
 
     return null;
+  }
+
+  private turnSandboxPolicy(sandbox: StartRunParams["codex"] extends infer T
+    ? T extends { sandbox?: infer S | null }
+      ? S | null | undefined
+      : never
+    : never) {
+    switch (sandbox ?? "workspace-write") {
+      case "read-only":
+        return { type: "readOnly" } as const;
+      case "danger-full-access":
+        return { type: "dangerFullAccess" } as const;
+      case "workspace-write":
+      default:
+        return { type: "workspaceWrite" } as const;
+    }
+  }
+
+  private async requestNewThread(cwd: string, codex?: StartRunParams["codex"]) {
+    await this.ensureReady();
+    this.debugLog?.write("thread.create.request", {
+      cwd,
+      approvalPolicy: codex?.approvalPolicy ?? "on-request",
+      sandbox: codex?.sandbox ?? "workspace-write",
+      model: codex?.model ?? null
+    });
+    const started = await this.request("thread/start", {
+      cwd,
+      approvalPolicy: codex?.approvalPolicy ?? "on-request",
+      sandbox: codex?.sandbox ?? "workspace-write",
+      ...(codex?.model ? { model: codex.model } : {}),
+      serviceName: "codex_remote_web",
+      experimentalRawEvents: false,
+      persistExtendedHistory: true
+    });
+    const threadId = this.extractThreadId(started);
+    if (!threadId) {
+      throw new Error("Codex did not return a thread id");
+    }
+    this.debugLog?.write("thread.create.result", { cwd, threadId });
+    return { threadId };
+  }
+
+  private pendingRequestFromSimulation(params: SimulatePendingRequestParams): CodexPendingRequest {
+    const id = `dev_req_${randomUUID()}`;
+    const createdAt = new Date().toISOString();
+    const cwd = params.cwd;
+
+    switch (params.scenario) {
+      case "command_approval":
+        return {
+          type: "command_approval",
+          id,
+          sessionId: params.sessionId,
+          threadId: params.threadId,
+          turnId: null,
+          itemId: null,
+          createdAt,
+          approvalId: null,
+          reason: "Simulated command approval for UI verification.",
+          networkApprovalContext: null,
+          command: "npm test -- --runInBand",
+          cwd,
+          commandActions: [
+            { type: "read", command: "cat package.json", name: "cat", path: `${cwd}/package.json` },
+            { type: "search", command: "rg \"approvalPolicy\" apps", query: "approvalPolicy", path: `${cwd}/apps` }
+          ],
+          requestedPermissions: {
+            network: { enabled: true },
+            fileSystem: {
+              read: [`${cwd}/package.json`, `${cwd}/apps`],
+              write: [`${cwd}/tmp`]
+            }
+          },
+          availableDecisions: ["accept", "acceptForSession", "decline", "cancel"]
+        };
+      case "file_change_approval":
+        return {
+          type: "file_change_approval",
+          id,
+          sessionId: params.sessionId,
+          threadId: params.threadId,
+          turnId: null,
+          itemId: null,
+          createdAt,
+          reason: "Simulated file change approval for UI verification.",
+          grantRoot: cwd
+        };
+      case "permissions_approval":
+        return {
+          type: "permissions_approval",
+          id,
+          sessionId: params.sessionId,
+          threadId: params.threadId,
+          turnId: null,
+          itemId: null,
+          createdAt,
+          reason: "Simulated additional permissions request for UI verification.",
+          permissions: {
+            network: { enabled: true },
+            fileSystem: {
+              read: [`${cwd}/docs`, `${cwd}/package.json`],
+              write: [`${cwd}/apps/web/src`]
+            }
+          }
+        };
+      case "request_user_input":
+        return {
+          type: "request_user_input",
+          id,
+          sessionId: params.sessionId,
+          threadId: params.threadId,
+          turnId: null,
+          itemId: null,
+          createdAt,
+          questions: [
+            {
+              id: "target_env",
+              header: "Target env",
+              question: "Which environment should Codex use?",
+              isOther: false,
+              isSecret: false,
+              options: [
+                { label: "staging", description: "Use staging configuration." },
+                { label: "production", description: "Use production configuration." }
+              ]
+            },
+            {
+              id: "ticket",
+              header: "Ticket",
+              question: "What ticket or note should be included in the commit message?",
+              isOther: false,
+              isSecret: false,
+              options: null
+            }
+          ]
+        };
+      case "mcp_elicitation":
+        return {
+          type: "mcp_elicitation",
+          id,
+          sessionId: params.sessionId,
+          threadId: params.threadId,
+          turnId: null,
+          itemId: null,
+          createdAt,
+          mode: "form",
+          serverName: "github",
+          message: "Simulated MCP confirmation for UI verification.",
+          meta: { requestId: id },
+          requestedSchema: {
+            type: "object",
+            properties: {
+              owner: { type: "string" },
+              repo: { type: "string" }
+            },
+            required: ["owner", "repo"]
+          }
+        };
+    }
   }
 
   private extractThreadId(result: unknown) {

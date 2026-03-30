@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "concurrently -k -n bridge,web -c blue,magenta \"PORT=3000 npm run dev -w remote-control-codex\" \"npm run dev -w @codex-remote/web\"",
     "build": "npm run build -w remote-control-codex",
+    "compat:canary": "npm run compat:canary -w remote-control-codex",
     "start": "npm run start -w remote-control-codex",
     "test": "npm run test -w remote-control-codex"
   },

@@ -443,3 +443,356 @@ apps/bridge/test/
 「schema を厳密に縛ること」ではなく、
 「変化を局所化し、観測し、素早く回帰テストへ落とすこと」
 として設計するのがよい。
+
+## 13. 新バージョン追従の運用設計
+
+Codex 側の更新頻度が比較的高いことを前提にすると、
+互換性テストは
+「新バージョンが出るたびに手動で頑張る」
+運用では回らない。
+
+必要なのは、
+更新のたびに同じ手順で
+
+- 既知の互換性が保たれているか
+- 未知の drift が出たか
+- 壊れたならどの payload を fixture 化すべきか
+
+を短時間で判断できる仕組みである。
+
+### 13.1 管理すべきバージョン状態
+
+新バージョン追従では、
+少なくとも以下の 3 つの状態を分けて扱う。
+
+- `last-known-good`
+  直近で実機 canary が通った Codex CLI version
+- `candidate`
+  今まさに評価している新バージョン
+- `latest-observed`
+  定期 canary が最後に観測した upstream 最新版
+
+重要なのは、
+「最新版を完全サポートしているか」と
+「最後に確認した version はどれか」
+を混同しないことである。
+
+頻繁な更新に備えるには、
+本アプリは常に
+`last-known-good` を持ち、
+`latest-observed` に対する canary 結果を蓄積する
+運用にするのがよい。
+
+### 13.2 テスト lane
+
+新バージョン追従のためのテストは、
+以下の 4 lane に分ける。
+
+#### Lane 1: fast regression
+
+対象:
+
+- Layer A
+- Layer B
+- Layer C
+
+目的:
+
+- 既知 protocol shape に対する回帰を安価に止める
+- parser / mapper / catalog の refactor で壊していないことを確認する
+
+実行タイミング:
+
+- every PR
+- every merge to main
+- release branch 作成時
+
+特徴:
+
+- Codex 実機不要
+- 速い
+- 未知の upstream drift は検知できない
+
+#### Lane 2: fixture replay app smoke
+
+対象:
+
+- Layer D
+
+目的:
+
+- parser 単体ではなく bridge API surface が壊れていないことを確認する
+
+実行タイミング:
+
+- release 前
+- compatibility まわりの大きい変更後
+
+特徴:
+
+- Codex 実機不要
+- API 層まで守れる
+- upstream 最新 drift 自体は検知できない
+
+#### Lane 3: real Codex upgrade gate
+
+対象:
+
+- Layer E の手動または半自動 run
+
+目的:
+
+- candidate version の実 payload を実際に観測する
+- fixture に無い新 method / item type / field の追加を見つける
+
+実行タイミング:
+
+- Codex 新バージョン検知時
+- 本アプリの release 前
+- protocol 関連コードの大きな変更後
+
+特徴:
+
+- Codex 実機が必要
+- 遅い
+- 最も価値が高い
+
+#### Lane 4: post-release watch canary
+
+対象:
+
+- real Codex canary の定期実行
+
+目的:
+
+- app release 後に upstream 側で起きる drift を早期検知する
+
+実行タイミング:
+
+- daily または weekly
+- 少なくとも release 直後数日は高頻度で観測
+
+特徴:
+
+- failure を即 block にするより、
+  まず issue 化と fixture 化を優先する
+
+### 13.3 新バージョン検知時の実行フロー
+
+Codex の新バージョンを見つけたら、
+以下の順で評価する。
+
+1. `last-known-good` に対して Lane 1 と Lane 2 を実行する
+2. candidate version を install した専用環境を用意する
+3. 同じ app commit のまま candidate version で Lane 3 を実行する
+4. 実行中の `codex-app-server.jsonl`、`thread/read` 結果、notification sequence を保存する
+5. 観測された item type / notification method / request type の inventory を出す
+6. `last-known-good` と差分比較する
+7. 差分が additive で app が壊れていなければ fixture 化して昇格する
+8. 壊れていれば parser / UI を修正し、修正後に再実行する
+
+重要なのは、
+候補バージョンを入れた瞬間に
+いきなり本番扱いしないことだ。
+
+まず
+`last-known-good` と `candidate`
+の 2 点観測を取り、
+差分を artifact として残すべきである。
+
+### 13.4 release 前後で回すべきテスト
+
+#### release 前に必須
+
+- Lane 1
+- Lane 2
+- candidate version に対する Lane 3
+
+#### release 前に推奨
+
+- `last-known-good` と `candidate` の両方で same scenario を実行して差分比較
+- 直近 1 回分の `latest-observed` canary 結果と比較
+
+#### release 後に必須
+
+- post-release watch canary を有効化する
+- failure 時は issue を作り、raw log を保存する
+
+#### release 後に推奨
+
+- release 直後 3 日から 7 日は daily canary
+- 安定後は weekly canary
+
+### 13.5 実機 canary の scenario matrix
+
+最低限、
+以下の scenario を real Codex に対して流すべきである。
+
+| Scenario | 目的 | 最低限の確認項目 |
+|---|---|---|
+| `basic-text` | 最小の会話導線確認 | thread 作成、prompt 送信、assistant message 完了、`thread/read` 成功 |
+| `reasoning-plan` | reasoning / plan item 確認 | `plan` と `reasoning` が取得できる、message list が壊れない |
+| `tool-heavy` | tool item 群の確認 | commandExecution、fileChange、tool call、webSearch など既知 item が崩れない |
+| `interrupt-error` | 異常系確認 | interrupt 後に run が止まり、error 系 event で全体が壊れない |
+| `unknown-tolerance` | drift 耐性確認 | 人工 unknown fixture と組み合わせても UI の主導線が死なない |
+| `request-surface` | approval / user input / elicitation 確認 | pending request が作られ、解決後に整合が崩れない |
+
+`request-surface` は
+approval policy や sandbox 条件に依存するので、
+常時必須にしなくてもよいが、
+control surface を実装している間は
+少なくとも release 前には通すべきである。
+
+### 13.6 実機 canary の pass / fail 基準
+
+#### block する failure
+
+- `codex app-server` が起動しない
+- `thread/start` または `turn/start` が失敗する
+- `thread/read` が parse failure で落ちる
+- websocket / live event により run 全体が壊れる
+- thread 一覧や thread 詳細が空になる
+- user / assistant の主メッセージが読めない
+
+#### block しないが issue 化する failure
+
+- 未知 notification が structured log に残るが app は継続する
+- 未知 item が drop されるが既知 item は見える
+- 新 field が増えたが既存表示には影響がない
+
+#### upgrade 受け入れ条件
+
+candidate version を
+`compatible` と見なしてよいのは、
+少なくとも以下を満たすときである。
+
+- block する failure が無い
+- unknown が出た場合でも thread 全体が壊れない
+- raw log と fixture 候補を保存できている
+- 差分 inventory が確認済みである
+
+### 13.7 保存すべき artifact
+
+real Codex に対してテストした run は、
+最低限以下を保存する。
+
+- `codex --version` の結果
+- 実行日時
+- OS / Node.js version
+- scenario 名
+- `codex-app-server.jsonl`
+- sanitized `thread/read` payload
+- sanitized notification sequence
+- 観測した item type 一覧
+- 観測した notification method 一覧
+- 観測した request type 一覧
+- pass / fail summary
+
+artifact を保存しない canary は、
+drift が起きたときに
+「壊れたこと」しか分からず、
+回帰テストへ落とせない。
+
+### 13.8 drift 検知後の固定運用
+
+drift を見つけたら、
+運用は毎回同じにする。
+
+1. raw log を保存する
+2. 個人情報・絶対 path・prompt を sanitize する
+3. `thread/read` fixture と notification fixture を追加する
+4. Layer A/B/C に failing case を入れる
+5. まず hard failure を止める
+6. 必要なら UI 表示対応を足す
+7. candidate version で再実行する
+
+これにより、
+1 回遭遇した drift は
+次回から fixture ベースの安価な回帰テストに落ちる。
+
+## 14. 実機 Codex は必要か
+
+結論として、
+実機 Codex に対するテストは必要である。
+
+ただし、
+every PR で必須ではない。
+
+### 14.1 なぜ fixture だけでは足りないか
+
+fixture は
+「過去に観測した payload」
+しか検証できない。
+
+そのため fixture だけでは、
+まだ見たことのない
+
+- 新 notification method
+- 新 item type
+- 既知 item への新 field
+- request surface の仕様変更
+
+を検知できない。
+
+upstream の更新頻度が高いほど、
+この限界は大きくなる。
+
+### 14.2 どこで実機が必須か
+
+少なくとも以下では、
+実機 Codex による確認を必須にするのがよい。
+
+- Codex 新バージョンの採用可否を判断するとき
+- 本アプリの release 前
+- canary が drift を検知した直後
+- protocol / request surface の大きな変更後
+
+逆に、
+通常の UI 修正や protocol 非依存の変更では、
+Layer A/B/C までを必須にし、
+実機は scheduled canary に任せてもよい。
+
+### 14.3 現実的な答え
+
+したがって、
+「アプリが壊れていないことを本当に担保したいか」
+という問いに対しては、
+
+- known regression を止めるには fixture テストで足りる
+- unseen upstream drift まで守るには real Codex が必要
+
+が答えになる。
+
+この 2 つを分けずに考えると、
+毎回重い実機テストを回すか、
+逆に unseen drift を見逃すかの二択になってしまう。
+
+設計としては、
+
+- 日常開発は fixture ベースで高速に回す
+- release 境界と scheduled canary で実機を当てる
+- 失敗を fixture に昇格して次回から安価に守る
+
+という二層構成にするのが最も現実的である。
+
+## 15. 今後追加すべき仕組み
+
+この方針を実運用にするには、
+少なくとも以下を追加する必要がある。
+
+- fixture replay backend
+- real Codex canary runner
+- `codex-app-server.jsonl` から inventory を作る script
+- sanitize 済み fixture を生成する workflow
+- canary 結果を保存する artifact ルール
+
+実装優先度は以下がよい。
+
+1. real Codex canary runner
+2. inventory 抽出
+3. sanitize workflow
+4. fixture replay backend の API smoke test
+
+この順なら、
+まず unseen drift の検知能力を手に入れ、
+次にその drift を回帰テストへ落とす土台を整えられる。
