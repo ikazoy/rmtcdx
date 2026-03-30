@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import type { ImageAttachmentInput } from "../../../../packages/shared-types/src/index";
+import type { ImageAttachmentInput } from "@codex-remote/shared-types";
 
 export type StoredImageAttachment = {
   name: string;

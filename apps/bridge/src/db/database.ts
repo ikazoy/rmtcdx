@@ -13,7 +13,7 @@ import type {
   SessionFilter,
   SessionStatus,
   SessionSummary
-} from "../../../../packages/shared-types/src/index";
+} from "@codex-remote/shared-types";
 import type { RepoConfig } from "../config/repos";
 import { excerpt } from "../utils/text";
 import { nowIso } from "../utils/time";

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { Repository } from "../../../../packages/shared-types/src/index";
+import type { Repository } from "@codex-remote/shared-types";
 import type { RepoConfig } from "../config/repos";
 import { Database } from "../db/database";
 

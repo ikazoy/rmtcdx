@@ -9,7 +9,7 @@ import type {
   Run,
   SessionDetail,
   SessionSummary
-} from "../../../../packages/shared-types/src/index";
+} from "@codex-remote/shared-types";
 import type { AppConfig } from "../config/env";
 import type { CodexBackend, CodexBridgeEvent } from "../codex/types";
 import { LiveCatalogService } from "../catalog/live-catalog-service";

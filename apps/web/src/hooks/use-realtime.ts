@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import type { ServerWsEvent } from "../../../../packages/shared-types/src/index";
+import type { ServerWsEvent } from "@codex-remote/shared-types";
 import { queryKeys } from "../app/query";
 import { useUiStore } from "../store/ui-store";
 

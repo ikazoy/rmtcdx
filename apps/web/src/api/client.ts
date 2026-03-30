@@ -12,7 +12,7 @@ import type {
   SessionDetail,
   SessionsResponse,
   UpdateSessionRequest
-} from "../../../../packages/shared-types/src/index";
+} from "@codex-remote/shared-types";
 
 async function request<T>(input: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);

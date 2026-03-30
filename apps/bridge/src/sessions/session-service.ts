@@ -2,7 +2,7 @@ import type {
   SessionDetail,
   SessionFilter,
   SessionSummary
-} from "../../../../packages/shared-types/src/index";
+} from "@codex-remote/shared-types";
 import { Database } from "../db/database";
 import { deriveTitle } from "../utils/text";
 

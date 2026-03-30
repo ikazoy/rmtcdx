@@ -17,7 +17,7 @@ import type {
   SessionDetail,
   SessionFilter,
   SessionSummary
-} from "../../../packages/shared-types/src/index";
+} from "@codex-remote/shared-types";
 import { presentAccountRateLimits, unavailableAccountRateLimits } from "./account/rate-limits";
 import { LiveCatalogService } from "./catalog/live-catalog-service";
 import { createCodexBackend } from "./codex/index";

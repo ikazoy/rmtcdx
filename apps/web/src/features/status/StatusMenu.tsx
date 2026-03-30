@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import type { AccountRateLimitSnapshot, AccountRateLimitWindow } from "../../../../../packages/shared-types/src/index";
+import type { AccountRateLimitSnapshot, AccountRateLimitWindow } from "@codex-remote/shared-types";
 import { queryKeys } from "../../app/query";
 import { api } from "../../api/client";
 

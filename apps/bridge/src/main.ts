@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { buildApp } from "./app";
 
 const { app, config } = await buildApp();

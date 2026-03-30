@@ -5,7 +5,7 @@ import type {
   AccountRateLimits,
   AccountRateLimitsResponse,
   AccountPlanType
-} from "../../../../packages/shared-types/src/index";
+} from "@codex-remote/shared-types";
 import type { CodexAccountRateLimits, CodexRateLimitCredits, CodexRateLimitSnapshot, CodexRateLimitWindow } from "../codex/types";
 
 function toIsoTime(unixSeconds: number | null) {

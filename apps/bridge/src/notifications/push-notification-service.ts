@@ -10,7 +10,7 @@ import type {
   Run,
   SavePushSubscriptionRequest,
   SessionDetail
-} from "../../../../packages/shared-types/src/index";
+} from "@codex-remote/shared-types";
 import type { AppConfig } from "../config/env";
 import { nowIso } from "../utils/time";
 

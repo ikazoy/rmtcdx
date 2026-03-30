@@ -12,7 +12,7 @@ import type {
   SessionDetail,
   SessionFilter,
   SessionSummary
-} from "../../../../packages/shared-types/src/index";
+} from "@codex-remote/shared-types";
 import type { RepoConfig } from "../config/repos";
 import type { CodexBackend, CodexThread, CodexThreadItem, CodexThreadTurn, CodexUserInput } from "../codex/types";
 import { ImageUploadService } from "../uploads/image-upload-service";

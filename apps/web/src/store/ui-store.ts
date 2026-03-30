@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { LiveActivity } from "../../../../packages/shared-types/src/index";
+import type { LiveActivity } from "@codex-remote/shared-types";
 
 type MobilePane = "sidebar" | "chat";
 type WsState = "connecting" | "connected" | "reconnecting";

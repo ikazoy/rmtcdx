@@ -6,7 +6,8 @@ Codex Remote Web Client is a mobile-first web UI for remotely operating OpenAI C
 
 ## Features
 
-- Repository picker built from discovered Codex threads, with optional `repos.json` presets
+- One-command launch via `npx remote-control-codex` or `bunx remote-control-codex`
+- Repository picker built from discovered Codex threads, optional `repos.json` presets, and the current git working tree fallback
 - Session list with search, filters, unread state, rename, and archive
 - Prompt submission with optional image attachments
 - Live run updates and message streaming over WebSocket
@@ -16,14 +17,32 @@ Codex Remote Web Client is a mobile-first web UI for remotely operating OpenAI C
 ## Requirements
 
 - Node.js 20 or newer
-- npm
+- npm or bun
 - `codex` CLI installed locally if you want the bridge to drive a live Codex backend
 
-## Current Packaging
+## One-Command Start
 
-The supported way to run the app today is from a source checkout of this repository.
+```bash
+npx remote-control-codex
+# or
+bunx remote-control-codex
+```
 
-## Quick Start
+If `repos.json` is missing and your current working directory is inside a git repository, the app automatically exposes that repository as a pinned entry.
+
+For a persistent multi-repo setup, create `repos.json` in the app config directory:
+
+- macOS: `~/Library/Application Support/remote-control-codex/repos.json`
+- Linux: `~/.config/remote-control-codex/repos.json`
+- Windows: `%APPDATA%\\remote-control-codex\\repos.json`
+
+State is stored outside the source tree as well:
+
+- macOS: `~/Library/Application Support/remote-control-codex`
+- Linux: `~/.local/share/remote-control-codex`
+- Windows: `%LOCALAPPDATA%\\remote-control-codex`
+
+## Source Checkout
 
 ```bash
 git clone https://github.com/ikazoy/remote-control-codex.git
@@ -37,7 +56,7 @@ PORT=3210 npm run start
 
 `npm run start` uses `CODEX_MODE=auto` by default. If the `codex` CLI is available, the bridge connects to it. If not, it falls back to mock mode.
 
-If `repos.json` is missing, the app still starts. In that case, the repository picker is built from existing Codex threads. If you have no existing threads yet, copying `repos.example.json` is the easiest way to seed the first workspace.
+If `repos.json` is missing, the app still starts. In that case, the repository picker is built from existing Codex threads. If you have no existing threads yet, starting inside a git repository or copying `repos.example.json` is the easiest way to seed the first workspace.
 
 After startup:
 
@@ -49,10 +68,11 @@ After startup:
 For access from another network, keep the bridge bound to localhost and publish it to your tailnet with Tailscale Serve:
 
 ```bash
-npm run build
-PORT=3210 npm run start &
+npx remote-control-codex &
 tailscale serve --bg 3210
 ```
+
+If you are running from a source checkout instead of the published package, `PORT=3210 npm run start &` works the same way.
 
 Then open the Serve URL for this device, for example:
 
@@ -74,9 +94,9 @@ Notes:
 
 ## Configure `repos.json`
 
-`repos.json` is optional. When present, the bridge uses it to pre-seed the repository picker and override repository labels, descriptions, and pinned state.
+`repos.json` is optional. In a source checkout the default path is `<workspace>/repos.json`. In packaged usage it lives in the app config directory shown above.
 
-Without `repos.json`, the app discovers repositories from existing Codex threads. If you are starting from a completely empty Codex history, adding `repos.json` is the easiest way to make the first workspace selectable.
+When present, the bridge uses it to pre-seed the repository picker and override repository labels, descriptions, and pinned state. Without `repos.json`, the app discovers repositories from existing Codex threads. If you are starting from a completely empty Codex history, adding `repos.json` or launching from inside the target git repository is the easiest way to make the first workspace selectable.
 
 To add presets, start by copying the example file:
 
@@ -103,6 +123,7 @@ Notes:
 - `path` can be absolute or relative
 - Relative paths are resolved from the directory that contains `repos.json`
 - Keeping `"path": "."` is the easiest way to point the app at the cloned repository itself
+- If `repos.json` is missing, starting the app from inside a git repository adds that repository automatically
 
 ## Development
 
@@ -115,11 +136,40 @@ npm run dev
 Workspace-specific commands:
 
 ```bash
-npm run dev -w @codex-remote/bridge
+npm run dev -w remote-control-codex
 npm run dev -w @codex-remote/web
-npm run build -w @codex-remote/bridge
+npm run build -w remote-control-codex
 npm run build -w @codex-remote/web
 ```
+
+### Local Package Smoke Test
+
+Before `npm publish`, you can verify the packaged `npx remote-control-codex` path from the generated tarball:
+
+```bash
+npm pack -w remote-control-codex
+TMP_DIR="$(mktemp -d)"
+PORT=33210 HOST=127.0.0.1 CODEX_MODE=mock \
+REPO_CONFIG_PATH="$TMP_DIR/repos.json" \
+DATA_DIR="$TMP_DIR/data" \
+npm_config_cache="$TMP_DIR/npm-cache" \
+npx --yes --package ./remote-control-codex-0.1.0.tgz remote-control-codex
+```
+
+In another terminal:
+
+```bash
+curl http://127.0.0.1:33210/healthz
+curl http://127.0.0.1:33210/api/repos
+```
+
+Cleanup:
+
+```bash
+rm -rf "$TMP_DIR" ./remote-control-codex-0.1.0.tgz
+```
+
+Stop the running bridge with `Ctrl+C` before removing the temp directory.
 
 ### Mock Mode
 
@@ -131,7 +181,7 @@ CODEX_MODE=mock npm run start
 
 ### Codex app-server Debug Log
 
-For real-backend lifecycle debugging, the bridge writes a local JSONL log for the `codex app-server` child process. The default path is `data/codex-app-server.jsonl`, and you can override it with `CODEX_DEBUG_LOG_FILE`.
+For real-backend lifecycle debugging, the bridge writes a local JSONL log for the `codex app-server` child process. The default path is `<DATA_DIR>/codex-app-server.jsonl`, and you can override it with `CODEX_DEBUG_LOG_FILE`.
 
 Each line includes the bridge instance metadata (`bridgePid`, `listenPort`) so mixed logs from multiple bridge processes can be separated. The log records lifecycle and correlation events such as `child.spawn`, `child.stderr`, `child.exit`, `child.restart.scheduled`, `turn.start.result`, and `turn.finished`.
 
@@ -148,15 +198,15 @@ rg '"listenPort":3210|"listenPort":3000' data/codex-app-server.jsonl
 | Variable | Default | Description |
 | --- | --- | --- |
 | `CODEX_MODE` | `auto` | Default startup mode. Set `mock` for UI/backend-only development |
-| `CODEX_DEBUG_LOG_FILE` | `<workspace>/data/codex-app-server.jsonl` | JSONL debug log for Codex app-server lifecycle |
+| `CODEX_DEBUG_LOG_FILE` | `<DATA_DIR>/codex-app-server.jsonl` | JSONL debug log for Codex app-server lifecycle |
 | `HOST` | `127.0.0.1` | Bridge listen host |
 | `PORT` | `3210` | Bridge listen port |
-| `REPO_CONFIG_PATH` | `<workspace>/repos.json` | Optional repository preset file |
-| `DATA_DIR` | `<workspace>/data` | Application data directory |
-| `DB_FILE` | `<workspace>/data/remote-control.db` | SQLite file used for push subscriptions and notification settings |
-| `UPLOADS_DIR` | `<workspace>/data/uploads` | Uploaded image storage |
-| `WEB_DIST_DIR` | `<workspace>/apps/web/dist` | Built frontend served by the bridge |
-| `WORKSPACE_ROOT` | auto-detected | Override workspace root resolution |
+| `REPO_CONFIG_PATH` | source checkout: `<workspace>/repos.json`; packaged: app config dir | Optional repository preset file |
+| `DATA_DIR` | source checkout: `<workspace>/data`; packaged: platform app data dir | Application data directory |
+| `DB_FILE` | `<DATA_DIR>/remote-control.db` | SQLite file used for push subscriptions and notification settings |
+| `UPLOADS_DIR` | `<DATA_DIR>/uploads` | Uploaded image storage |
+| `WEB_DIST_DIR` | auto-detected bundled assets | Built frontend served by the bridge |
+| `WORKSPACE_ROOT` | source checkout auto-detect | Override workspace root resolution |
 | `MAX_PROMPT_LENGTH` | `12000` | Maximum prompt length |
 | `MAX_IMAGE_ATTACHMENTS` | `5` | Maximum images per run |
 | `MAX_IMAGE_ATTACHMENT_BYTES` | `10485760` | Maximum size in bytes for a single image |
@@ -171,7 +221,7 @@ curl http://127.0.0.1:3210/api/repos
 You should see:
 
 - `ok: true` from `healthz`
-- A JSON response from `api/repos`; if you have no existing threads and no `repos.json`, `repos` can be empty
+- A JSON response from `api/repos`; it can be populated by discovered Codex threads, `repos.json` presets, or the current git repo fallback
 
 ## Project Structure
 
@@ -182,9 +232,9 @@ You should see:
 
 ## Troubleshooting
 
-### The repository picker is empty
+### No repositories appear
 
-If you do not have any existing Codex threads yet, create `repos.json` from the example template to seed the first workspace:
+If you do not have any existing Codex threads yet, create `repos.json` at `REPO_CONFIG_PATH` or start the app from inside a git repository so the current working tree is inferred automatically.
 
 ```bash
 cp repos.example.json repos.json
