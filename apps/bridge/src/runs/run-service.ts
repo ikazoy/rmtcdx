@@ -136,16 +136,31 @@ export class RunService {
   }
 
   presentSessionSummary(session: SessionSummary) {
-    const lastUserMessageAt = this.latestRunBySession.get(session.id)
-      ? this.runsById.get(this.latestRunBySession.get(session.id)!)?.startedAt ?? session.lastUserMessageAt
-      : session.lastUserMessageAt;
+    const runs = this.getSessionRuns(session.id, {
+      activeRun: null,
+      latestRun: null
+    });
+    const status = this.presentedSessionStatus(session, runs);
+    const lastUserMessageAt = runs.latestRun?.startedAt ?? session.lastUserMessageAt;
+    const lastRunFinishedAt =
+      runs.activeRun || runs.latestRun?.status === "queued" || runs.latestRun?.status === "running"
+        ? undefined
+        : runs.latestRun?.finishedAt ?? session.lastRunFinishedAt;
 
-    return lastUserMessageAt && lastUserMessageAt !== session.lastUserMessageAt
-      ? {
-          ...session,
-          lastUserMessageAt
-        }
-      : session;
+    if (
+      status === session.status &&
+      lastUserMessageAt === session.lastUserMessageAt &&
+      lastRunFinishedAt === session.lastRunFinishedAt
+    ) {
+      return session;
+    }
+
+    return {
+      ...session,
+      status,
+      lastUserMessageAt,
+      lastRunFinishedAt
+    };
   }
 
   presentSessionSummaries(sessions: SessionSummary[]) {
@@ -175,6 +190,29 @@ export class RunService {
           ...detail,
           session
         };
+  }
+
+  private presentedSessionStatus(
+    session: SessionSummary,
+    runs: { activeRun: Run | null; latestRun: Run | null }
+  ): SessionSummary["status"] {
+    if (runs.activeRun) {
+      return "running";
+    }
+
+    switch (runs.latestRun?.status) {
+      case "queued":
+      case "running":
+        return "running";
+      case "completed":
+        return "completed";
+      case "interrupted":
+        return "interrupted";
+      case "error":
+        return "error";
+      default:
+        return session.status;
+    }
   }
 
   private async handleBackendEvent(event: CodexBridgeEvent) {

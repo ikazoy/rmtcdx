@@ -97,7 +97,7 @@ export async function buildApp() {
   );
   const repoConfig = readRepoConfigOptional(config.reposFile);
   const catalog = new LiveCatalogService(codex, repoConfig, uploads);
-  const pushNotifications = new PushNotificationService(config.dbFile, config, app.log);
+  const pushNotifications = new PushNotificationService(config.stateFile, config, app.log);
   const realtime = new RealtimeGateway((event: ClientWsEvent) => {
     if (event.type === "ping") {
       realtime.broadcastPong();
@@ -120,7 +120,7 @@ export async function buildApp() {
 
   app.get("/healthz", async () => ({
     ok: true,
-    dbOk: true,
+    stateOk: true,
     codex: codex.getState(),
     metrics: {
       activeWebSockets: realtime.getConnectionCount(),

@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
-import BetterSqlite3 from "better-sqlite3";
 import webpush from "web-push";
+import { z } from "zod";
 
 import type {
   NotificationsConfigResponse,
@@ -14,30 +14,44 @@ import type {
 import type { AppConfig } from "../config/env";
 import { nowIso } from "../utils/time";
 
-const VAPID_SETTING_KEY = "push.vapid";
 const DEFAULT_VAPID_SUBJECT = "mailto:notifications@codex-remote.local";
 
-type PushSubscriptionRow = {
-  endpoint: string;
-  expiration_time: number | null;
-  p256dh: string;
-  auth: string;
-  user_agent: string | null;
-  platform: string | null;
-  created_at: string;
-  updated_at: string;
-};
+const storedVapidDetailsSchema = z.object({
+  publicKey: z.string().min(1),
+  privateKey: z.string().min(1),
+  subject: z.string().min(1)
+});
 
-type NotificationSettingRow = {
-  key: string;
-  value_json: string;
-};
+const storedPushSubscriptionSchema = z.object({
+  endpoint: z.string(),
+  expirationTime: z.number().nullable().optional(),
+  keys: z.object({
+    p256dh: z.string().min(1),
+    auth: z.string().min(1)
+  }),
+  userAgent: z.string().optional(),
+  platform: z.string().optional(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1)
+});
 
 type StoredVapidDetails = {
   publicKey: string;
   privateKey: string;
   subject: string;
 };
+
+type StoredPushSubscription = z.infer<typeof storedPushSubscriptionSchema>;
+
+const notificationStateSchema = z.object({
+  version: z.literal(1),
+  notifications: z.object({
+    vapid: storedVapidDetailsSchema.nullable(),
+    subscriptions: z.array(storedPushSubscriptionSchema)
+  })
+});
+
+type NotificationState = z.infer<typeof notificationStateSchema>;
 
 type PushPayload = {
   title: string;
@@ -79,19 +93,18 @@ function buildPayload(detail: SessionDetail, run: Run): PushPayload {
 }
 
 export class PushNotificationService {
-  private readonly sqlite: BetterSqlite3.Database;
+  private readonly stateFile: string;
+  private readonly state: NotificationState;
   private readonly vapidDetails: StoredVapidDetails;
 
   constructor(
-    dbFile: string,
+    stateFile: string,
     config: AppConfig,
     private readonly logger: FastifyBaseLogger
   ) {
-    fs.mkdirSync(path.dirname(dbFile), { recursive: true });
-    this.sqlite = new BetterSqlite3(dbFile);
-    this.sqlite.pragma("journal_mode = WAL");
-    this.sqlite.pragma("foreign_keys = ON");
-    this.init();
+    this.stateFile = stateFile;
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+    this.state = this.readState();
     this.vapidDetails = this.resolveVapidDetails(config);
 
     webpush.setVapidDetails(
@@ -102,7 +115,7 @@ export class PushNotificationService {
   }
 
   close() {
-    this.sqlite.close();
+    // noop
   }
 
   getClientConfig(): NotificationsConfigResponse {
@@ -116,37 +129,38 @@ export class PushNotificationService {
 
   saveSubscription(subscription: SavePushSubscriptionRequest) {
     const now = nowIso();
-    this.sqlite
-      .prepare(
-        `
-          INSERT INTO push_subscriptions (
-            endpoint, expiration_time, p256dh, auth, user_agent, platform, created_at, updated_at
-          ) VALUES (
-            @endpoint, @expirationTime, @p256dh, @auth, @userAgent, @platform, @createdAt, @updatedAt
-          )
-          ON CONFLICT(endpoint) DO UPDATE SET
-            expiration_time = excluded.expiration_time,
-            p256dh = excluded.p256dh,
-            auth = excluded.auth,
-            user_agent = excluded.user_agent,
-            platform = excluded.platform,
-            updated_at = excluded.updated_at
-        `
-      )
-      .run({
-        endpoint: subscription.endpoint,
-        expirationTime: subscription.expirationTime ?? null,
+    const existing = this.state.notifications.subscriptions.find((entry) => entry.endpoint === subscription.endpoint);
+    const nextSubscription: StoredPushSubscription = {
+      endpoint: subscription.endpoint,
+      expirationTime: subscription.expirationTime ?? null,
+      keys: {
         p256dh: subscription.keys.p256dh,
-        auth: subscription.keys.auth,
-        userAgent: subscription.userAgent ?? null,
-        platform: subscription.platform ?? null,
-        createdAt: now,
-        updatedAt: now
-      });
+        auth: subscription.keys.auth
+      },
+      userAgent: subscription.userAgent,
+      platform: subscription.platform,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now
+    };
+
+    if (existing) {
+      const index = this.state.notifications.subscriptions.indexOf(existing);
+      this.state.notifications.subscriptions.splice(index, 1, nextSubscription);
+    } else {
+      this.state.notifications.subscriptions.push(nextSubscription);
+    }
+
+    this.persistState();
   }
 
   deleteSubscription(endpoint: string) {
-    this.sqlite.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").run(endpoint);
+    const nextSubscriptions = this.state.notifications.subscriptions.filter((entry) => entry.endpoint !== endpoint);
+    if (nextSubscriptions.length === this.state.notifications.subscriptions.length) {
+      return;
+    }
+
+    this.state.notifications.subscriptions = nextSubscriptions;
+    this.persistState();
   }
 
   async notifyRun(detail: SessionDetail, run: Run) {
@@ -154,9 +168,9 @@ export class PushNotificationService {
       return;
     }
 
-    const subscriptions = this.sqlite
-      .prepare<[], PushSubscriptionRow>("SELECT * FROM push_subscriptions ORDER BY updated_at DESC")
-      .all();
+    const subscriptions = [...this.state.notifications.subscriptions].sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt)
+    );
 
     if (subscriptions.length === 0) {
       return;
@@ -170,10 +184,10 @@ export class PushNotificationService {
           await webpush.sendNotification(
             {
               endpoint: subscription.endpoint,
-              expirationTime: subscription.expiration_time,
+              expirationTime: subscription.expirationTime ?? null,
               keys: {
-                p256dh: subscription.p256dh,
-                auth: subscription.auth
+                p256dh: subscription.keys.p256dh,
+                auth: subscription.keys.auth
               }
             },
             payload
@@ -199,24 +213,30 @@ export class PushNotificationService {
     );
   }
 
-  private init() {
-    this.sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS push_subscriptions (
-        endpoint TEXT PRIMARY KEY,
-        expiration_time INTEGER,
-        p256dh TEXT NOT NULL,
-        auth TEXT NOT NULL,
-        user_agent TEXT,
-        platform TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
+  private readState(): NotificationState {
+    if (!fs.existsSync(this.stateFile)) {
+      return this.emptyState();
+    }
 
-      CREATE TABLE IF NOT EXISTS notification_settings (
-        key TEXT PRIMARY KEY,
-        value_json TEXT NOT NULL
+    try {
+      const raw = fs.readFileSync(this.stateFile, "utf8");
+      const parsed = notificationStateSchema.safeParse(JSON.parse(raw));
+      if (parsed.success) {
+        return parsed.data;
+      }
+
+      this.logger.warn(
+        {
+          path: this.stateFile,
+          issues: parsed.error.issues
+        },
+        "Notification state file is invalid, starting with an empty state"
       );
-    `);
+    } catch (error) {
+      this.logger.warn({ err: error, path: this.stateFile }, "Unable to read notification state file");
+    }
+
+    return this.emptyState();
   }
 
   private resolveVapidDetails(config: AppConfig) {
@@ -228,15 +248,11 @@ export class PushNotificationService {
       } satisfies StoredVapidDetails;
     }
 
-    const stored = this.sqlite
-      .prepare<[string], NotificationSettingRow>("SELECT * FROM notification_settings WHERE key = ?")
-      .get(VAPID_SETTING_KEY);
-
+    const stored = this.state.notifications.vapid;
     if (stored) {
-      const parsed = JSON.parse(stored.value_json) as StoredVapidDetails;
       return {
-        ...parsed,
-        subject: config.vapidSubject ?? parsed.subject ?? DEFAULT_VAPID_SUBJECT
+        ...stored,
+        subject: config.vapidSubject ?? stored.subject ?? DEFAULT_VAPID_SUBJECT
       };
     }
 
@@ -247,11 +263,26 @@ export class PushNotificationService {
       subject: config.vapidSubject ?? DEFAULT_VAPID_SUBJECT
     } satisfies StoredVapidDetails;
 
-    this.sqlite
-      .prepare("INSERT INTO notification_settings (key, value_json) VALUES (?, ?)")
-      .run(VAPID_SETTING_KEY, JSON.stringify(vapidDetails));
+    this.state.notifications.vapid = vapidDetails;
+    this.persistState();
 
     this.logger.info("Generated persistent VAPID keys for push notifications");
     return vapidDetails;
+  }
+
+  private persistState() {
+    const tmpPath = `${this.stateFile}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(tmpPath, `${JSON.stringify(this.state, null, 2)}\n`, "utf8");
+    fs.renameSync(tmpPath, this.stateFile);
+  }
+
+  private emptyState(): NotificationState {
+    return {
+      version: 1,
+      notifications: {
+        vapid: null,
+        subscriptions: []
+      }
+    };
   }
 }

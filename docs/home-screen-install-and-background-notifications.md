@@ -234,16 +234,16 @@ notification click 時の挙動:
 
 ## 7. データモデル案
 
-最低限、bridge 側で push subscription を保持する必要がある。
+最低限、bridge 側で push subscription を file-backed state に保持する必要がある。
 
-候補テーブル:
+候補 state object:
 
-- `push_subscriptions`
+- `notifications.subscriptions[]`
 
-候補カラム:
+候補フィールド:
 
-- `id`
 - `endpoint`
+- `expiration_time`
 - `p256dh`
 - `auth`
 - `user_agent`
@@ -270,7 +270,7 @@ subscription は「この bridge を見ている端末」に紐づく前提で�
 4. HTTPS 配信方法を決める
 5. service worker を push 専用用途で導入する
 6. push subscription API を bridge に追加する
-7. subscription を DB 保存する
+7. subscription を state file に保存する
 8. `run.completed` / `run.error` で push 送信する
 9. notification click で session deep link を開く
 

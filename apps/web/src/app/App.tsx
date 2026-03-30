@@ -17,6 +17,8 @@ import { queryKeys } from "./query";
 import {
   buildChatViewState,
   buildDraftSessionDetail,
+  buildPendingSessionDetail,
+  buildPendingSessionSummary,
   buildSidebarViewState,
   buildVisibleSessions
 } from "./view-state";
@@ -504,9 +506,15 @@ export function App() {
     repos[0]?.id ??
     null;
   const draftCreatedAt = new Date().toISOString();
+  const pendingSessionSummaryForSelection =
+    pendingThread && selectedSessionIds.has(pendingThread.sessionId)
+      ? buildPendingSessionSummary(pendingThread)
+      : null;
   const draftDetail =
     isDraftSession && selectedRepo
-      ? buildDraftSessionDetail(selectedSessionId!, selectedRepo, draftCreatedAt)
+      ? pendingSessionSummaryForSelection
+        ? buildPendingSessionDetail(pendingSessionSummaryForSelection)
+        : buildDraftSessionDetail(selectedSessionId!, selectedRepo, draftCreatedAt)
       : null;
   const messages = isDraftSession ? [] : messagesQuery.data?.messages ?? [];
   const activeRepoName = selectedRepo?.name ?? sessionDetailQuery.data?.session.repoName ?? selectedSessionSummary?.repoName;

@@ -40,7 +40,7 @@ bridge 側で Git worktree を管理し、その結果得た path を
 
 - bridge が Git worktree の作成・一覧・状態確認を行う
 - Codex app-server には worktree path を `cwd` として渡すだけにする
-- worktree metadata は SQLite に保持する
+- worktree metadata は bridge-managed な永続 state に保持する
 - UI は repo の下にぶら下がる execution target として worktree を扱う
 
 ### 3.2 v1 は「managed worktree session」に限定する
@@ -93,13 +93,14 @@ execution target を切り替える余地がない。
 「この session はどの worktree に属するか」を
 bridge 側で厳密に制御しにくい。
 
-### 4.4 SQLite schema は存在するが runtime では未使用である
+### 4.4 session metadata 用の永続 store はまだ存在しない
 
-`apps/bridge/src/db/database.ts` には repository / session / run の schema があるが、
-現行の `buildApp()` では Database を生成していない。
+現行 runtime がローカルに保持しているのは、push notification 用の小さい file-backed state だけである。
+repository / session / run の catalog は `codex app-server` から live に組み立てており、
+worktree metadata を保持する専用 store はまだない。
 
 つまり worktree 管理を入れるなら、
-少なくとも metadata 用 SQLite を runtime に戻す必要がある。
+metadata 用の永続 store を新設する必要がある。
 
 ## 5. プロダクト要件
 
@@ -192,7 +193,7 @@ bridge には以下の責務分離を入れる。
 
 責務:
 
-- SQLite 上の repo / session / worktree metadata を source of truth にする
+- bridge-managed な repo / session / worktree metadata store を source of truth にする
 - app-server の thread 情報を session metadata に重ねて返す
 - legacy thread の import / backfill を行う
 
@@ -218,11 +219,11 @@ bridge には以下の責務分離を入れる。
 
 worktree を入れる v1 では、これを完全撤去するより以下の移行が安全である。
 
-1. SQLite を runtime に戻す
+1. session / worktree metadata 用の persistent store を導入する
 2. session row を thread metadata の overlay として使う
 3. session id は当面 `threadId` をそのまま使う
-4. worktree metadata だけは DB 側で保持する
-5. session 一覧は DB を主、app-server を従にして返す
+4. worktree metadata だけは bridge-managed state で保持する
+5. session 一覧は metadata store を主、app-server を従にして返す
 
 この方針なら frontend の `sessionId` 契約を壊さずに進められる。
 

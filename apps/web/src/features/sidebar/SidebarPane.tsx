@@ -552,10 +552,10 @@ function SessionRow({
       <p className="session-row__preview">{getPreviewText(session)}</p>
       <div className="session-row__meta">
         {showRepo && session.repoName ? <span>{session.repoName}</span> : null}
-        {session.status === "interrupted" ? (
+        {displayStatus === "interrupted" ? (
           <span className="badge badge--interrupted">interrupted</span>
         ) : null}
-        {session.status === "error" || session.hasUnreadError ? (
+        {displayStatus === "error" || session.hasUnreadError ? (
           <span className="badge badge--error">error</span>
         ) : null}
         {session.unreadCount > 0 ? <span className="badge">{session.unreadCount}</span> : null}

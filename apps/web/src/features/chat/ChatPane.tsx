@@ -191,6 +191,25 @@ function revokeComposerImages(images: ComposerImage[]) {
   }
 }
 
+function revokeOptimisticAttachments(message: OptimisticUserMessage | null) {
+  for (const attachment of message?.attachments ?? []) {
+    if (attachment.url.startsWith("blob:")) {
+      URL.revokeObjectURL(attachment.url);
+    }
+  }
+}
+
+function optimisticMessageFromComposer(prompt: string, images: ComposerImage[]): OptimisticUserMessage {
+  return {
+    prompt,
+    attachments: images.map((image) => ({
+      kind: "image",
+      name: image.file.name || "image",
+      url: image.previewUrl
+    }))
+  };
+}
+
 function messageMatchesOptimistic(message: Message, optimistic: OptimisticUserMessage) {
   if (message.role !== "user" || message.text.trim() !== optimistic.prompt.trim()) {
     return false;
@@ -1320,6 +1339,7 @@ export function ChatPane({
   const shouldScrollToBottomRef = useRef(true);
   const touchStartYRef = useRef<number | null>(null);
   const [selectedImages, setSelectedImages] = useState<ComposerImage[]>([]);
+  const [localOptimisticMessage, setLocalOptimisticMessage] = useState<OptimisticUserMessage | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sheetState, setSheetState] = useState<BottomSheetState>(null);
   const [imageViewerState, setImageViewerState] = useState<ImageViewerState>(null);
@@ -1337,12 +1357,13 @@ export function ChatPane({
   const messages = viewState.kind === "ready" ? viewState.messages : [];
   const isLoadingMessages = viewState.kind === "ready" ? viewState.isLoadingMessages : false;
   const repoName = viewState.kind === "ready" ? viewState.repoName : undefined;
+  const effectiveOptimisticMessage = optimisticMessage ?? localOptimisticMessage;
 
   const activeRunState = detail?.activeRun?.status ?? null;
   const latestRunState = detail?.latestRun?.status ?? null;
   const sessionIsArchived = Boolean(detail?.session.isArchived);
   const sessionIsRunning = activeRunState === "running" || detail?.session.status === "running";
-  const hasPendingRun = sessionIsRunning || isSubmitting || Boolean(optimisticMessage) || hasPendingResponse;
+  const hasPendingRun = sessionIsRunning || isSubmitting || Boolean(effectiveOptimisticMessage) || hasPendingResponse;
   const interruptButtonEnabled = canInterruptRun && !isSubmitting;
   const bannerRunState =
     activeRunState ??
@@ -1350,9 +1371,9 @@ export function ChatPane({
     (latestRunState === "error" || latestRunState === "interrupted" ? latestRunState : null);
   const sessionBadgeState = detail ? sessionDisplayStatus(detail.session) : "idle";
   const showPendingAssistant =
-    !streamingText && (Boolean(optimisticMessage) || sessionIsRunning || isSubmitting || hasPendingResponse);
+    !streamingText && (Boolean(effectiveOptimisticMessage) || sessionIsRunning || isSubmitting || hasPendingResponse);
   const showComposerEmptyState =
-    !isLoadingMessages && messages.length === 0 && !streamingText && !optimisticMessage && !showPendingAssistant;
+    !isLoadingMessages && messages.length === 0 && !streamingText && !effectiveOptimisticMessage && !showPendingAssistant;
   const usesRootScroll = isMobileViewport;
 
   useEffect(() => {
@@ -1360,7 +1381,8 @@ export function ChatPane({
       viewKind: viewState.kind,
       detailId: detail?.session.id ?? null,
       messageCount: messages.length,
-      optimistic: Boolean(optimisticMessage),
+      optimistic: Boolean(effectiveOptimisticMessage),
+      localOptimistic: Boolean(localOptimisticMessage),
       hasPendingResponse,
       streamingTextLength: streamingText.length,
       liveActivityCount: liveActivities.length,
@@ -1375,9 +1397,10 @@ export function ChatPane({
     hasPendingResponse,
     isLoadingMessages,
     isSubmitting,
+    localOptimisticMessage,
     liveActivities.length,
     messages.length,
-    optimisticMessage,
+    effectiveOptimisticMessage,
     sessionIsRunning,
     showComposerEmptyState,
     showPendingAssistant,
@@ -1454,6 +1477,35 @@ export function ChatPane({
   }, [selectedImages]);
 
   useEffect(() => () => revokeComposerImages(selectedImagesRef.current), []);
+
+  useEffect(() => () => revokeOptimisticAttachments(localOptimisticMessage), [localOptimisticMessage]);
+
+  useEffect(() => {
+    if (!localOptimisticMessage || !optimisticMessage) {
+      return;
+    }
+
+    setLocalOptimisticMessage((current) => {
+      revokeOptimisticAttachments(current);
+      return null;
+    });
+  }, [localOptimisticMessage, optimisticMessage]);
+
+  useEffect(() => {
+    if (!localOptimisticMessage) {
+      return;
+    }
+
+    const confirmed = messages.some((message) => messageMatchesOptimistic(message, localOptimisticMessage));
+    if (!confirmed) {
+      return;
+    }
+
+    setLocalOptimisticMessage((current) => {
+      revokeOptimisticAttachments(current);
+      return null;
+    });
+  }, [localOptimisticMessage, messages]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1562,9 +1614,11 @@ export function ChatPane({
     };
   }, [imageViewerState, sheetState]);
 
-  const clearSelectedImages = () => {
+  const clearSelectedImages = ({ preservePreviewUrls = false }: { preservePreviewUrls?: boolean } = {}) => {
     setSelectedImages((current) => {
-      revokeComposerImages(current);
+      if (!preservePreviewUrls) {
+        revokeComposerImages(current);
+      }
       return [];
     });
 
@@ -1583,6 +1637,10 @@ export function ChatPane({
       composerRef.current.style.height = "auto";
     }
     clearSelectedImages();
+    setLocalOptimisticMessage((current) => {
+      revokeOptimisticAttachments(current);
+      return null;
+    });
     setSubmitError(null);
     setSheetState(null);
     setImageViewerState(null);
@@ -1729,6 +1787,10 @@ export function ChatPane({
   }, [liveActivities, messages, optimisticMessage, showPendingAssistant, streamingText]);
 
   const handleSubmit = async () => {
+    if (hasPendingRun) {
+      return;
+    }
+
     if (sessionIsArchived) {
       setSubmitError("Restore this thread before sending a prompt.");
       return;
@@ -1742,21 +1804,30 @@ export function ChatPane({
     setSubmitError(null);
 
     const files = selectedImages.map((image) => image.file);
+    const nextLocalOptimisticMessage = optimisticMessageFromComposer(prompt, selectedImages);
 
     isPinnedToBottomRef.current = true;
     shouldScrollToBottomRef.current = true;
     setShowJumpToLatest(false);
     setHasQueuedUpdates(false);
+    setLocalOptimisticMessage((current) => {
+      revokeOptimisticAttachments(current);
+      return nextLocalOptimisticMessage;
+    });
 
     if (composerRef.current) {
       composerRef.current.value = "";
       composerRef.current.style.height = "auto";
     }
-    clearSelectedImages();
+    clearSelectedImages({ preservePreviewUrls: true });
 
     try {
       await onSubmit({ prompt, files });
     } catch (error) {
+      setLocalOptimisticMessage((current) => {
+        revokeOptimisticAttachments(current);
+        return null;
+      });
       if (composerRef.current) {
         composerRef.current.value = prompt;
         composerRef.current.style.height = "auto";
@@ -2055,7 +2126,7 @@ export function ChatPane({
             streamingText={streamingText}
             liveActivities={liveActivities}
             timelineEndRef={timelineEndRef}
-            optimisticMessage={optimisticMessage}
+            optimisticMessage={effectiveOptimisticMessage}
             showPendingAssistant={showPendingAssistant}
             timelineRef={timelineRef}
             showJumpToLatest={showJumpToLatest}

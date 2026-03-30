@@ -42,6 +42,16 @@ State is stored outside the source tree as well:
 - Linux: `~/.local/share/remote-control-codex`
 - Windows: `%LOCALAPPDATA%\\remote-control-codex`
 
+## Persisted State
+
+The bridge keeps only a small amount of server-owned state on disk:
+
+- `state.json` stores push subscriptions and generated VAPID keys
+- `uploads/` stores image attachments uploaded from the web client
+- `codex-app-server.jsonl` stores optional bridge debug logs
+
+Session and message history, thread titles, archive state, and run history are read live from Codex threads through `codex app-server`. The bridge does not duplicate that catalog into a local database.
+
 ## Source Checkout
 
 ```bash
@@ -203,13 +213,15 @@ rg '"listenPort":3210|"listenPort":3000' data/codex-app-server.jsonl
 | `PORT` | `3210` | Bridge listen port |
 | `REPO_CONFIG_PATH` | source checkout: `<workspace>/repos.json`; packaged: app config dir | Optional repository preset file |
 | `DATA_DIR` | source checkout: `<workspace>/data`; packaged: platform app data dir | Application data directory |
-| `DB_FILE` | `<DATA_DIR>/remote-control.db` | SQLite file used for push subscriptions and notification settings |
+| `STATE_FILE` | `<DATA_DIR>/state.json` | JSON state file used for push subscriptions and generated VAPID keys |
 | `UPLOADS_DIR` | `<DATA_DIR>/uploads` | Uploaded image storage |
 | `WEB_DIST_DIR` | auto-detected bundled assets | Built frontend served by the bridge |
 | `WORKSPACE_ROOT` | source checkout auto-detect | Override workspace root resolution |
 | `MAX_PROMPT_LENGTH` | `12000` | Maximum prompt length |
 | `MAX_IMAGE_ATTACHMENTS` | `5` | Maximum images per run |
 | `MAX_IMAGE_ATTACHMENT_BYTES` | `10485760` | Maximum size in bytes for a single image |
+
+`DB_FILE` is still accepted as a deprecated compatibility input. When it is set, the bridge derives a sibling `.json` state file from that path instead of reusing the old SQLite file directly.
 
 ## Verify The Bridge
 

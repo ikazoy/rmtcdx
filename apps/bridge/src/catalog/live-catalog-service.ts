@@ -29,6 +29,7 @@ type ThreadContext = {
 export class LiveCatalogService {
   private readonly repoRootCache = new Map<string, Promise<{ rootPath: string; branch?: string }>>();
   private readonly repoOverrideByPath: Map<string, RepoConfig>;
+  private readonly threadCache = new Map<string, CodexThread>();
 
   constructor(
     private readonly codex: CodexBackend,
@@ -114,8 +115,12 @@ export class LiveCatalogService {
       searchTerm: search || undefined
     });
     const contexts = await this.enrichThreads(threads, archived);
+    const hydratedContexts = await this.hydrateSessionContexts(contexts, {
+      filter: options?.filter,
+      search: search || undefined
+    });
 
-    return contexts
+    return hydratedContexts
       .filter((context) => !repoId || context.repo.id === repoId)
       .map((context) => this.mapThreadSummary(context))
       // `thread/list.searchTerm` is part of the protocol, but current Codex CLI builds may still
@@ -225,6 +230,92 @@ export class LiveCatalogService {
       },
       isArchived
     };
+  }
+
+  private async hydrateSessionContexts(
+    contexts: ThreadContext[],
+    options?: { filter?: SessionFilter; search?: string }
+  ) {
+    const hydratedById = new Map<string, ThreadContext>();
+
+    for (const context of contexts) {
+      const cached = this.cachedThreadForSummary(context.thread);
+      if (cached) {
+        hydratedById.set(context.thread.id, {
+          ...context,
+          thread: cached
+        });
+      }
+    }
+
+    const unresolved = contexts
+      .filter((context) => !hydratedById.has(context.thread.id))
+      .filter((context) => this.shouldHydrateSummary(context.thread))
+      .sort((left, right) => right.thread.updatedAt - left.thread.updatedAt);
+
+    const shouldHydrateAll = Boolean(options?.search) || (options?.filter !== undefined && options.filter !== "all");
+    const maxHydrations = shouldHydrateAll ? unresolved.length : Math.min(unresolved.length, 24);
+    const batchSize = shouldHydrateAll ? 12 : 6;
+
+    for (let index = 0; index < maxHydrations; index += batchSize) {
+      const batch = unresolved.slice(index, index + batchSize);
+      const hydrated = await Promise.all(
+        batch.map(async (context) => {
+          try {
+            const thread = await this.readThreadWithFallback(context.thread.id, true);
+            return {
+              ...context,
+              thread
+            } satisfies ThreadContext;
+          } catch {
+            return context;
+          }
+        })
+      );
+
+      for (const context of hydrated) {
+        hydratedById.set(context.thread.id, context);
+      }
+    }
+
+    return contexts.map((context) => hydratedById.get(context.thread.id) ?? context);
+  }
+
+  private shouldHydrateSummary(thread: CodexThread) {
+    return thread.status.type === "notLoaded" && thread.turns.length === 0;
+  }
+
+  private cachedThreadForSummary(thread: CodexThread) {
+    const cached = this.threadCache.get(thread.id);
+    if (!cached) {
+      return null;
+    }
+
+    if (cached.updatedAt < thread.updatedAt) {
+      return null;
+    }
+
+    return this.shouldHydrateSummary(cached) ? null : cached;
+  }
+
+  private rememberThread(thread: CodexThread) {
+    const current = this.threadCache.get(thread.id);
+    if (!current) {
+      this.threadCache.set(thread.id, thread);
+      return thread;
+    }
+
+    const shouldReplace =
+      thread.updatedAt > current.updatedAt
+      || (thread.updatedAt === current.updatedAt && current.turns.length === 0 && thread.turns.length > 0)
+      || (current.status.type === "notLoaded" && thread.status.type !== "notLoaded");
+
+    if (shouldReplace) {
+      this.threadCache.set(thread.id, thread);
+      return thread;
+    }
+
+    return current;
   }
 
   private mapThreadSummary(context: ThreadContext): SessionSummary {
@@ -664,7 +755,7 @@ export class LiveCatalogService {
 
   private async readThreadWithFallback(threadId: string, includeTurns: boolean) {
     try {
-      return await this.codex.readThread(threadId, { includeTurns });
+      return this.rememberThread(await this.codex.readThread(threadId, { includeTurns }));
     } catch (error) {
       if (this.isThreadNotLoadedError(error)) {
         const resumed = await this.resumeArchivedThread(threadId, includeTurns);
@@ -673,7 +764,7 @@ export class LiveCatalogService {
         }
       }
       if (includeTurns && this.isTurnsUnavailableError(error)) {
-        return this.codex.readThread(threadId, { includeTurns: false });
+        return this.rememberThread(await this.codex.readThread(threadId, { includeTurns: false }));
       }
       throw error;
     }
@@ -692,10 +783,10 @@ export class LiveCatalogService {
     });
 
     try {
-      return await this.codex.readThread(threadId, { includeTurns });
+      return this.rememberThread(await this.codex.readThread(threadId, { includeTurns }));
     } catch (error) {
       if (includeTurns && this.isTurnsUnavailableError(error)) {
-        return this.codex.readThread(threadId, { includeTurns: false });
+        return this.rememberThread(await this.codex.readThread(threadId, { includeTurns: false }));
       }
       throw error;
     }

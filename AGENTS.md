@@ -9,7 +9,7 @@ Codex Remote Web Client — mobile-first の Web UI から OpenAI Codex CLI を�
 
 - **Runtime**: Node.js >= 20, npm workspaces
 - **Language**: TypeScript (ES2022, strict mode)
-- **Backend** (`apps/bridge`): Fastify 5, better-sqlite3, WebSocket, Zod 4, pino
+- **Backend** (`apps/bridge`): Fastify 5, WebSocket, Zod 4, pino
 - **Frontend** (`apps/web`): React 19, Vite, TanStack Query, Zustand, React Router
 - **Shared types** (`packages/shared-types`): backend / frontend 共有の型定義
 
@@ -61,7 +61,7 @@ npm run build -w @codex-remote/web
 | `HOST` | `127.0.0.1` | bridge listen host |
 | `REPO_CONFIG_PATH` | `<workspace>/repos.json` | repo config file |
 | `DATA_DIR` | `<workspace>/data` | app data directory |
-| `DB_FILE` | `<workspace>/data/remote-control.db` | SQLite DB file |
+| `STATE_FILE` | `<workspace>/data/state.json` | push subscription と VAPID key を保存する JSON state file |
 | `MAX_PROMPT_LENGTH` | `12000` | prompt 文字数上限 |
 | `MAX_IMAGE_ATTACHMENTS` | `5` | 1 run あたりの画像数上限 |
 | `MAX_IMAGE_ATTACHMENT_BYTES` | `10485760` | 画像 1 枚あたりの最大サイズ |
@@ -84,6 +84,7 @@ npm run build -w @codex-remote/web
 ## Architecture Notes
 
 - bridge は Codex CLI (`codex app-server --listen stdio://`) を子プロセスとして起動し stdio で通信する
-- SQLite でセッション・メッセージを永続化
+- session / message 履歴は Codex thread から live に読む
+- bridge が永続化するのは push subscription / VAPID key / uploads / debug log など最小限の server-owned state
 - WebSocket でフロントエンドへリアルタイム push
 - `repos.json` からリポジトリ一覧を読み込む（`repos.example.json` をコピーして作成）

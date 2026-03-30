@@ -4,16 +4,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const appName = "remote-control-codex";
-const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const bundledWebDistDir = path.join(packageRoot, "web-dist");
-const workspaceRoot = resolveWorkspaceRoot();
+
+type RuntimePaths = {
+  packageRoot: string | null;
+  bundledWebDistDir: string | null;
+  workspaceRoot: string | null;
+};
 
 export type AppConfig = {
   port: number;
   host: string;
   reposFile: string;
   dataDir: string;
-  dbFile: string;
+  stateFile: string;
   codexDebugLogFile: string;
   uploadsDir: string;
   webDistDir: string;
@@ -26,14 +29,25 @@ export type AppConfig = {
   vapidSubject?: string;
 };
 
-function resolveWorkspaceRoot() {
+function resolveRuntimePaths(): RuntimePaths {
+  const currentModuleDir = path.dirname(fileURLToPath(import.meta.url));
+  const packageRoot = resolvePackageRoot(currentModuleDir);
+  const workspaceRoot = resolveWorkspaceRoot(currentModuleDir);
+
+  return {
+    packageRoot,
+    bundledWebDistDir: packageRoot ? path.join(packageRoot, "web-dist") : null,
+    workspaceRoot
+  };
+}
+
+function resolveWorkspaceRoot(currentModuleDir: string) {
   const explicitRoot = process.env.WORKSPACE_ROOT;
   if (explicitRoot) {
     return path.resolve(explicitRoot);
   }
 
-  const candidate = path.resolve(packageRoot, "../..");
-  return isSourceCheckout(candidate) ? candidate : null;
+  return findAncestorDirectory(currentModuleDir, isSourceCheckout);
 }
 
 function isSourceCheckout(root: string) {
@@ -43,6 +57,41 @@ function isSourceCheckout(root: string) {
     fs.existsSync(path.join(root, "apps/web/package.json")) &&
     fs.existsSync(path.join(root, "repos.example.json"))
   );
+}
+
+function resolvePackageRoot(currentModuleDir: string) {
+  return findAncestorDirectory(currentModuleDir, isBridgePackageRoot);
+}
+
+function isBridgePackageRoot(root: string) {
+  const packageJsonPath = path.join(root, "package.json");
+  if (!fs.existsSync(packageJsonPath)) {
+    return false;
+  }
+
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as { name?: string };
+    return packageJson.name === "remote-control-codex";
+  } catch {
+    return false;
+  }
+}
+
+function findAncestorDirectory(startDir: string, predicate: (dir: string) => boolean) {
+  let currentDir = startDir;
+
+  while (true) {
+    if (predicate(currentDir)) {
+      return currentDir;
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      return null;
+    }
+
+    currentDir = parentDir;
+  }
 }
 
 function resolveUserConfigDir() {
@@ -71,31 +120,52 @@ function resolveUserDataDir() {
   return path.join(process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"), appName);
 }
 
-function resolveDefaultWebDistDir() {
-  if (fs.existsSync(bundledWebDistDir)) {
-    return bundledWebDistDir;
+function resolveDefaultWebDistDir(runtimePaths: RuntimePaths) {
+  if (runtimePaths.bundledWebDistDir && fs.existsSync(runtimePaths.bundledWebDistDir)) {
+    return runtimePaths.bundledWebDistDir;
   }
 
-  if (workspaceRoot) {
-    return path.join(workspaceRoot, "apps/web/dist");
+  if (runtimePaths.workspaceRoot) {
+    return path.join(runtimePaths.workspaceRoot, "apps/web/dist");
   }
 
-  return bundledWebDistDir;
+  if (runtimePaths.bundledWebDistDir) {
+    return runtimePaths.bundledWebDistDir;
+  }
+
+  throw new Error("Unable to resolve web-dist directory. Set WEB_DIST_DIR explicitly.");
+}
+
+function resolveStateFile(dataDir: string) {
+  if (process.env.STATE_FILE) {
+    return process.env.STATE_FILE;
+  }
+
+  if (!process.env.DB_FILE) {
+    return path.join(dataDir, "state.json");
+  }
+
+  return process.env.DB_FILE.endsWith(".db")
+    ? process.env.DB_FILE.replace(/\.db$/i, ".json")
+    : `${process.env.DB_FILE}.json`;
 }
 
 export function loadConfig(): AppConfig {
+  const runtimePaths = resolveRuntimePaths();
   const defaultConfigDir = resolveUserConfigDir();
-  const dataDir = process.env.DATA_DIR ?? (workspaceRoot ? path.join(workspaceRoot, "data") : resolveUserDataDir());
+  const dataDir = process.env.DATA_DIR ?? (runtimePaths.workspaceRoot ? path.join(runtimePaths.workspaceRoot, "data") : resolveUserDataDir());
 
   return {
     port: Number(process.env.PORT ?? 3210),
     host: process.env.HOST ?? "127.0.0.1",
-    reposFile: process.env.REPO_CONFIG_PATH ?? (workspaceRoot ? path.join(workspaceRoot, "repos.json") : path.join(defaultConfigDir, "repos.json")),
+    reposFile:
+      process.env.REPO_CONFIG_PATH ??
+      (runtimePaths.workspaceRoot ? path.join(runtimePaths.workspaceRoot, "repos.json") : path.join(defaultConfigDir, "repos.json")),
     dataDir,
-    dbFile: process.env.DB_FILE ?? path.join(dataDir, "remote-control.db"),
+    stateFile: resolveStateFile(dataDir),
     codexDebugLogFile: process.env.CODEX_DEBUG_LOG_FILE ?? path.join(dataDir, "codex-app-server.jsonl"),
     uploadsDir: process.env.UPLOADS_DIR ?? path.join(dataDir, "uploads"),
-    webDistDir: process.env.WEB_DIST_DIR ?? resolveDefaultWebDistDir(),
+    webDistDir: process.env.WEB_DIST_DIR ?? resolveDefaultWebDistDir(runtimePaths),
     codexMode: (process.env.CODEX_MODE as AppConfig["codexMode"] | undefined) ?? "auto",
     maxPromptLength: Number(process.env.MAX_PROMPT_LENGTH ?? 12000),
     maxImageAttachments: Number(process.env.MAX_IMAGE_ATTACHMENTS ?? 5),

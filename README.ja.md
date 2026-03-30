@@ -42,6 +42,16 @@ state の保存先も source tree の外です。
 - Linux: `~/.local/share/remote-control-codex`
 - Windows: `%LOCALAPPDATA%\\remote-control-codex`
 
+## 永続化する state
+
+bridge がローカルに保持する server-owned state は最小限です。
+
+- `state.json`: push subscription と生成済み VAPID key
+- `uploads/`: web client から送った画像添付
+- `codex-app-server.jsonl`: 任意の bridge デバッグログ
+
+session / message 履歴、thread title、archive 状態、run 履歴は `codex app-server` 越しに Codex thread からその都度読みます。bridge 側でそれらをローカル DB に複製しません。
+
 ## Source Checkout
 
 ```bash
@@ -203,13 +213,15 @@ rg '"listenPort":3210|"listenPort":3000' data/codex-app-server.jsonl
 | `PORT` | `3210` | bridge の listen port |
 | `REPO_CONFIG_PATH` | source checkout: `<workspace>/repos.json`; packaged: app config dir | 任意の repository preset ファイル |
 | `DATA_DIR` | source checkout: `<workspace>/data`; packaged: platform app data dir | アプリデータの保存先 |
-| `DB_FILE` | `<DATA_DIR>/remote-control.db` | push subscription と notification 設定を保存する SQLite DB |
+| `STATE_FILE` | `<DATA_DIR>/state.json` | push subscription と生成済み VAPID key を保存する JSON state file |
 | `UPLOADS_DIR` | `<DATA_DIR>/uploads` | アップロード画像の保存先 |
 | `WEB_DIST_DIR` | auto-detected bundled assets | bridge から配信する build 済み frontend |
 | `WORKSPACE_ROOT` | source checkout auto-detect | workspace ルート解決を上書きしたい場合に使う |
 | `MAX_PROMPT_LENGTH` | `12000` | prompt の最大文字数 |
 | `MAX_IMAGE_ATTACHMENTS` | `5` | 1 run あたりの最大画像数 |
 | `MAX_IMAGE_ATTACHMENT_BYTES` | `10485760` | 画像 1 枚あたりの最大バイト数 |
+
+既存の起動 script 互換のため、`DB_FILE` も非推奨の互換入力として引き続き受け付けます。`DB_FILE` が指定された場合でも、bridge はそのパスから隣接する `.json` state file を導出し、古い SQLite file 自体は直接再利用しません。
 
 ## 動作確認
 

@@ -134,7 +134,7 @@ export type SessionDetail = {
 
 export type HealthResponse = {
   ok: boolean;
-  dbOk: boolean;
+  stateOk: boolean;
   codex: {
     mode: "real" | "mock";
     ready: boolean;
