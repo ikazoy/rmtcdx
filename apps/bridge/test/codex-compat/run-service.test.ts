@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -9,6 +11,7 @@ import type { CodexBackend, CodexBridgeEvent, StartRunParams } from "../../src/c
 import type { AppConfig } from "../../src/config/env";
 import { RealtimeGateway } from "../../src/realtime/realtime-gateway";
 import { RunService } from "../../src/runs/run-service";
+import { SessionRunSettingsStore } from "../../src/runs/session-run-settings-store";
 
 const logger = {
   warn() {}
@@ -51,10 +54,37 @@ test("run service only sends one push notification for duplicate interrupted eve
   assert.equal(harness.notifications[0]?.run.status, "interrupted");
 });
 
+test("run service exposes the last effective run settings for the thread", async () => {
+  const harness = createHarness();
+
+  await harness.service.start({
+    sessionId: "thread-1",
+    prompt: "Use elevated settings",
+    codex: {
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
+      serviceTier: "fast",
+      model: "gpt-5.4"
+    }
+  });
+
+  const detail = harness.service.presentSessionDetail(harness.detail);
+
+  assert.deepEqual(detail.runSettings, {
+    approvalPolicy: "never",
+    sandbox: "danger-full-access",
+    serviceTier: "fast",
+    model: "gpt-5.4"
+  });
+});
+
 function createHarness() {
   const backend = new FakeCodexBackend();
   const detail = createSessionDetail("Deploy preview");
   const notifications: Array<{ detail: SessionDetail; run: Run }> = [];
+  const runSettingsStore = new SessionRunSettingsStore(
+    path.join(os.tmpdir(), `rmtcdx-run-settings-${Date.now()}-${Math.random().toString(16).slice(2)}.json`)
+  );
 
   const service = new RunService(
     createConfig(),
@@ -64,6 +94,12 @@ function createHarness() {
       },
       async getSessionDetail() {
         return detail;
+      },
+      async getThread() {
+        return {
+          id: "thread-1",
+          cwd: "/tmp/repo"
+        };
       }
     } as never,
     new RealtimeGateway(() => {}),
@@ -78,7 +114,9 @@ function createHarness() {
         notifications.push({ detail: sessionDetail, run });
       }
     } as never,
-    logger
+    logger,
+    undefined,
+    runSettingsStore
   );
 
   return {
@@ -126,7 +164,8 @@ function createSessionDetail(title: string): SessionDetail {
   return {
     session: createSessionSummary(title),
     activeRun: null,
-    latestRun: null
+    latestRun: null,
+    runSettings: null
   };
 }
 
@@ -145,6 +184,7 @@ function createSessionSummary(title: string): SessionSummary {
     lastEventSeq: 0,
     lastReadEventSeq: 0,
     lastMessageAt: now,
+    pendingRequestCount: 0,
     hasUnreadCompletion: false,
     hasUnreadError: false,
     createdAt: now,

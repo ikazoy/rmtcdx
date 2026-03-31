@@ -92,6 +92,8 @@ export function useRealtime() {
           case "codex.request.created":
           case "codex.request.resolved":
             void queryClient.invalidateQueries({ queryKey: queryKeys.pendingCodexRequests(event.sessionId) });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.session(event.sessionId) });
+            void queryClient.invalidateQueries({ queryKey: ["sessions"] });
             return;
           case "activity.started":
             upsertActivity(event.activity);

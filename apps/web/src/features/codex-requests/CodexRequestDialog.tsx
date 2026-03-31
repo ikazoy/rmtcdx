@@ -15,12 +15,39 @@ type Props = {
   onRespond: (response: CodexPendingRequestResponse) => Promise<void>;
 };
 
+const REQUEST_SUBTITLE_PREVIEW_MAX = 120;
+
 function permissionPaths(paths: string[] | null | undefined) {
   return paths?.filter(Boolean) ?? [];
 }
 
 function prettyJson(value: JsonValue | null) {
   return JSON.stringify(value ?? {}, null, 2);
+}
+
+function collapseWhitespace(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function truncatePreview(value: string, maxLength: number) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  if (maxLength <= 3) {
+    return ".".repeat(maxLength);
+  }
+
+  return `${value.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function summarizeCommand(command: string | null) {
+  const preview = collapseWhitespace(command ?? "");
+  if (!preview) {
+    return "Review the requested command below.";
+  }
+
+  return truncatePreview(preview, REQUEST_SUBTITLE_PREVIEW_MAX);
 }
 
 function requestTitle(request: CodexPendingRequest) {
@@ -41,7 +68,7 @@ function requestTitle(request: CodexPendingRequest) {
 function requestSubtitle(request: CodexPendingRequest) {
   switch (request.type) {
     case "command_approval":
-      return request.command ?? "The assistant wants to run a command.";
+      return summarizeCommand(request.command);
     case "file_change_approval":
       return request.reason ?? "The assistant wants to apply file changes.";
     case "permissions_approval":
@@ -160,6 +187,378 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
     });
   };
 
+  let content: ReactNode = null;
+  let footer: ReactNode = null;
+
+  if (request.type === "command_approval") {
+    content = (
+      <>
+        {request.reason ? (
+          <RequestSection title="Reason">
+            <p className="codex-request-copy">{request.reason}</p>
+          </RequestSection>
+        ) : null}
+
+        {request.command ? (
+          <RequestSection title="Command">
+            <pre className="codex-request-code codex-request-code--command">{request.command}</pre>
+            {request.cwd ? <p className="codex-request-meta">cwd: {request.cwd}</p> : null}
+          </RequestSection>
+        ) : null}
+
+        {request.commandActions?.length ? (
+          <RequestSection title="Parsed actions">
+            <div className="sheet-list">
+              {request.commandActions.map((action, index) => (
+                <div key={`${action.type}:${index}`} className="sheet-row">
+                  <div className="sheet-row__copy">
+                    <span className="sheet-row__eyebrow">{action.type}</span>
+                    <span className="sheet-row__title">
+                      {"path" in action && action.path ? action.path : action.command}
+                    </span>
+                    <span className="sheet-row__meta">{action.command}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </RequestSection>
+        ) : null}
+
+        {requestSummary ? (
+          <RequestSection title="Requested access">
+            <div className="sheet-meta">
+              {requestSummary.needsNetwork ? <span className="sheet-meta__badge">network</span> : null}
+              {requestSummary.readPaths.map((path) => (
+                <span key={`read:${path}`} className="sheet-meta__badge">
+                  read {path}
+                </span>
+              ))}
+              {requestSummary.writePaths.map((path) => (
+                <span key={`write:${path}`} className="sheet-meta__badge">
+                  write {path}
+                </span>
+              ))}
+            </div>
+          </RequestSection>
+        ) : null}
+      </>
+    );
+
+    footer = (
+      <div className="codex-request-actions">
+        {request.availableDecisions.includes("accept") ? (
+          <button
+            className="action-button"
+            disabled={isSubmitting}
+            type="button"
+            onClick={() => void respond({ type: "command_approval", decision: "accept" })}
+          >
+            Allow once
+          </button>
+        ) : null}
+        {request.availableDecisions.includes("acceptForSession") ? (
+          <button
+            className="ghost-button"
+            disabled={isSubmitting}
+            type="button"
+            onClick={() => void respond({ type: "command_approval", decision: "acceptForSession" })}
+          >
+            Allow for session
+          </button>
+        ) : null}
+        {request.availableDecisions.includes("decline") ? (
+          <button
+            className="ghost-button ghost-button--danger"
+            disabled={isSubmitting}
+            type="button"
+            onClick={() => void respond({ type: "command_approval", decision: "decline" })}
+          >
+            Decline
+          </button>
+        ) : null}
+        {request.availableDecisions.includes("cancel") ? (
+          <button
+            className="ghost-button"
+            disabled={isSubmitting}
+            type="button"
+            onClick={() => void respond({ type: "command_approval", decision: "cancel" })}
+          >
+            Cancel
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (request.type === "file_change_approval") {
+    content = (
+      <>
+        <RequestSection title="Reason">
+          <p className="codex-request-copy">{request.reason ?? "The assistant wants to apply file changes."}</p>
+        </RequestSection>
+
+        {request.grantRoot ? (
+          <RequestSection title="Requested write root">
+            <pre className="codex-request-code">{request.grantRoot}</pre>
+          </RequestSection>
+        ) : null}
+      </>
+    );
+
+    footer = (
+      <div className="codex-request-actions">
+        <button
+          className="action-button"
+          disabled={isSubmitting}
+          type="button"
+          onClick={() => void respond({ type: "file_change_approval", decision: "accept" })}
+        >
+          Allow once
+        </button>
+        <button
+          className="ghost-button"
+          disabled={isSubmitting}
+          type="button"
+          onClick={() => void respond({ type: "file_change_approval", decision: "acceptForSession" })}
+        >
+          Allow for session
+        </button>
+        <button
+          className="ghost-button ghost-button--danger"
+          disabled={isSubmitting}
+          type="button"
+          onClick={() => void respond({ type: "file_change_approval", decision: "decline" })}
+        >
+          Decline
+        </button>
+        <button
+          className="ghost-button"
+          disabled={isSubmitting}
+          type="button"
+          onClick={() => void respond({ type: "file_change_approval", decision: "cancel" })}
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  if (request.type === "permissions_approval") {
+    content = (
+      <>
+        <RequestSection title="Reason">
+          <p className="codex-request-copy">{request.reason ?? "The assistant wants additional access."}</p>
+        </RequestSection>
+
+        {requestSummary ? (
+          <RequestSection title="Requested access">
+            <div className="sheet-meta">
+              {requestSummary.needsNetwork ? <span className="sheet-meta__badge">network</span> : null}
+              {requestSummary.readPaths.map((path) => (
+                <span key={`read:${path}`} className="sheet-meta__badge">
+                  read {path}
+                </span>
+              ))}
+              {requestSummary.writePaths.map((path) => (
+                <span key={`write:${path}`} className="sheet-meta__badge">
+                  write {path}
+                </span>
+              ))}
+            </div>
+          </RequestSection>
+        ) : null}
+      </>
+    );
+
+    footer = (
+      <div className="codex-request-actions">
+        <button
+          className="action-button"
+          disabled={isSubmitting}
+          type="button"
+          onClick={() =>
+            void respond({
+              type: "permissions_approval",
+              permissions: {
+                network: request.permissions.network ?? undefined,
+                fileSystem: request.permissions.fileSystem ?? undefined
+              },
+              scope: "turn"
+            })
+          }
+        >
+          Allow for turn
+        </button>
+        <button
+          className="ghost-button"
+          disabled={isSubmitting}
+          type="button"
+          onClick={() =>
+            void respond({
+              type: "permissions_approval",
+              permissions: {
+                network: request.permissions.network ?? undefined,
+                fileSystem: request.permissions.fileSystem ?? undefined
+              },
+              scope: "session"
+            })
+          }
+        >
+          Allow for session
+        </button>
+        <button
+          className="ghost-button ghost-button--danger"
+          disabled={isSubmitting}
+          type="button"
+          onClick={() =>
+            void respond({
+              type: "permissions_approval",
+              permissions: {},
+              scope: "turn"
+            })
+          }
+        >
+          Deny
+        </button>
+      </div>
+    );
+  }
+
+  if (request.type === "request_user_input") {
+    content = (
+      <div className="codex-request-question-list">
+        {request.questions.map((question) => (
+          <RequestSection key={question.id} title={question.header}>
+            <p className="codex-request-copy">{question.question}</p>
+            {question.options?.length ? (
+              <div className="codex-request-option-list">
+                {question.options.map((option) => {
+                  const selected = draftAnswers[question.id] === option.label;
+                  return (
+                    <button
+                      key={option.label}
+                      className={`sheet-row sheet-row--button${selected ? " codex-request-option--selected" : ""}`}
+                      disabled={isSubmitting}
+                      type="button"
+                      onClick={() =>
+                        setDraftAnswers((current) => ({
+                          ...current,
+                          [question.id]: option.label
+                        }))
+                      }
+                    >
+                      <div className="sheet-row__copy">
+                        <span className="sheet-row__title">{option.label}</span>
+                        <span className="sheet-row__meta">{option.description}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            <input
+              className="codex-request-input"
+              disabled={isSubmitting}
+              placeholder={question.isOther ? "Other answer" : "Answer"}
+              type={question.isSecret ? "password" : "text"}
+              value={draftAnswers[question.id] ?? ""}
+              onChange={(event) =>
+                setDraftAnswers((current) => ({
+                  ...current,
+                  [question.id]: event.target.value
+                }))
+              }
+            />
+          </RequestSection>
+        ))}
+      </div>
+    );
+
+    footer = (
+      <div className="codex-request-actions">
+        <button className="action-button" disabled={isSubmitting} type="button" onClick={() => void submitRequestUserInput()}>
+          Submit answers
+        </button>
+      </div>
+    );
+  }
+
+  if (request.type === "mcp_elicitation") {
+    content = (
+      <>
+        <RequestSection title="Server">
+          <p className="codex-request-copy">{request.serverName}</p>
+        </RequestSection>
+
+        <RequestSection title="Message">
+          <p className="codex-request-copy">{request.message}</p>
+        </RequestSection>
+
+        {request.mode === "url" ? (
+          <RequestSection title="URL">
+            <a className="codex-request-link" href={request.url} rel="noreferrer" target="_blank">
+              {request.url}
+            </a>
+          </RequestSection>
+        ) : (
+          <>
+            <RequestSection title="Requested schema">
+              <pre className="codex-request-code">{prettyJson(request.requestedSchema)}</pre>
+            </RequestSection>
+
+            <RequestSection title="Response JSON">
+              <textarea
+                className="codex-request-textarea"
+                disabled={isSubmitting}
+                rows={8}
+                value={mcpContent}
+                onChange={(event) => setMcpContent(event.target.value)}
+              />
+            </RequestSection>
+          </>
+        )}
+      </>
+    );
+
+    footer = (
+      <div className="codex-request-actions">
+        <button className="action-button" disabled={isSubmitting} type="button" onClick={() => void submitMcpAccept()}>
+          Accept
+        </button>
+        <button
+          className="ghost-button ghost-button--danger"
+          disabled={isSubmitting}
+          type="button"
+          onClick={() =>
+            void respond({
+              type: "mcp_elicitation",
+              action: "decline",
+              content: null,
+              meta: request.meta
+            })
+          }
+        >
+          Decline
+        </button>
+        <button
+          className="ghost-button"
+          disabled={isSubmitting}
+          type="button"
+          onClick={() =>
+            void respond({
+              type: "mcp_elicitation",
+              action: "cancel",
+              content: null,
+              meta: request.meta
+            })
+          }
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
   return (
     <FloatingPortal>
       <div className="bottom-sheet-backdrop codex-request-backdrop" role="presentation">
@@ -175,360 +574,14 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
             </div>
           </header>
 
-          <div className="bottom-sheet__body codex-request-sheet__body">
-            {request.type === "command_approval" ? (
-              <>
-                {request.reason ? (
-                  <RequestSection title="Reason">
-                    <p className="codex-request-copy">{request.reason}</p>
-                  </RequestSection>
-                ) : null}
+          <div className="bottom-sheet__body codex-request-sheet__body">{content}</div>
 
-                {request.command ? (
-                  <RequestSection title="Command">
-                    <pre className="codex-request-code">{request.command}</pre>
-                    {request.cwd ? <p className="codex-request-meta">cwd: {request.cwd}</p> : null}
-                  </RequestSection>
-                ) : null}
-
-                {request.commandActions?.length ? (
-                  <RequestSection title="Parsed actions">
-                    <div className="sheet-list">
-                      {request.commandActions.map((action, index) => (
-                        <div key={`${action.type}:${index}`} className="sheet-row">
-                          <div className="sheet-row__copy">
-                            <span className="sheet-row__eyebrow">{action.type}</span>
-                            <span className="sheet-row__title">
-                              {"path" in action && action.path ? action.path : action.command}
-                            </span>
-                            <span className="sheet-row__meta">{action.command}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </RequestSection>
-                ) : null}
-
-                {requestSummary ? (
-                  <RequestSection title="Requested access">
-                    <div className="sheet-meta">
-                      {requestSummary.needsNetwork ? <span className="sheet-meta__badge">network</span> : null}
-                      {requestSummary.readPaths.map((path) => (
-                        <span key={`read:${path}`} className="sheet-meta__badge">
-                          read {path}
-                        </span>
-                      ))}
-                      {requestSummary.writePaths.map((path) => (
-                        <span key={`write:${path}`} className="sheet-meta__badge">
-                          write {path}
-                        </span>
-                      ))}
-                    </div>
-                  </RequestSection>
-                ) : null}
-
-                <div className="codex-request-actions">
-                  {request.availableDecisions.includes("accept") ? (
-                    <button
-                      className="action-button"
-                      disabled={isSubmitting}
-                      type="button"
-                      onClick={() => void respond({ type: "command_approval", decision: "accept" })}
-                    >
-                      Allow once
-                    </button>
-                  ) : null}
-                  {request.availableDecisions.includes("acceptForSession") ? (
-                    <button
-                      className="ghost-button"
-                      disabled={isSubmitting}
-                      type="button"
-                      onClick={() => void respond({ type: "command_approval", decision: "acceptForSession" })}
-                    >
-                      Allow for session
-                    </button>
-                  ) : null}
-                  {request.availableDecisions.includes("decline") ? (
-                    <button
-                      className="ghost-button ghost-button--danger"
-                      disabled={isSubmitting}
-                      type="button"
-                      onClick={() => void respond({ type: "command_approval", decision: "decline" })}
-                    >
-                      Decline
-                    </button>
-                  ) : null}
-                  {request.availableDecisions.includes("cancel") ? (
-                    <button
-                      className="ghost-button"
-                      disabled={isSubmitting}
-                      type="button"
-                      onClick={() => void respond({ type: "command_approval", decision: "cancel" })}
-                    >
-                      Cancel
-                    </button>
-                  ) : null}
-                </div>
-              </>
-            ) : null}
-
-            {request.type === "file_change_approval" ? (
-              <>
-                <RequestSection title="Reason">
-                  <p className="codex-request-copy">{request.reason ?? "The assistant wants to apply file changes."}</p>
-                </RequestSection>
-
-                {request.grantRoot ? (
-                  <RequestSection title="Requested write root">
-                    <pre className="codex-request-code">{request.grantRoot}</pre>
-                  </RequestSection>
-                ) : null}
-
-                <div className="codex-request-actions">
-                  <button
-                    className="action-button"
-                    disabled={isSubmitting}
-                    type="button"
-                    onClick={() => void respond({ type: "file_change_approval", decision: "accept" })}
-                  >
-                    Allow once
-                  </button>
-                  <button
-                    className="ghost-button"
-                    disabled={isSubmitting}
-                    type="button"
-                    onClick={() => void respond({ type: "file_change_approval", decision: "acceptForSession" })}
-                  >
-                    Allow for session
-                  </button>
-                  <button
-                    className="ghost-button ghost-button--danger"
-                    disabled={isSubmitting}
-                    type="button"
-                    onClick={() => void respond({ type: "file_change_approval", decision: "decline" })}
-                  >
-                    Decline
-                  </button>
-                  <button
-                    className="ghost-button"
-                    disabled={isSubmitting}
-                    type="button"
-                    onClick={() => void respond({ type: "file_change_approval", decision: "cancel" })}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </>
-            ) : null}
-
-            {request.type === "permissions_approval" ? (
-              <>
-                <RequestSection title="Reason">
-                  <p className="codex-request-copy">{request.reason ?? "The assistant wants additional access."}</p>
-                </RequestSection>
-
-                {requestSummary ? (
-                  <RequestSection title="Requested access">
-                    <div className="sheet-meta">
-                      {requestSummary.needsNetwork ? <span className="sheet-meta__badge">network</span> : null}
-                      {requestSummary.readPaths.map((path) => (
-                        <span key={`read:${path}`} className="sheet-meta__badge">
-                          read {path}
-                        </span>
-                      ))}
-                      {requestSummary.writePaths.map((path) => (
-                        <span key={`write:${path}`} className="sheet-meta__badge">
-                          write {path}
-                        </span>
-                      ))}
-                    </div>
-                  </RequestSection>
-                ) : null}
-
-                <div className="codex-request-actions">
-                  <button
-                    className="action-button"
-                    disabled={isSubmitting}
-                    type="button"
-                    onClick={() =>
-                      void respond({
-                        type: "permissions_approval",
-                        permissions: {
-                          network: request.permissions.network ?? undefined,
-                          fileSystem: request.permissions.fileSystem ?? undefined
-                        },
-                        scope: "turn"
-                      })
-                    }
-                  >
-                    Allow for turn
-                  </button>
-                  <button
-                    className="ghost-button"
-                    disabled={isSubmitting}
-                    type="button"
-                    onClick={() =>
-                      void respond({
-                        type: "permissions_approval",
-                        permissions: {
-                          network: request.permissions.network ?? undefined,
-                          fileSystem: request.permissions.fileSystem ?? undefined
-                        },
-                        scope: "session"
-                      })
-                    }
-                  >
-                    Allow for session
-                  </button>
-                  <button
-                    className="ghost-button ghost-button--danger"
-                    disabled={isSubmitting}
-                    type="button"
-                    onClick={() =>
-                      void respond({
-                        type: "permissions_approval",
-                        permissions: {},
-                        scope: "turn"
-                      })
-                    }
-                  >
-                    Deny
-                  </button>
-                </div>
-              </>
-            ) : null}
-
-            {request.type === "request_user_input" ? (
-              <>
-                <div className="codex-request-question-list">
-                  {request.questions.map((question) => (
-                    <RequestSection key={question.id} title={question.header}>
-                      <p className="codex-request-copy">{question.question}</p>
-                      {question.options?.length ? (
-                        <div className="codex-request-option-list">
-                          {question.options.map((option) => {
-                            const selected = draftAnswers[question.id] === option.label;
-                            return (
-                              <button
-                                key={option.label}
-                                className={`sheet-row sheet-row--button${selected ? " codex-request-option--selected" : ""}`}
-                                disabled={isSubmitting}
-                                type="button"
-                                onClick={() =>
-                                  setDraftAnswers((current) => ({
-                                    ...current,
-                                    [question.id]: option.label
-                                  }))
-                                }
-                              >
-                                <div className="sheet-row__copy">
-                                  <span className="sheet-row__title">{option.label}</span>
-                                  <span className="sheet-row__meta">{option.description}</span>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                      <input
-                        className="codex-request-input"
-                        disabled={isSubmitting}
-                        placeholder={question.isOther ? "Other answer" : "Answer"}
-                        type={question.isSecret ? "password" : "text"}
-                        value={draftAnswers[question.id] ?? ""}
-                        onChange={(event) =>
-                          setDraftAnswers((current) => ({
-                            ...current,
-                            [question.id]: event.target.value
-                          }))
-                        }
-                      />
-                    </RequestSection>
-                  ))}
-                </div>
-
-                <div className="codex-request-actions">
-                  <button className="action-button" disabled={isSubmitting} type="button" onClick={() => void submitRequestUserInput()}>
-                    Submit answers
-                  </button>
-                </div>
-              </>
-            ) : null}
-
-            {request.type === "mcp_elicitation" ? (
-              <>
-                <RequestSection title="Server">
-                  <p className="codex-request-copy">{request.serverName}</p>
-                </RequestSection>
-
-                <RequestSection title="Message">
-                  <p className="codex-request-copy">{request.message}</p>
-                </RequestSection>
-
-                {request.mode === "url" ? (
-                  <RequestSection title="URL">
-                    <a className="codex-request-link" href={request.url} rel="noreferrer" target="_blank">
-                      {request.url}
-                    </a>
-                  </RequestSection>
-                ) : (
-                  <>
-                    <RequestSection title="Requested schema">
-                      <pre className="codex-request-code">{prettyJson(request.requestedSchema)}</pre>
-                    </RequestSection>
-
-                    <RequestSection title="Response JSON">
-                      <textarea
-                        className="codex-request-textarea"
-                        disabled={isSubmitting}
-                        rows={8}
-                        value={mcpContent}
-                        onChange={(event) => setMcpContent(event.target.value)}
-                      />
-                    </RequestSection>
-                  </>
-                )}
-
-                <div className="codex-request-actions">
-                  <button className="action-button" disabled={isSubmitting} type="button" onClick={() => void submitMcpAccept()}>
-                    Accept
-                  </button>
-                  <button
-                    className="ghost-button ghost-button--danger"
-                    disabled={isSubmitting}
-                    type="button"
-                    onClick={() =>
-                      void respond({
-                        type: "mcp_elicitation",
-                        action: "decline",
-                        content: null,
-                        meta: request.meta
-                      })
-                    }
-                  >
-                    Decline
-                  </button>
-                  <button
-                    className="ghost-button"
-                    disabled={isSubmitting}
-                    type="button"
-                    onClick={() =>
-                      void respond({
-                        type: "mcp_elicitation",
-                        action: "cancel",
-                        content: null,
-                        meta: request.meta
-                      })
-                    }
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </>
-            ) : null}
-
-            {localError || submitError ? <p className="codex-request-error">{localError ?? submitError}</p> : null}
-          </div>
+          {footer || localError || submitError ? (
+            <div className="codex-request-footer">
+              {footer}
+              {localError || submitError ? <p className="codex-request-error">{localError ?? submitError}</p> : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </FloatingPortal>

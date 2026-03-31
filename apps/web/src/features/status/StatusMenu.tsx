@@ -479,7 +479,7 @@ export function StatusMenu({ isMobileViewport }: Props) {
       case "enabled":
         return {
           title: "Notifications",
-          detail: "Get a push notification when a run completes or fails.",
+          detail: "Get a push notification when a run finishes or Codex needs your attention.",
           actionLabel: "Turn off",
           action: "disable" as NotificationAction,
           disabled: false,
@@ -543,7 +543,7 @@ export function StatusMenu({ isMobileViewport }: Props) {
       default:
         return {
           title: "Notifications",
-          detail: "Get a push notification when a run completes or fails.",
+          detail: "Get a push notification when a run finishes or Codex needs your attention.",
           actionLabel: "Enable",
           action: "enable" as NotificationAction,
           disabled: false,

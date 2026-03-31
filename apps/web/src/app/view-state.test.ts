@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { Message, SessionDetail, SessionSummary } from "@codex-remote/shared-types";
-import { buildChatViewState, mergeSessionSummaryIntoDetail } from "./view-state";
+import { buildChatViewState, mergeSessionSummaryIntoDetail, sessionDetailSyncKey } from "./view-state";
 
 const summary: SessionSummary = {
   id: "session-1",
@@ -20,6 +20,7 @@ const summary: SessionSummary = {
   statusConfidence: "authoritative",
   latestTurnStatus: "completed",
   threadStatusType: "idle",
+  pendingRequestCount: 0,
   hasUnreadCompletion: false,
   hasUnreadError: false,
   createdAt: "2026-03-31T15:00:00.000Z",
@@ -115,4 +116,18 @@ test("mergeSessionSummaryIntoDetail refreshes the session summary while preservi
   assert.equal(merged?.activeRun, detailWithExtras.activeRun);
   assert.equal(merged?.latestRun, detailWithExtras.latestRun);
   assert.equal(merged?.runSettings, detailWithExtras.runSettings);
+});
+
+test("sessionDetailSyncKey changes when a polled summary gets ahead of detail state", () => {
+  const polledSummary: SessionSummary = {
+    ...summary,
+    status: "running",
+    statusReasonCode: "thread_active",
+    latestTurnStatus: "inProgress",
+    threadStatusType: "active",
+    lastUserMessageAt: "2026-03-31T15:02:00.000Z",
+    updatedAt: "2026-03-31T15:02:00.000Z"
+  };
+
+  assert.notEqual(sessionDetailSyncKey(summary), sessionDetailSyncKey(polledSummary));
 });

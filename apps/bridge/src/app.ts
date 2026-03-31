@@ -178,9 +178,39 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
       realtime.broadcastPong();
     }
   });
-  const runs = new RunService(config, catalog, realtime, codex, uploads, pushNotifications, app.log, codexDebugLog);
-  const presentSessions = (sessions: SessionSummary[]) => runs.presentSessionSummaries(sessions);
-  const presentDetail = (detail: SessionDetail) => runs.presentSessionDetail(detail);
+  const runs = new RunService(
+    config,
+    catalog,
+    realtime,
+    codex,
+    uploads,
+    pushNotifications,
+    app.log,
+    codexDebugLog
+  );
+  const withPendingRequestCount = (session: SessionSummary) => {
+    const pendingRequestCount = codex.listPendingRequests(session.id).length;
+    return session.pendingRequestCount === pendingRequestCount ? session : { ...session, pendingRequestCount };
+  };
+  const withPendingRequestCounts = (sessions: SessionSummary[]) => {
+    const counts = new Map<string, number>();
+
+    for (const request of codex.listPendingRequests()) {
+      counts.set(request.sessionId, (counts.get(request.sessionId) ?? 0) + 1);
+    }
+
+    return sessions.map((session) => {
+      const pendingRequestCount = counts.get(session.id) ?? 0;
+      return session.pendingRequestCount === pendingRequestCount ? session : { ...session, pendingRequestCount };
+    });
+  };
+  const presentSession = (session: SessionSummary) => withPendingRequestCount(runs.presentSessionSummary(session));
+  const presentSessions = (sessions: SessionSummary[]) => withPendingRequestCounts(runs.presentSessionSummaries(sessions));
+  const presentDetail = (detail: SessionDetail) => {
+    const presented = runs.presentSessionDetail(detail);
+    const session = withPendingRequestCount(presented.session);
+    return session === presented.session ? presented : { ...presented, session };
+  };
 
   await app.register(cors, {
     origin: true,
@@ -340,7 +370,7 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
   app.post("/api/sessions", async (request, reply) => {
     const body = createSessionSchema.parse(request.body) as CreateSessionRequest;
     try {
-      const session = runs.presentSessionSummary(await catalog.createSession(body.repoId));
+      const session = presentSession(await catalog.createSession(body.repoId));
       return { session };
     } catch (error) {
       return reply.code(400).send({ message: error instanceof Error ? error.message : "Unable to create session" });

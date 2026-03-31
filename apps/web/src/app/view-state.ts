@@ -51,6 +51,7 @@ export function buildPendingSessionSummary(thread: PendingThread): SessionSummar
     latestTurnStatus: "inProgress",
     threadStatusType: "active",
     latestUserPrompt: prompt || undefined,
+    pendingRequestCount: 0,
     hasUnreadCompletion: false,
     hasUnreadError: false,
     createdAt: thread.createdAt,
@@ -83,6 +84,7 @@ export function buildDraftSessionDetail(sessionId: string, repo: Repository, cre
       lastMessageAt: createdAt,
       statusReasonCode: "empty_thread",
       statusConfidence: "authoritative",
+      pendingRequestCount: 0,
       hasUnreadCompletion: false,
       hasUnreadError: false,
       createdAt,
@@ -125,6 +127,26 @@ export function mergeSessionSummaryIntoDetail(
     ...detail,
     session: summary
   };
+}
+
+export function sessionDetailSyncKey(session: SessionSummary | null | undefined) {
+  if (!session) {
+    return null;
+  }
+
+  return JSON.stringify([
+    session.id,
+    session.updatedAt,
+    session.lastMessageAt,
+    session.lastUserMessageAt ?? null,
+    session.lastRunFinishedAt ?? null,
+    session.status,
+    session.statusReasonCode ?? null,
+    session.statusConfidence ?? null,
+    session.latestTurnStatus ?? null,
+    session.threadStatusType ?? null,
+    session.isArchived
+  ]);
 }
 
 export function buildSidebarViewState({

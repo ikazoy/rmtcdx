@@ -156,7 +156,8 @@ export class LiveCatalogService {
     return {
       session: this.mapThreadSummary(context),
       activeRun: runOverride?.activeRun ?? derivedRuns.activeRun,
-      latestRun: runOverride?.latestRun ?? derivedRuns.latestRun
+      latestRun: runOverride?.latestRun ?? derivedRuns.latestRun,
+      runSettings: null
     } satisfies SessionDetail;
   }
 
@@ -371,6 +372,7 @@ export class LiveCatalogService {
       threadStatusType: context.thread.status.type,
       latestUserPrompt: context.thread.preview.trim() || undefined,
       latestAssistantExcerpt: undefined,
+      pendingRequestCount: 0,
       hasUnreadCompletion: false,
       hasUnreadError: false,
       createdAt,

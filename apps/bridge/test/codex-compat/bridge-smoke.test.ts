@@ -10,6 +10,7 @@ import type {
   CodexAvailableModel,
   CodexPendingRequest,
   CodexPendingRequestResponse,
+  CodexRunSettings,
   ServerWsEvent
 } from "@codex-remote/shared-types";
 import { buildApp } from "../../src/app";
@@ -319,7 +320,7 @@ class FixtureBridgeBackend extends EventEmitter implements CodexBackend {
 
   getState(): CodexRuntimeState {
     return {
-      mode: "mock",
+      mode: "real",
       ready: true,
       childAlive: false,
       restarts: 0

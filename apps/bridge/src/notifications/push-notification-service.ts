@@ -6,6 +6,7 @@ import webpush from "web-push";
 import { z } from "zod";
 
 import type {
+  CodexPendingRequest,
   NotificationsConfigResponse,
   Run,
   SavePushSubscriptionRequest,
@@ -64,7 +65,8 @@ type PushPayload = {
   data: {
     url: string;
     sessionId: string;
-    runId: string;
+    runId?: string;
+    requestId?: string;
   };
 };
 
@@ -74,8 +76,27 @@ function isNotifiableRunStatus(status: Run["status"]): status is Extract<Run["st
   return notifiableRunStatuses.has(status);
 }
 
-function buildPayload(detail: SessionDetail, run: Run): PushPayload {
+function pendingRequestLabel(request: CodexPendingRequest) {
+  switch (request.type) {
+    case "command_approval":
+      return "Command approval required";
+    case "file_change_approval":
+      return "File change approval required";
+    case "permissions_approval":
+      return "Permission approval required";
+    case "request_user_input":
+      return "Input required";
+    case "mcp_elicitation":
+      return "MCP confirmation required";
+  }
+}
+
+function sessionUrl(detail: SessionDetail) {
   const encodedSessionId = encodeURIComponent(detail.session.id);
+  return `/sessions/${encodedSessionId}`;
+}
+
+function buildRunPayload(detail: SessionDetail, run: Run): PushPayload {
   const statusLabel = run.status.slice(0, 1).toUpperCase() + run.status.slice(1);
   const body = `Thread: ${detail.session.title} · Status: ${run.status}`;
 
@@ -88,9 +109,28 @@ function buildPayload(detail: SessionDetail, run: Run): PushPayload {
     renotify: run.status === "error",
     requireInteraction: run.status === "error",
     data: {
-      url: `/sessions/${encodedSessionId}`,
+      url: sessionUrl(detail),
       sessionId: detail.session.id,
       runId: run.id
+    }
+  };
+}
+
+function buildPendingRequestPayload(detail: SessionDetail, request: CodexPendingRequest): PushPayload {
+  const label = pendingRequestLabel(request);
+
+  return {
+    title: `Rmtcdx · ${label}`,
+    body: `Thread: ${detail.session.title} · ${label}`,
+    tag: `request:${request.id}`,
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    renotify: true,
+    requireInteraction: true,
+    data: {
+      url: sessionUrl(detail),
+      sessionId: detail.session.id,
+      requestId: request.id
     }
   };
 }
@@ -171,6 +211,21 @@ export class PushNotificationService {
       return;
     }
 
+    await this.sendPayload(buildRunPayload(detail, run), {
+      runId: run.id,
+      sessionId: run.sessionId
+    });
+  }
+
+  async notifyPendingRequest(detail: SessionDetail, request: CodexPendingRequest) {
+    await this.sendPayload(buildPendingRequestPayload(detail, request), {
+      requestId: request.id,
+      sessionId: request.sessionId
+    });
+  }
+
+  private async sendPayload(payload: PushPayload, logContext: Record<string, string>) {
+
     const subscriptions = [...this.state.notifications.subscriptions].sort((left, right) =>
       right.updatedAt.localeCompare(left.updatedAt)
     );
@@ -179,7 +234,7 @@ export class PushNotificationService {
       return;
     }
 
-    const payload = JSON.stringify(buildPayload(detail, run));
+    const serializedPayload = JSON.stringify(payload);
 
     await Promise.all(
       subscriptions.map(async (subscription) => {
@@ -193,7 +248,7 @@ export class PushNotificationService {
                 auth: subscription.keys.auth
               }
             },
-            payload
+            serializedPayload
           );
         } catch (error) {
           const statusCode = typeof error === "object" && error && "statusCode" in error ? Number(error.statusCode) : 0;
@@ -206,8 +261,7 @@ export class PushNotificationService {
             {
               err: error,
               endpoint: subscription.endpoint,
-              runId: run.id,
-              sessionId: run.sessionId
+              ...logContext
             },
             "Unable to deliver push notification"
           );

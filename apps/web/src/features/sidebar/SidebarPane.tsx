@@ -13,7 +13,7 @@ import {
 } from "../repos/repo-presentation";
 import { WorkspaceCombobox } from "../repos/WorkspaceCombobox";
 import { StatusMenu } from "../status/StatusMenu";
-import { sessionDisplayStatus } from "../sessions/session-state";
+import { sessionDisplayStatus, sessionIndicatorTone } from "../sessions/session-state";
 import { useUiStore } from "../../store/ui-store";
 
 type Props = {
@@ -407,9 +407,10 @@ export function SidebarPane({
                             key={session.id}
                             session={session}
                             isActive={selectedSessionId === session.id}
-                            pendingRequestCount={
+                            pendingRequestCount={Math.max(
+                              session.pendingRequestCount,
                               selectedSessionId === session.id ? selectedSessionPendingRequestCount : 0
-                            }
+                            )}
                             onSelect={onSelectSession}
                             onHover={onHoverSession}
                             repoVariantLabel={formatSessionRepoVariantLabel(session)}
@@ -428,9 +429,10 @@ export function SidebarPane({
                       key={session.id}
                       session={session}
                       isActive={selectedSessionId === session.id}
-                      pendingRequestCount={
+                      pendingRequestCount={Math.max(
+                        session.pendingRequestCount,
                         selectedSessionId === session.id ? selectedSessionPendingRequestCount : 0
-                      }
+                      )}
                       onSelect={onSelectSession}
                       onHover={onHoverSession}
                       repoVariantLabel={null}
@@ -546,6 +548,10 @@ function SessionRow({
   repoVariantLabel: string | null;
 }) {
   const displayStatus = sessionDisplayStatus(session);
+  const indicatorTone = sessionIndicatorTone({
+    ...session,
+    pendingRequestCount
+  });
 
   return (
     <button
@@ -556,7 +562,7 @@ function SessionRow({
     >
       <div className="session-row__head">
         <div className="session-row__titleline">
-          <span className={`session-dot session-dot--${displayStatus}`} />
+          <span className={`session-dot session-dot--${indicatorTone}`} />
           <strong>{session.title}</strong>
         </div>
         <span className="session-row__time">{formatRelativeTime(sessionSortAt(session))}</span>

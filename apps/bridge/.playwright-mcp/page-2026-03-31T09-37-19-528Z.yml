@@ -1,0 +1,267 @@
+- generic [ref=e1]:
+  - main [ref=e4]:
+    - generic [ref=e43]:
+      - generic [ref=e4532]:
+        - generic [ref=e4533]:
+          - button "Back to sidebar" [ref=e4535] [cursor=pointer]:
+            - img [ref=e4536]
+          - generic [ref=e4538]:
+            - heading "長すぎるcommandだと壊れる" [level=2] [ref=e4540]: 長すぎるcommandだと壊れる
+            - paragraph [ref=e4542]: Updated this minute · remote-control-codex · main
+        - button "Open thread actions" [expanded] [active] [ref=e4544] [cursor=pointer]:
+          - generic [ref=e4545]: Open thread actions
+          - img [ref=e4546]
+      - generic [ref=e4552]:
+        - generic [ref=e4876]:
+          - strong [ref=e4878]: 1 task running
+          - article [ref=e4880]:
+            - generic [ref=e4881]:
+              - generic [ref=e4882]: tool
+              - generic [ref=e4883]: this minute
+            - generic [ref=e4884]: playwright:browser_click
+        - article [ref=e4562]:
+          - generic [ref=e4563]:
+            - generic [ref=e4564]:
+              - generic [ref=e4565]: 1 image attached
+              - button "Open 1000013530.jpg" [ref=e4566]:
+                - img "1000013530.jpg" [ref=e4567]
+            - paragraph [ref=e4569]: 長すぎるcommandだと壊れる
+        - article [ref=e4570]:
+          - paragraph [ref=e4573]: 長い command が表示されるケースでモバイル UI が崩れている問題として見ます。まず該当文言の実装箇所と、コマンド表示用コンポーネントの CSS を確認します。
+        - article [ref=e4574]:
+          - button "Ran 2 commands › Bash /bin/zsh -lc 'rg --files apps/web apps/bridge packages' Bash /bin/zsh -lc 'rg -n \"Command approval required|Reason|approval required|command\" apps packages -S'" [ref=e4575] [cursor=pointer]:
+            - generic [ref=e4577]:
+              - strong [ref=e4578]: Ran 2 commands
+              - generic [ref=e4579]: ›
+            - generic [ref=e4580]:
+              - generic [ref=e4581]:
+                - img [ref=e4583]
+                - generic [ref=e4587]:
+                  - generic [ref=e4588]: Bash
+                  - generic [ref=e4589]: /bin/zsh -lc 'rg --files apps/web apps/bridge packages'
+              - generic [ref=e4590]:
+                - img [ref=e4592]
+                - generic [ref=e4596]:
+                  - generic [ref=e4597]: Bash
+                  - generic [ref=e4598]: /bin/zsh -lc 'rg -n "Command approval required|Reason|approval required|command" apps packages -S'
+        - article [ref=e4599]:
+          - paragraph [ref=e4602]:
+            - text: 該当箇所は
+            - code [ref=e4603]: command_approval
+            - text: の pending request UI です。コンポーネントとスタイルを開いて、どこが折り返されずに横に突き抜けるかを見ています。
+        - article [ref=e4604]:
+          - button "Ran 4 commands › Bash /bin/zsh -lc \"sed -n '1,260p' apps/web/src/features/codex-requests/CodexRequestDialog.tsx\" Bash /bin/zsh -lc 'rg -n \"codex-request|command approval|pending request|request-dialog|Reason|pre>|code\" apps/web/src/styles/global.css apps/web/src/features/chat/ChatPane.tsx apps/web/src/features/codex-requests/CodexRequestDialog.tsx -S' Bash /bin/zsh -lc \"sed -n '2860,3018p' apps/web/src/styles/global.css\" +1" [ref=e4605] [cursor=pointer]:
+            - generic [ref=e4607]:
+              - strong [ref=e4608]: Ran 4 commands
+              - generic [ref=e4609]: ›
+            - generic [ref=e4610]:
+              - generic [ref=e4611]:
+                - img [ref=e4613]
+                - generic [ref=e4617]:
+                  - generic [ref=e4618]: Bash
+                  - generic [ref=e4619]: /bin/zsh -lc "sed -n '1,260p' apps/web/src/features/codex-requests/CodexRequestDialog.tsx"
+              - generic [ref=e4620]:
+                - img [ref=e4622]
+                - generic [ref=e4626]:
+                  - generic [ref=e4627]: Bash
+                  - generic [ref=e4628]: /bin/zsh -lc 'rg -n "codex-request|command approval|pending request|request-dialog|Reason|pre>|code" apps/web/src/styles/global.css apps/web/src/features/chat/ChatPane.tsx apps/web/src/features/codex-requests/CodexRequestDialog.tsx -S'
+              - generic [ref=e4629]:
+                - img [ref=e4631]
+                - generic [ref=e4635]:
+                  - generic [ref=e4636]: Bash
+                  - generic [ref=e4637]: /bin/zsh -lc "sed -n '2860,3018p' apps/web/src/styles/global.css"
+            - generic [ref=e4638]: "+1"
+        - article [ref=e4639]:
+          - paragraph [ref=e4642]:
+            - text: 原因はほぼ見えました。
+            - code [ref=e4643]: command_approval
+            - text: でヘッダーのサブタイトルにコマンド全文を入れていて、モバイルではそこが何十行にも膨らんでいます。全文は本文の
+            - code [ref=e4644]: pre
+            - text: に残して、ヘッダーは短い要約に変えます。
+        - article [ref=e4645]:
+          - button "Ran 10 commands › Bash /bin/zsh -lc \"sed -n '1,180p' apps/web/src/features/chat/ChatPane.tsx\" Bash /bin/zsh -lc 'rg -n \"function MiddleTruncate|const MiddleTruncate|MiddleTruncate\" apps/web/src/features/chat/ChatPane.tsx apps/web/src/components -S' Bash /bin/zsh -lc 'rg -n \"sheet-row__title|sheet-row__copy|bottom-sheet__headline|sheet-row\" apps/web/src/styles/global.css -S' +7" [ref=e4646] [cursor=pointer]:
+            - generic [ref=e4648]:
+              - strong [ref=e4649]: Ran 10 commands
+              - generic [ref=e4650]: ›
+            - generic [ref=e4651]:
+              - generic [ref=e4652]:
+                - img [ref=e4654]
+                - generic [ref=e4658]:
+                  - generic [ref=e4659]: Bash
+                  - generic [ref=e4660]: /bin/zsh -lc "sed -n '1,180p' apps/web/src/features/chat/ChatPane.tsx"
+              - generic [ref=e4661]:
+                - img [ref=e4663]
+                - generic [ref=e4667]:
+                  - generic [ref=e4668]: Bash
+                  - generic [ref=e4669]: /bin/zsh -lc 'rg -n "function MiddleTruncate|const MiddleTruncate|MiddleTruncate" apps/web/src/features/chat/ChatPane.tsx apps/web/src/components -S'
+              - generic [ref=e4670]:
+                - img [ref=e4672]
+                - generic [ref=e4676]:
+                  - generic [ref=e4677]: Bash
+                  - generic [ref=e4678]: /bin/zsh -lc 'rg -n "sheet-row__title|sheet-row__copy|bottom-sheet__headline|sheet-row" apps/web/src/styles/global.css -S'
+            - generic [ref=e4679]: "+7"
+        - article [ref=e4680]:
+          - paragraph [ref=e4683]:
+            - code [ref=e4684]: pre
+            - text: 自体はスクロール可能なので致命点はヘッダー側ですが、再現確認もしておきます。まずは見出しの要約化を入れて、その後に型チェックと画面確認を回します。
+        - article [ref=e4685]:
+          - button "Ran 6 commands › Bash /bin/zsh -lc \"sed -n '220,270p' packages/shared-types/src/index.ts\" Bash /bin/zsh -lc 'git status --short' Bash /bin/zsh -lc \"sed -n '1,220p' apps/web/src/components/formatters.ts\" +3" [ref=e4686] [cursor=pointer]:
+            - generic [ref=e4688]:
+              - strong [ref=e4689]: Ran 6 commands
+              - generic [ref=e4690]: ›
+            - generic [ref=e4691]:
+              - generic [ref=e4692]:
+                - img [ref=e4694]
+                - generic [ref=e4698]:
+                  - generic [ref=e4699]: Bash
+                  - generic [ref=e4700]: /bin/zsh -lc "sed -n '220,270p' packages/shared-types/src/index.ts"
+              - generic [ref=e4701]:
+                - img [ref=e4703]
+                - generic [ref=e4707]:
+                  - generic [ref=e4708]: Bash
+                  - generic [ref=e4709]: /bin/zsh -lc 'git status --short'
+              - generic [ref=e4710]:
+                - img [ref=e4712]
+                - generic [ref=e4716]:
+                  - generic [ref=e4717]: Bash
+                  - generic [ref=e4718]: /bin/zsh -lc "sed -n '1,220p' apps/web/src/components/formatters.ts"
+            - generic [ref=e4719]: "+3"
+        - article [ref=e4720]:
+          - paragraph [ref=e4723]: ヘッダー要約とコマンド表示の 2 点を直します。全文コマンドは本文に残しつつ、見出しは短いプレビューにし、本文のコマンドは折り返しではなく横スクロール寄りに変えます。
+        - article [ref=e4724]:
+          - button "Edited 2 files › Edit /Users/ikazoy/workspace/8d/remote-control-codex/apps/web/src/features/codex-requests/CodexRequestDialog.tsx Edit /Users/ikazoy/workspace/8d/remote-control-codex/apps/web/src/styles/global.css" [ref=e4725] [cursor=pointer]:
+            - generic [ref=e4727]:
+              - strong [ref=e4728]: Edited 2 files
+              - generic [ref=e4729]: ›
+            - generic [ref=e4730]:
+              - generic [ref=e4731]:
+                - img [ref=e4733]
+                - generic [ref=e4738]:
+                  - generic [ref=e4739]: Edit
+                  - generic "/Users/ikazoy/workspace/8d/remote-control-codex/apps/web/src/features/codex-requests/CodexRequestDialog.tsx" [ref=e4740]
+              - generic [ref=e4741]:
+                - img [ref=e4743]
+                - generic [ref=e4748]:
+                  - generic [ref=e4749]: Edit
+                  - generic "/Users/ikazoy/workspace/8d/remote-control-codex/apps/web/src/styles/global.css" [ref=e4750]
+        - article [ref=e4751]:
+          - paragraph [ref=e4754]:
+            - text: パッチは入れました。これから
+            - code [ref=e4755]: web
+            - text: 側の型チェックを通し、その後ブラウザで長い command を出して見た目を確認します。
+        - article [ref=e4756]:
+          - button "Ran 2 commands › Bash /bin/zsh -lc 'git diff -- apps/web/src/features/codex-requests/CodexRequestDialog.tsx apps/web/src/styles/global.css' Bash /bin/zsh -lc 'npm run typecheck -w @codex-remote/web'" [ref=e4757] [cursor=pointer]:
+            - generic [ref=e4759]:
+              - strong [ref=e4760]: Ran 2 commands
+              - generic [ref=e4761]: ›
+            - generic [ref=e4762]:
+              - generic [ref=e4763]:
+                - img [ref=e4765]
+                - generic [ref=e4769]:
+                  - generic [ref=e4770]: Bash
+                  - generic [ref=e4771]: /bin/zsh -lc 'git diff -- apps/web/src/features/codex-requests/CodexRequestDialog.tsx apps/web/src/styles/global.css'
+              - generic [ref=e4772]:
+                - img [ref=e4774]
+                - generic [ref=e4778]:
+                  - generic [ref=e4779]: Bash
+                  - generic [ref=e4780]: /bin/zsh -lc 'npm run typecheck -w @codex-remote/web'
+        - article [ref=e4781]:
+          - paragraph [ref=e4784]: 型チェックは通りました。次は実際のモバイル幅で pending dialog を開いて、長い command が見出しで暴れないか確認します。
+        - article [ref=e4785]:
+          - button "Ran 7 commands › Bash /bin/zsh -lc 'npm run dev > /tmp/rmtcdx-dev.log 2>&1 & echo $!' Bash /bin/zsh -lc 'rg -n \"command_approval|simulate|scenario|Simulate command approval\" apps/web/src apps/bridge/src -S' Bash /bin/zsh -lc \"sed -n '428,472p' apps/bridge/src/codex/mock-client.ts\" +4" [ref=e4786] [cursor=pointer]:
+            - generic [ref=e4788]:
+              - strong [ref=e4789]: Ran 7 commands
+              - generic [ref=e4790]: ›
+            - generic [ref=e4791]:
+              - generic [ref=e4792]:
+                - img [ref=e4794]
+                - generic [ref=e4798]:
+                  - generic [ref=e4799]: Bash
+                  - generic [ref=e4800]: /bin/zsh -lc 'npm run dev > /tmp/rmtcdx-dev.log 2>&1 & echo $!'
+              - generic [ref=e4801]:
+                - img [ref=e4803]
+                - generic [ref=e4807]:
+                  - generic [ref=e4808]: Bash
+                  - generic [ref=e4809]: /bin/zsh -lc 'rg -n "command_approval|simulate|scenario|Simulate command approval" apps/web/src apps/bridge/src -S'
+              - generic [ref=e4810]:
+                - img [ref=e4812]
+                - generic [ref=e4816]:
+                  - generic [ref=e4817]: Bash
+                  - generic [ref=e4818]: /bin/zsh -lc "sed -n '428,472p' apps/bridge/src/codex/mock-client.ts"
+            - generic [ref=e4819]: "+4"
+        - article [ref=e4820]:
+          - paragraph [ref=e4823]:
+            - text: 手元で既に
+            - code [ref=e4824]: "5173"
+            - text: と
+            - code [ref=e4825]: "3210"
+            - text: が生きているので、そのまま UI を操作して確認します。必要なら dev simulator で pending request を発生させます。
+        - article [ref=e4826]:
+          - paragraph [ref=e4829]:
+            - text: "Server:"
+            - code [ref=e4830]: playwright
+            - text: "Tool:"
+            - code [ref=e4831]: browser_navigate
+        - article [ref=e4832]:
+          - paragraph [ref=e4835]:
+            - text: "Server:"
+            - code [ref=e4836]: playwright
+            - text: "Tool:"
+            - code [ref=e4837]: browser_resize
+        - article [ref=e4838]:
+          - paragraph [ref=e4841]:
+            - text: "Server:"
+            - code [ref=e4842]: playwright
+            - text: "Tool:"
+            - code [ref=e4843]: browser_snapshot
+        - article [ref=e4844]:
+          - paragraph [ref=e4847]:
+            - text: "Server:"
+            - code [ref=e4848]: playwright
+            - text: "Tool:"
+            - code [ref=e4849]: browser_snapshot
+        - article [ref=e4850]:
+          - paragraph [ref=e4852]: Thinking...
+      - generic [ref=e4857]:
+        - textbox "Describe a task or ask a question..." [ref=e4858]
+        - generic [ref=e4859]:
+          - button "Attach images" [ref=e4860] [cursor=pointer]:
+            - generic [ref=e4861]: Attach images
+            - img [ref=e4862]
+          - button "Stop" [ref=e4866] [cursor=pointer]: ■
+  - generic [ref=e4885]:
+    - generic [ref=e4886]:
+      - paragraph [ref=e4887]: Run settings
+      - generic [ref=e4888]:
+        - generic [ref=e4889]:
+          - generic [ref=e4890]: Approval policy
+          - button "Never" [ref=e4891] [cursor=pointer]:
+            - generic [ref=e4892]: Never
+            - img [ref=e4893]
+        - generic [ref=e4895]:
+          - generic [ref=e4896]: Sandbox
+          - button "Danger full access" [ref=e4897] [cursor=pointer]:
+            - generic [ref=e4898]: Danger full access
+            - img [ref=e4899]
+        - generic [ref=e4901]:
+          - generic [ref=e4902]: Model
+          - button "gpt-5.4 Fast" [ref=e4903] [cursor=pointer]:
+            - generic [ref=e4904]: gpt-5.4 Fast
+            - img [ref=e4905]
+        - paragraph [ref=e4907]: "Latest frontier agentic coding model. Uses the fast service tier. Default reasoning: medium."
+        - button "Reset to defaults" [ref=e4908] [cursor=pointer]:
+          - img [ref=e4909]
+          - text: Reset to defaults
+        - paragraph [ref=e4912]: Applies to the next run for this thread.
+    - generic [ref=e4913]:
+      - paragraph [ref=e4914]: Actions
+      - generic [ref=e4915]:
+        - button "Rename" [ref=e4916] [cursor=pointer]:
+          - img [ref=e4917]
+          - text: Rename
+        - button "Archive" [disabled] [ref=e4920]:
+          - img [ref=e4921]
+          - text: Archive
+    - button "Debug" [ref=e4925] [cursor=pointer]:
+      - img [ref=e4926]
+      - text: Debug

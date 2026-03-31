@@ -14,6 +14,7 @@ packages/shared-types/src/**/*.d.ts
 apps/web/dist
 apps/bridge/dist
 apps/bridge/web-dist
+rmtcdx-*.tgz
 .DS_Store
 .codex-app-protocol
 *.log

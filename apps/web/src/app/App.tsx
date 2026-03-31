@@ -26,7 +26,8 @@ import {
   buildPendingSessionSummary,
   buildSidebarViewState,
   buildVisibleSessions,
-  mergeSessionSummaryIntoDetail
+  mergeSessionSummaryIntoDetail,
+  sessionDetailSyncKey
 } from "./view-state";
 import type { PendingThread } from "./view-state";
 import { ChatPane } from "../features/chat/ChatPane";
@@ -603,6 +604,14 @@ export function App() {
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
   const selectedPolledSessionSummary =
     sessions.find((session) => selectedSessionIds.has(session.id)) ?? null;
+  const selectedPolledSessionSyncKey = useMemo(
+    () => sessionDetailSyncKey(selectedPolledSessionSummary),
+    [selectedPolledSessionSummary]
+  );
+  const selectedDetailSessionSyncKey = useMemo(
+    () => sessionDetailSyncKey(sessionDetailQuery.data?.session),
+    [sessionDetailQuery.data?.session]
+  );
   const mergedSessionDetail = useMemo(
     () => mergeSessionSummaryIntoDetail(sessionDetailQuery.data, selectedPolledSessionSummary),
     [selectedPolledSessionSummary, sessionDetailQuery.data]
@@ -633,6 +642,46 @@ export function App() {
     }));
     setSelectedRepoId(defaultDraftRepoId, "system");
   }, [defaultDraftRepoId, draftRepoIdBySessionId, isDraftSession, selectedSessionId, setSelectedRepoId]);
+
+  const lastHandledListRefreshRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const refreshKey = `${selectedSessionId ?? "none"}:${sessionsQuery.dataUpdatedAt}`;
+    if (lastHandledListRefreshRef.current === refreshKey) {
+      return;
+    }
+    lastHandledListRefreshRef.current = refreshKey;
+
+    if (
+      !selectedSessionId
+      || isDraftSession
+      || !selectedPolledSessionSummary
+      || !sessionDetailQuery.data?.session
+      || sessionDetailQuery.fetchStatus === "fetching"
+    ) {
+      return;
+    }
+
+    if (selectedPolledSessionSummary.id !== sessionDetailQuery.data.session.id) {
+      return;
+    }
+
+    if (selectedPolledSessionSyncKey === selectedDetailSessionSyncKey) {
+      return;
+    }
+
+    void queryClient.invalidateQueries({ queryKey: queryKeys.session(selectedSessionId) });
+  }, [
+    isDraftSession,
+    queryClient,
+    selectedDetailSessionSyncKey,
+    selectedPolledSessionSummary,
+    selectedPolledSessionSyncKey,
+    selectedSessionId,
+    sessionDetailQuery.data?.session,
+    sessionDetailQuery.fetchStatus,
+    sessionsQuery.dataUpdatedAt
+  ]);
 
   const selectedSessionSummary =
     visibleSessions.find((session) => selectedSessionIds.has(session.id)) ?? null;

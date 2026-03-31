@@ -19,6 +19,7 @@ import { PushNotificationService } from "../notifications/push-notification-serv
 import { RealtimeGateway } from "../realtime/realtime-gateway";
 import { ImageUploadService } from "../uploads/image-upload-service";
 import type { CodexDebugLog } from "../observability/codex-debug-log";
+import { resolveEffectiveCodexRunSettings, SessionRunSettingsStore } from "./session-run-settings-store";
 import { nowIso } from "../utils/time";
 
 function isRunInProgress(status: Run["status"]) {
@@ -59,7 +60,8 @@ export class RunService {
     private readonly uploads: ImageUploadService,
     private readonly pushNotifications: PushNotificationService,
     private readonly logger: FastifyBaseLogger,
-    private readonly debugLog?: CodexDebugLog
+    private readonly debugLog?: CodexDebugLog,
+    private readonly sessionRunSettings = new SessionRunSettingsStore(`${config.dataDir}/run-settings.json`)
   ) {
     this.codex.on("event", (event: CodexBridgeEvent) => {
       void this.handleBackendEvent(event);
@@ -84,6 +86,7 @@ export class RunService {
 
     const runId = `run_${randomUUID()}`;
     const startedAt = nowIso();
+    const effectiveRunSettings = resolveEffectiveCodexRunSettings(params.codex);
     let cwd: string;
     let threadId: string | undefined;
 
@@ -118,9 +121,10 @@ export class RunService {
         ...storedAttachments.map((attachment) => ({ type: "localImage" as const, path: attachment.path }))
       ],
       threadId,
-      codex: params.codex
+      codex: effectiveRunSettings
     });
     const effectiveSessionId = started.threadId;
+    this.sessionRunSettings.set(effectiveSessionId, effectiveRunSettings);
 
     const run: Run = {
       id: runId,
@@ -222,12 +226,20 @@ export class RunService {
 
   presentSessionDetail(detail: SessionDetail) {
     const session = this.presentSessionSummary(detail.session);
-    return session === detail.session
-      ? detail
-      : {
-          ...detail,
-          session
-        };
+    // Only bridge-owned run settings are treated as authoritative here. In local codex-cli 0.116.0
+    // probes, `thread/resume` after a completed turn collapsed many distinct configurations back to
+    // the same default-ish values (`on-request` / `read-only` / `gpt-5.4` / `serviceTier: null`),
+    // so we intentionally avoid hydrating UI state from passive Codex thread inspection for now.
+    const runSettings = this.sessionRunSettings.get(session.id);
+    if (session === detail.session && sameRunSettings(detail.runSettings, runSettings)) {
+      return detail;
+    }
+
+    return {
+      ...detail,
+      session,
+      runSettings
+    };
   }
 
   private presentedSessionState(
@@ -399,6 +411,19 @@ export class RunService {
 
     if (event.type === "request.created") {
       this.realtime.broadcastCodexRequestCreated(event.sessionId, event.request);
+      try {
+        const detail = await this.catalog.getSessionDetail(event.sessionId);
+        await this.pushNotifications.notifyPendingRequest(this.presentSessionDetail(detail), event.request);
+      } catch (error) {
+        this.logger.warn(
+          {
+            err: error,
+            requestId: event.request.id,
+            sessionId: event.sessionId
+          },
+          "Unable to send push notification for pending request"
+        );
+      }
       return;
     }
 
@@ -452,4 +477,11 @@ export class RunService {
     const time = Date.parse(value);
     return Number.isNaN(time) ? 0 : time;
   }
+}
+
+function sameRunSettings(left: SessionDetail["runSettings"], right: SessionDetail["runSettings"]) {
+  return left?.approvalPolicy === right?.approvalPolicy
+    && left?.sandbox === right?.sandbox
+    && left?.serviceTier === right?.serviceTier
+    && left?.model === right?.model;
 }

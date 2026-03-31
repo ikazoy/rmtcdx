@@ -1,7 +1,7 @@
 import type { SessionFilter, SessionSummary } from "@codex-remote/shared-types";
 import { SESSION_FILTERS } from "@codex-remote/shared-types";
 import { formatRelativeTime } from "../../components/formatters";
-import { sessionDisplayStatus } from "./session-state";
+import { sessionDisplayStatus, sessionIndicatorTone } from "./session-state";
 
 type Props = {
   sessions: SessionSummary[];
@@ -77,8 +77,11 @@ export function SessionsPane({
             type="button"
           >
             <div className="session-row__titleline">
-              <span className={`session-dot session-dot--${sessionDisplayStatus(session)}`} />
+              <span className={`session-dot session-dot--${sessionIndicatorTone(session)}`} />
               <strong>{session.title}</strong>
+              {session.pendingRequestCount > 0 ? (
+                <span className="badge badge--pending">{session.pendingRequestCount} pending</span>
+              ) : null}
               {session.unreadCount > 0 ? <span className="badge">{session.unreadCount}</span> : null}
             </div>
             <p>{session.summary}</p>

@@ -71,6 +71,7 @@ export type SessionSummary = {
   threadStatusType?: CodexThreadStatusType;
   latestUserPrompt?: string;
   latestAssistantExcerpt?: string;
+  pendingRequestCount: number;
   hasUnreadCompletion: boolean;
   hasUnreadError: boolean;
   createdAt: string;
@@ -306,6 +307,7 @@ export type SessionDetail = {
   session: SessionSummary;
   activeRun: Run | null;
   latestRun: Run | null;
+  runSettings: CodexRunSettings | null;
 };
 
 export type HealthResponse = {

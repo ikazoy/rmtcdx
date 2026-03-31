@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
-import type { CodexAvailableModel, CodexPendingRequest, CodexPendingRequestResponse, CodexReasoningEffort } from "@codex-remote/shared-types";
+import type {
+  CodexAvailableModel,
+  CodexPendingRequest,
+  CodexPendingRequestResponse,
+  CodexReasoningEffort,
+} from "@codex-remote/shared-types";
 
 import type {
   CodexAccountRateLimits,
