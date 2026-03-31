@@ -1,0 +1,10 @@
+#!/bin/sh
+
+set -eu
+
+if [ "${SKIP_PRE_PUSH:-}" = "1" ]; then
+  echo "Skipping pre-push checks because SKIP_PRE_PUSH=1"
+  exit 0
+fi
+
+exec npm run prepush:check

@@ -10,7 +10,6 @@ import type {
   CodexAvailableModel,
   CodexPendingRequest,
   CodexPendingRequestResponse,
-  CodexRunSettings,
   ServerWsEvent
 } from "@codex-remote/shared-types";
 import { buildApp } from "../../src/app";

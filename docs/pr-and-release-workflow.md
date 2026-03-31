@@ -27,6 +27,17 @@ This repository now uses a pull-request-based workflow for all changes that can 
 - Wait for `CI` and `Changeset Required` to pass before merging.
 - Use the PR template and state whether a changeset is included.
 
+## Local Gates
+
+`npm install` configures local git hooks through `.githooks`.
+
+- `pre-commit` runs ESLint only on staged `apps/` and `packages/` TypeScript or `.mjs` files.
+- `pre-push` runs `npm run release:verify`, which matches the local single-machine equivalent of CI as closely as practical.
+
+This split keeps commits fast while still blocking pushes that would obviously fail on CI.
+
+If you need to bypass the push hook intentionally, set `SKIP_PRE_PUSH=1` for that push only.
+
 Add a changeset when the PR changes the published `rmtcdx` package in a way users may care about:
 
 - CLI behavior

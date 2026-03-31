@@ -27,6 +27,17 @@
 - merge 前に `CI` と `Changeset Required` の両方を通します。
 - PR template を使い、changeset を含めたかどうかを書きます。
 
+## ローカル gate
+
+`npm install` 時に `.githooks` の local git hook を設定します。
+
+- `pre-commit`: staged 済みの `apps/` / `packages/` 配下の TypeScript / `.mjs` だけを ESLint
+- `pre-push`: `npm run release:verify` を実行
+
+この分離で、commit は重くしすぎず、CI で確実に落ちる変更は push 前に止めます。
+
+意図的に bypass したい場合だけ、その push に限って `SKIP_PRE_PUSH=1` を使ってください。
+
 次のような変更では changeset を追加します。
 
 - CLI の挙動変更
