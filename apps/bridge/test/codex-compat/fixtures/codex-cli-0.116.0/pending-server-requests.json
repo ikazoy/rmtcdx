@@ -369,7 +369,7 @@
         "action": "accept",
         "content": {
           "owner": "ikazoy",
-          "repo": "remote-control-codex"
+          "repo": "remodex"
         },
         "meta": {
           "from": "test"
@@ -379,7 +379,7 @@
         "action": "accept",
         "content": {
           "owner": "ikazoy",
-          "repo": "remote-control-codex"
+          "repo": "remodex"
         },
         "_meta": {
           "from": "test"

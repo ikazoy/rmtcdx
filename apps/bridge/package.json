@@ -1,12 +1,12 @@
 {
-  "name": "remote-control-codex",
+  "name": "remodex",
   "version": "0.1.0",
   "description": "Remote web client for operating OpenAI Codex CLI from your browser",
   "type": "module",
-  "homepage": "https://github.com/ikazoy/remote-control-codex#readme",
+  "homepage": "https://github.com/ikazoy/remodex#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ikazoy/remote-control-codex.git"
+    "url": "git+https://github.com/ikazoy/remodex.git"
   },
   "keywords": [
     "codex",
@@ -16,7 +16,7 @@
     "websocket"
   ],
   "bin": {
-    "remote-control-codex": "./dist/main.js"
+    "remodex": "./dist/main.js"
   },
   "files": [
     "dist",

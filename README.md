@@ -6,7 +6,7 @@ Codex Remote Web Client is a mobile-first web UI for remotely operating OpenAI C
 
 ## Features
 
-- One-command launch via `npx remote-control-codex` or `bunx remote-control-codex`
+- One-command launch via `npx remodex` or `bunx remodex`
 - Repository picker built from discovered Codex threads, optional `repos.json` presets, and the current git working tree fallback
 - Session list with search, filters, unread state, rename, and archive
 - Prompt submission with optional image attachments
@@ -23,24 +23,24 @@ Codex Remote Web Client is a mobile-first web UI for remotely operating OpenAI C
 ## One-Command Start
 
 ```bash
-npx remote-control-codex
+npx remodex
 # or
-bunx remote-control-codex
+bunx remodex
 ```
 
 If `repos.json` is missing and your current working directory is inside a git repository, the app automatically exposes that repository as a pinned entry.
 
 For a persistent multi-repo setup, create `repos.json` in the app config directory:
 
-- macOS: `~/Library/Application Support/remote-control-codex/repos.json`
-- Linux: `~/.config/remote-control-codex/repos.json`
-- Windows: `%APPDATA%\\remote-control-codex\\repos.json`
+- macOS: `~/Library/Application Support/remodex/repos.json`
+- Linux: `~/.config/remodex/repos.json`
+- Windows: `%APPDATA%\\remodex\\repos.json`
 
 State is stored outside the source tree as well:
 
-- macOS: `~/Library/Application Support/remote-control-codex`
-- Linux: `~/.local/share/remote-control-codex`
-- Windows: `%LOCALAPPDATA%\\remote-control-codex`
+- macOS: `~/Library/Application Support/remodex`
+- Linux: `~/.local/share/remodex`
+- Windows: `%LOCALAPPDATA%\\remodex`
 
 ## Persisted State
 
@@ -55,8 +55,8 @@ Session and message history, thread titles, archive state, and run history are r
 ## Source Checkout
 
 ```bash
-git clone https://github.com/ikazoy/remote-control-codex.git
-cd remote-control-codex
+git clone https://github.com/ikazoy/remodex.git
+cd remodex
 npm install
 npm run build
 # Optional: pre-seed the repository picker for an empty-state setup
@@ -78,7 +78,7 @@ After startup:
 For access from another network, keep the bridge bound to localhost and publish it to your tailnet with Tailscale Serve:
 
 ```bash
-npx remote-control-codex &
+npx remodex &
 tailscale serve --bg 3210
 ```
 
@@ -120,7 +120,7 @@ Example:
 [
   {
     "id": "remote_control_codex",
-    "name": "remote-control-codex",
+    "name": "remodex",
     "path": ".",
     "description": "This cloned workspace",
     "pinned": true
@@ -146,24 +146,24 @@ npm run dev
 Workspace-specific commands:
 
 ```bash
-npm run dev -w remote-control-codex
+npm run dev -w remodex
 npm run dev -w @codex-remote/web
-npm run build -w remote-control-codex
+npm run build -w remodex
 npm run build -w @codex-remote/web
 ```
 
 ### Local Package Smoke Test
 
-Before `npm publish`, you can verify the packaged `npx remote-control-codex` path from the generated tarball:
+Before `npm publish`, you can verify the packaged `npx remodex` path from the generated tarball:
 
 ```bash
-npm pack -w remote-control-codex
+npm pack -w remodex
 TMP_DIR="$(mktemp -d)"
 PORT=33210 HOST=127.0.0.1 CODEX_MODE=mock \
 REPO_CONFIG_PATH="$TMP_DIR/repos.json" \
 DATA_DIR="$TMP_DIR/data" \
 npm_config_cache="$TMP_DIR/npm-cache" \
-npx --yes --package ./remote-control-codex-0.1.0.tgz remote-control-codex
+npx --yes --package ./remodex-0.1.0.tgz remodex
 ```
 
 In another terminal:
@@ -176,7 +176,7 @@ curl http://127.0.0.1:33210/api/repos
 Cleanup:
 
 ```bash
-rm -rf "$TMP_DIR" ./remote-control-codex-0.1.0.tgz
+rm -rf "$TMP_DIR" ./remodex-0.1.0.tgz
 ```
 
 Stop the running bridge with `Ctrl+C` before removing the temp directory.

@@ -1,7 +1,7 @@
 [
   {
-    "id": "remote_control_codex",
-    "name": "remote-control-codex",
+    "id": "remodex",
+    "name": "remodex",
     "path": ".",
     "description": "This cloned workspace",
     "pinned": true

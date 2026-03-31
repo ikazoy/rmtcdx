@@ -16,7 +16,7 @@ Codex Remote Web Client — mobile-first の Web UI から OpenAI Codex CLI を�
 ## Project Structure
 
 ```
-remote-control-codex/
+remodex/
 ├── apps/
 │   ├── bridge/          # Fastify backend (REST + WebSocket + Codex bridge)
 │   └── web/             # React SPA (Vite)
@@ -46,9 +46,9 @@ CODEX_MODE=mock npm run start       # mock mode
 CODEX_MODE=real npm run start       # Codex CLI 必須
 
 # 個別ワークスペース
-npm run dev -w remote-control-codex
+npm run dev -w remodex
 npm run dev -w @codex-remote/web
-npm run build -w remote-control-codex
+npm run build -w remodex
 npm run build -w @codex-remote/web
 ```
 
