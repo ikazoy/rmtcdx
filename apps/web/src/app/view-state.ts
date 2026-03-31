@@ -140,12 +140,17 @@ export function sessionDetailSyncKey(session: SessionSummary | null | undefined)
     session.lastMessageAt,
     session.lastUserMessageAt ?? null,
     session.lastRunFinishedAt ?? null,
+    session.unreadCount,
+    session.lastEventSeq,
+    session.lastReadEventSeq,
     session.status,
     session.statusReasonCode ?? null,
     session.statusConfidence ?? null,
     session.latestTurnStatus ?? null,
     session.threadStatusType ?? null,
-    session.isArchived
+    session.isArchived,
+    session.hasUnreadCompletion,
+    session.hasUnreadError
   ]);
 }
 

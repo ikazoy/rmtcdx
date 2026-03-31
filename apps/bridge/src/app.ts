@@ -33,6 +33,7 @@ import { PushNotificationService } from "./notifications/push-notification-servi
 import { CodexDebugLog } from "./observability/codex-debug-log";
 import { RealtimeGateway } from "./realtime/realtime-gateway";
 import { RunService } from "./runs/run-service";
+import { SessionUnreadService } from "./sessions/session-unread-service";
 import { ImageUploadService } from "./uploads/image-upload-service";
 
 const filterSchema = z.enum(["all", "running", "unread", "completed", "interrupted", "error", "archived"]).optional();
@@ -173,9 +174,17 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
   const repoConfig = overrides.repoConfig ?? readRepoConfigOptional(config.reposFile);
   const catalog = new LiveCatalogService(codex, repoConfig, uploads);
   const pushNotifications = new PushNotificationService(config.stateFile, config, app.log);
+  const unread = new SessionUnreadService(`${config.dataDir}/session-read-state.json`);
   const realtime = new RealtimeGateway((event: ClientWsEvent) => {
     if (event.type === "ping") {
       realtime.broadcastPong();
+      return;
+    }
+
+    if (event.type === "session.read") {
+      void markSessionRead(event.sessionId).catch((error) => {
+        app.log.warn({ err: error, sessionId: event.sessionId }, "Unable to mark session as read from websocket event");
+      });
     }
   });
   const runs = new RunService(
@@ -185,6 +194,7 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
     codex,
     uploads,
     pushNotifications,
+    unread,
     app.log,
     codexDebugLog
   );
@@ -204,13 +214,28 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
       return session.pendingRequestCount === pendingRequestCount ? session : { ...session, pendingRequestCount };
     });
   };
-  const presentSession = (session: SessionSummary) => withPendingRequestCount(runs.presentSessionSummary(session));
-  const presentSessions = (sessions: SessionSummary[]) => withPendingRequestCounts(runs.presentSessionSummaries(sessions));
+  const presentSession = (session: SessionSummary) =>
+    withPendingRequestCount(unread.presentSessionSummary(runs.presentSessionSummary(session)));
+  const presentSessions = (sessions: SessionSummary[]) =>
+    withPendingRequestCounts(unread.presentSessionSummaries(runs.presentSessionSummaries(sessions)));
   const presentDetail = (detail: SessionDetail) => {
-    const presented = runs.presentSessionDetail(detail);
+    const presented = unread.presentSessionDetail(runs.presentSessionDetail(detail));
     const session = withPendingRequestCount(presented.session);
     return session === presented.session ? presented : { ...presented, session };
   };
+
+  async function markSessionRead(sessionId: string) {
+    const detail = await catalog.getSessionDetail(sessionId);
+    const changed = unread.markRead(sessionId);
+    if (!changed) {
+      return false;
+    }
+
+    const presented = presentDetail(detail);
+    realtime.broadcastSession(presented.session);
+    realtime.broadcastSessionDetail(presented);
+    return true;
+  }
 
   await app.register(cors, {
     origin: true,
@@ -433,8 +458,15 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
     }
   });
 
-  app.post("/api/sessions/:sessionId/read", async () => {
-    return { ok: true };
+  app.post("/api/sessions/:sessionId/read", async (request, reply) => {
+    const params = z.object({ sessionId: z.string().min(1) }).parse(request.params);
+
+    try {
+      await markSessionRead(params.sessionId);
+      return { ok: true };
+    } catch (error) {
+      return reply.code(400).send({ message: error instanceof Error ? error.message : "Unable to mark session as read" });
+    }
   });
 
   app.patch("/api/sessions/:sessionId", async (request, reply) => {

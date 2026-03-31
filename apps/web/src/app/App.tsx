@@ -214,6 +214,22 @@ function readIsMobileViewport() {
   return window.matchMedia(MOBILE_MEDIA_QUERY).matches;
 }
 
+function readIsPageVisible() {
+  if (typeof document === "undefined") {
+    return true;
+  }
+
+  return document.visibilityState === "visible";
+}
+
+function readIsWindowFocused() {
+  if (typeof window === "undefined") {
+    return true;
+  }
+
+  return window.document.hasFocus();
+}
+
 function buildSessionPath(sessionId: string) {
   return `/sessions/${encodeURIComponent(sessionId)}`;
 }
@@ -284,6 +300,8 @@ export function App() {
   });
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(() => readIsMobileViewport());
+  const [isPageVisible, setIsPageVisible] = useState(() => readIsPageVisible());
+  const [isWindowFocused, setIsWindowFocused] = useState(() => readIsWindowFocused());
   const deferredSearch = useDeferredValue(search);
   const routeSessionId = useMemo(() => readSessionIdFromPathname(location.pathname), [location.pathname]);
 
@@ -405,6 +423,33 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (typeof document === "undefined" || typeof window === "undefined") {
+      return;
+    }
+
+    const handleVisibilityChange = () => {
+      setIsPageVisible(document.visibilityState === "visible");
+    };
+    const handleFocus = () => {
+      setIsWindowFocused(true);
+    };
+    const handleBlur = () => {
+      setIsWindowFocused(false);
+    };
+
+    handleVisibilityChange();
+    setIsWindowFocused(window.document.hasFocus());
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
+
+  useEffect(() => {
     const firstSession = sessionsQuery.data?.sessions[0];
     if (isMobileViewport || routeSessionId || !firstSession) {
       return;
@@ -425,10 +470,37 @@ export function App() {
 
   useEffect(() => {
     const selected = sessionsQuery.data?.sessions.find((session) => session.id === selectedSessionId);
-    if (selectedSessionId && selected?.unreadCount) {
-      void api.markRead(selectedSessionId).catch(() => undefined);
+    if (
+      !selectedSessionId
+      || isDraftSession
+      || !selected?.unreadCount
+      || (!sessionDetailQuery.data || sessionDetailQuery.data.session.id !== selectedSessionId)
+      || !sessionDetailQuery.isSuccess
+      || !messagesQuery.isSuccess
+      || !isPageVisible
+      || !isWindowFocused
+      || (isMobileViewport && mobilePane !== "chat")
+    ) {
+      return;
     }
-  }, [selectedSessionId, sessionsQuery.data?.sessions]);
+
+    const timeoutId = window.setTimeout(() => {
+      void api.markRead(selectedSessionId).catch(() => undefined);
+    }, 750);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    isDraftSession,
+    isMobileViewport,
+    isPageVisible,
+    isWindowFocused,
+    messagesQuery.isSuccess,
+    mobilePane,
+    selectedSessionId,
+    sessionDetailQuery.data,
+    sessionDetailQuery.isSuccess,
+    sessionsQuery.data?.sessions
+  ]);
 
   useEffect(() => {
     window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
