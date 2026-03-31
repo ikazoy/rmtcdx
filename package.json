@@ -10,10 +10,17 @@
     "build": "npm run build -w rmtcdx",
     "compat:canary": "npm run compat:canary -w rmtcdx",
     "compat:fixtures": "npm run compat:fixtures -w rmtcdx",
+    "typecheck": "npm run typecheck -w rmtcdx && npm run typecheck -w @codex-remote/web",
+    "lint": "eslint apps packages --ext .ts,.tsx,.mjs",
     "start": "npm run start -w rmtcdx",
     "test": "npm run test -ws --if-present"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "@eslint/js": "^9.39.4",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^15.15.0",
+    "typescript-eslint": "^8.58.0"
   }
 }

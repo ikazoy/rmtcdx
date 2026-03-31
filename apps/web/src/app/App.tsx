@@ -1010,8 +1010,6 @@ export function App() {
             devSimulatorAvailable={devSimulatorAvailable && !isDraftSession && hasResolvedSessionDetail}
             hasPendingResponse={Boolean(pendingResponseSessionId && selectedSessionIds.has(pendingResponseSessionId))}
             canInterruptRun={Boolean(interruptibleRunId)}
-            wsState={wsState}
-            backendMode={healthQuery.data?.codex.mode}
             draftRepoPicker={draftRepoPicker}
             onBack={() => {
               navigate("/", { replace: true });
@@ -1165,7 +1163,7 @@ export function App() {
                 : null
             }
             canRename={!isDraftSession && hasResolvedSessionDetail}
-            canArchive={!isDraftSession && hasResolvedSessionDetail && !Boolean(actionableDetail?.session.isArchived)}
+            canArchive={!isDraftSession && hasResolvedSessionDetail && !(actionableDetail?.session.isArchived ?? false)}
             canRestore={!isDraftSession && hasResolvedSessionDetail && Boolean(actionableDetail?.session.isArchived)}
           />
         </section>

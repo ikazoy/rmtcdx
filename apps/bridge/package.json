@@ -31,6 +31,8 @@
   "scripts": {
     "dev": "tsx watch src/main.ts serve",
     "build": "npm --prefix ../.. run build -w @codex-remote/web && tsc -p tsconfig.json --noEmit && tsup src/main.ts --format esm --out-dir dist --clean && node ./scripts/copy-web-dist.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src test scripts --ext .ts,.mjs",
     "start": "node dist/main.js serve",
     "compat:canary": "tsx scripts/run-real-codex-canary.ts",
     "compat:fixtures": "tsx scripts/generate-compat-fixtures.ts",

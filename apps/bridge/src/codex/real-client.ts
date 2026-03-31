@@ -508,7 +508,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     let message: JsonRpcMessage;
     try {
       message = JSON.parse(line) as JsonRpcMessage;
-    } catch (error) {
+    } catch {
       this.debugLog?.write("child.stdout.non_json", {
         line
       });
@@ -1100,13 +1100,4 @@ function stringField(record: Record<string, unknown> | null, key: string) {
 function booleanField(record: Record<string, unknown> | null, key: string) {
   const value = record?.[key];
   return typeof value === "boolean" ? value : undefined;
-}
-
-function stringArray(value: unknown) {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-
-  const items = value.filter((entry): entry is string => typeof entry === "string");
-  return items.length > 0 ? items : null;
 }

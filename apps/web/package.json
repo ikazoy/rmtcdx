@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "lint": "eslint src vite.config.ts --ext .ts,.tsx",
     "preview": "vite preview",
     "test": "node --import tsx --test src/**/*.test.ts"
   },

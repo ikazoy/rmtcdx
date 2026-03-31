@@ -175,8 +175,6 @@ type Props = {
   devSimulatorAvailable: boolean;
   hasPendingResponse: boolean;
   canInterruptRun: boolean;
-  wsState: string;
-  backendMode: "real" | "mock" | undefined;
   draftRepoPicker:
     | {
         repos: Repository[];
@@ -1491,8 +1489,6 @@ export function ChatPane({
   devSimulatorAvailable,
   hasPendingResponse,
   canInterruptRun,
-  wsState,
-  backendMode,
   draftRepoPicker,
   onBack,
   onSubmit,
@@ -1585,8 +1581,6 @@ export function ChatPane({
     !streamingText && (Boolean(effectiveOptimisticMessage) || sessionIsRunning || isSubmitting || hasPendingResponse);
   const showComposerEmptyState =
     !isLoadingMessages && messages.length === 0 && !streamingText && !effectiveOptimisticMessage && !showPendingAssistant;
-  const approvalPolicyOption =
-    APPROVAL_POLICY_OPTIONS.find((option) => option.value === runSettings.approvalPolicy) ?? APPROVAL_POLICY_OPTIONS[0]!;
   const selectedModel = runSettings.model.trim();
   const selectedServiceTier = runSettings.serviceTier ?? null;
   const defaultModel = availableModels.find((model) => model.isDefault) ?? null;
