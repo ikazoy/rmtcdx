@@ -23,10 +23,26 @@ Codex Remote Web Client is a mobile-first web UI for remotely operating OpenAI C
 ## One-Command Start
 
 ```bash
-npx rmtcdx
+npx rmtcdx up
 # or
-bunx rmtcdx
+bunx rmtcdx up
 ```
+
+This starts `rmtcdx` in the background, prints a local URL, prints a same-network URL when a private IPv4 address is available, and tells you how to enable Tailscale access for your phone outside your network.
+
+To stop the background process later:
+
+```bash
+npx rmtcdx stop
+```
+
+To inspect the current runtime status:
+
+```bash
+npx rmtcdx status
+```
+
+Running `npx rmtcdx` without a subcommand is treated as `npx rmtcdx up`.
 
 If `repos.json` is missing and your current working directory is inside a git repository, the app automatically exposes that repository as a pinned entry.
 
@@ -75,32 +91,29 @@ After startup:
 
 ## Remote Access over Tailscale
 
-For access from another network, keep the bridge bound to localhost and publish it to your tailnet with Tailscale Serve:
+If you want to connect to Codex from your phone outside your network, start `rmtcdx` with the built-in Tailscale option:
 
 ```bash
-npx rmtcdx &
-tailscale serve --bg 3210
+npx rmtcdx up --tailscale
 ```
 
-If you are running from a source checkout instead of the published package, `PORT=3210 npm run start &` works the same way.
+This checks that `tailscale` is installed and ready before startup. If that preflight fails, `rmtcdx` does not stay running in the background.
 
-Then open the Serve URL for this device, for example:
-
-- `https://mac-mini-1.stingray-newton.ts.net/`
-
-Useful commands:
+To stop both the background bridge and restore the previous Tailscale Serve configuration:
 
 ```bash
-tailscale serve status
-tailscale serve off
+npx rmtcdx stop
 ```
 
 Notes:
 
-- This app uses relative `/api` and `/ws` paths, so the UI and WebSocket updates work through the same Serve URL
-- `tailscale serve --bg 3210` persists across reboots and Tailscale restarts until you turn it off
-- If Tailscale prints `Serve is not enabled on your tailnet`, open the admin URL shown by the command once, enable Serve for the node, and run the command again
+- `rmtcdx up` binds to `0.0.0.0` so the same-network URL it prints is reachable from another device on your LAN
+- This app uses relative `/api` and `/ws` paths, so the UI and WebSocket updates work through the same Tailscale URL
+- `rmtcdx` backs up the previous Tailscale Serve config before enabling its proxy and restores that backup on `rmtcdx stop`
+- If Tailscale prints `Serve is not enabled on your tailnet`, open the admin URL shown by the command once, enable Serve for the node, and run `npx rmtcdx up --tailscale` again
 - Port 3000 is reserved for the dev server (`npm run dev`)
+
+Full CLI details: [docs/cli.md](./docs/cli.md)
 
 ## Configure `repos.json`
 
@@ -163,7 +176,7 @@ PORT=33210 HOST=127.0.0.1 CODEX_MODE=mock \
 REPO_CONFIG_PATH="$TMP_DIR/repos.json" \
 DATA_DIR="$TMP_DIR/data" \
 npm_config_cache="$TMP_DIR/npm-cache" \
-npx --yes --package ./rmtcdx-0.1.0.tgz rmtcdx
+npx --yes --package ./rmtcdx-0.1.0.tgz rmtcdx up
 ```
 
 In another terminal:

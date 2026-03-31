@@ -23,10 +23,26 @@ Codex Remote Web Client は、mobile-first の Web UI から OpenAI Codex CLI �
 ## One-Command Start
 
 ```bash
-npx rmtcdx
+npx rmtcdx up
 # または
-bunx rmtcdx
+bunx rmtcdx up
 ```
+
+このコマンドは `rmtcdx` をバックグラウンドで起動し、ローカル URL、private IPv4 が見つかったときの same-network URL、そして外からスマホで Codex につなぎたいときの `--tailscale` 案内を表示します。
+
+あとでバックグラウンド process を止めるには:
+
+```bash
+npx rmtcdx stop
+```
+
+現在の状態を確認するには:
+
+```bash
+npx rmtcdx status
+```
+
+subcommand なしの `npx rmtcdx` は `npx rmtcdx up` と同じ扱いです。
 
 `repos.json` がなくても、起動したカレントディレクトリが git repository 配下なら、その repository を pinned entry として自動で使えます。
 
@@ -75,32 +91,29 @@ PORT=3210 npm run start
 
 ## Tailscale 経由で別ネットワークから使う
 
-別ネットワークから入る場合は、bridge を localhost bind のままにして、Tailscale Serve で tailnet 内に公開するのを推奨します。
+外からスマホで Codex につなぎたいときは、組み込みの Tailscale オプション付きで起動します。
 
 ```bash
-npx rmtcdx &
-tailscale serve --bg 3210
+npx rmtcdx up --tailscale
 ```
 
-source checkout から起動する場合は、代わりに `PORT=3210 npm run start &` でも同じです。
+このモードでは起動前に `tailscale` command の存在と利用可能性を確認します。preflight に失敗した場合、`rmtcdx` はバックグラウンドで起動したままになりません。
 
-その後、この node の Serve URL を開きます。例:
-
-- `https://mac-mini-1.stingray-newton.ts.net/`
-
-よく使うコマンド:
+bridge と Tailscale Serve 設定をまとめて止めるには:
 
 ```bash
-tailscale serve status
-tailscale serve off
+npx rmtcdx stop
 ```
 
 ポイント:
 
-- このアプリは `/api` と `/ws` を相対パスで使うので、同じ Serve URL 経由で UI と WebSocket の両方が動きます
-- `tailscale serve --bg 3210` は、停止するまで reboot や Tailscale 再起動後も維持されます
-- 初回に `Serve is not enabled on your tailnet` と出た場合は、コマンドが表示する admin URL を一度開いて node で Serve を有効化し、その後で再実行してください
+- `rmtcdx up` は `0.0.0.0` bind で起動するので、表示された same-network URL から LAN 上の別デバイスでも開けます
+- このアプリは `/api` と `/ws` を相対パスで使うので、同じ Tailscale URL 経由で UI と WebSocket の両方が動きます
+- `rmtcdx` は proxy を有効化する前に既存の Tailscale Serve 設定をバックアップし、`rmtcdx stop` でその設定に戻します
+- 初回に `Serve is not enabled on your tailnet` と出た場合は、コマンドが表示する admin URL を一度開いて node で Serve を有効化し、その後で `npx rmtcdx up --tailscale` を再実行してください
 - ポート 3000 は開発サーバー (`npm run dev`) 用に予約されています
+
+CLI の詳しい仕様: [docs/cli.ja.md](./docs/cli.ja.md)
 
 ## `repos.json` を準備する
 
@@ -163,7 +176,7 @@ PORT=33210 HOST=127.0.0.1 CODEX_MODE=mock \
 REPO_CONFIG_PATH="$TMP_DIR/repos.json" \
 DATA_DIR="$TMP_DIR/data" \
 npm_config_cache="$TMP_DIR/npm-cache" \
-npx --yes --package ./rmtcdx-0.1.0.tgz rmtcdx
+npx --yes --package ./rmtcdx-0.1.0.tgz rmtcdx up
 ```
 
 別ターミナルで:

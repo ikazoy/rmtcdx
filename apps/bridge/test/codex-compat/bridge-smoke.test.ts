@@ -85,6 +85,7 @@ test("fixture backend smoke test covers sessions, messages, and pending request 
     reposFile: path.join(rootDir, "repos.json"),
     dataDir,
     stateFile: path.join(dataDir, "state.json"),
+    runtimeFile: path.join(dataDir, "runtime.json"),
     codexDebugLogFile: path.join(dataDir, "codex-app-server.jsonl"),
     uploadsDir,
     webDistDir: path.join(rootDir, "missing-web-dist"),

@@ -96,6 +96,7 @@ function createConfig(): AppConfig {
     reposFile: "/tmp/repos.json",
     dataDir: "/tmp",
     stateFile: "/tmp/state.json",
+    runtimeFile: "/tmp/runtime.json",
     codexDebugLogFile: "/tmp/codex-app-server.jsonl",
     uploadsDir: "/tmp/uploads",
     webDistDir: "/tmp/web-dist",

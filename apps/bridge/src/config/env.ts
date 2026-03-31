@@ -17,6 +17,7 @@ export type AppConfig = {
   reposFile: string;
   dataDir: string;
   stateFile: string;
+  runtimeFile: string;
   codexDebugLogFile: string;
   uploadsDir: string;
   webDistDir: string;
@@ -151,6 +152,10 @@ function resolveStateFile(dataDir: string) {
     : `${process.env.DB_FILE}.json`;
 }
 
+function resolveRuntimeFile(dataDir: string) {
+  return process.env.RUNTIME_FILE ?? path.join(dataDir, "runtime.json");
+}
+
 export function loadConfig(): AppConfig {
   const runtimePaths = resolveRuntimePaths();
   const defaultConfigDir = resolveUserConfigDir();
@@ -164,6 +169,7 @@ export function loadConfig(): AppConfig {
       (runtimePaths.workspaceRoot ? path.join(runtimePaths.workspaceRoot, "repos.json") : path.join(defaultConfigDir, "repos.json")),
     dataDir,
     stateFile: resolveStateFile(dataDir),
+    runtimeFile: resolveRuntimeFile(dataDir),
     codexDebugLogFile: process.env.CODEX_DEBUG_LOG_FILE ?? path.join(dataDir, "codex-app-server.jsonl"),
     uploadsDir: process.env.UPLOADS_DIR ?? path.join(dataDir, "uploads"),
     webDistDir: process.env.WEB_DIST_DIR ?? resolveDefaultWebDistDir(runtimePaths),

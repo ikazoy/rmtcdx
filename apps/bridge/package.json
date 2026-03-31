@@ -29,9 +29,9 @@
     "access": "public"
   },
   "scripts": {
-    "dev": "tsx watch src/main.ts",
+    "dev": "tsx watch src/main.ts serve",
     "build": "npm --prefix ../.. run build -w @codex-remote/web && tsc -p tsconfig.json --noEmit && tsup src/main.ts --format esm --out-dir dist --clean && node ./scripts/copy-web-dist.mjs",
-    "start": "node dist/main.js",
+    "start": "node dist/main.js serve",
     "compat:canary": "tsx scripts/run-real-codex-canary.ts",
     "compat:fixtures": "tsx scripts/generate-compat-fixtures.ts",
     "test": "node --import tsx --test test/codex-compat/*.test.ts",

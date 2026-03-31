@@ -70,6 +70,7 @@ function createConfig(rootDir: string): AppConfig {
     reposFile: path.join(rootDir, "repos.json"),
     dataDir: rootDir,
     stateFile: path.join(rootDir, "state.json"),
+    runtimeFile: path.join(rootDir, "runtime.json"),
     codexDebugLogFile: path.join(rootDir, "codex-app-server.jsonl"),
     uploadsDir: path.join(rootDir, "uploads"),
     webDistDir: path.join(rootDir, "web-dist"),
