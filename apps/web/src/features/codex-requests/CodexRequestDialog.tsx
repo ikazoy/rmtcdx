@@ -70,8 +70,8 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
   useEffect(() => {
     setLocalError(null);
     setDraftAnswers({});
-    setMcpContent(request?.type === "mcp_elicitation" && request.mode === "form" ? "{}" : "{}");
-  }, [request?.id, request?.type]);
+    setMcpContent("{}");
+  }, [request?.id]);
 
   const requestSummary = useMemo(() => {
     if (!request) {

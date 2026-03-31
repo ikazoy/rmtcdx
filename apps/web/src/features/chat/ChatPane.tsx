@@ -1,5 +1,5 @@
 import { FloatingPortal } from "@floating-ui/react";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type {
   CSSProperties,
   ChangeEvent,
@@ -42,6 +42,7 @@ const MAX_IMAGE_ATTACHMENTS = 5;
 const TIMELINE_PIN_THRESHOLD_MIN_PX = 120;
 const TIMELINE_PIN_THRESHOLD_MAX_PX = 220;
 const TIMELINE_PIN_THRESHOLD_VIEWPORT_RATIO = 0.18;
+const EMPTY_MESSAGES: Message[] = [];
 
 function debugChatState(label: string, payload: Record<string, unknown>) {
   if (import.meta.env.DEV) {
@@ -1539,10 +1540,11 @@ export function ChatPane({
     open: isActionsMenuOpen,
     onOpenChange: setIsActionsMenuOpen
   });
-  const detail = viewState.kind === "ready" ? viewState.detail : null;
-  const messages = viewState.kind === "ready" ? viewState.messages : [];
-  const isLoadingMessages = viewState.kind === "ready" ? viewState.isLoadingMessages : false;
-  const repoName = viewState.kind === "ready" ? viewState.repoName : undefined;
+  const readyView = viewState.kind === "ready" ? viewState : null;
+  const detail = readyView?.detail ?? null;
+  const messages = readyView?.messages ?? EMPTY_MESSAGES;
+  const isLoadingMessages = readyView?.isLoadingMessages ?? false;
+  const repoName = readyView?.repoName;
   const orderedDraftRepos = draftRepoPicker ? sortReposForDisplay(draftRepoPicker.repos) : [];
   const formatDraftRepoName = draftRepoPicker ? buildRepoNameFormatter(orderedDraftRepos) : null;
   const formatDraftRepoVariant = draftRepoPicker ? buildRepoVariantLabelFormatter(orderedDraftRepos) : null;
@@ -1698,14 +1700,17 @@ export function ChatPane({
     };
   }, [copiedDebugField]);
 
-  const readCurrentScrollTop = () => (usesRootScroll ? readRootScrollTop() : timelineRef.current?.scrollTop ?? 0);
+  const readCurrentScrollTop = useCallback(
+    () => (usesRootScroll ? readRootScrollTop() : timelineRef.current?.scrollTop ?? 0),
+    [usesRootScroll]
+  );
 
-  const disableAutoFollow = () => {
+  const disableAutoFollow = useCallback(() => {
     autoFollowEnabledRef.current = false;
     shouldScrollToBottomRef.current = false;
-  };
+  }, []);
 
-  const syncTimelinePinnedState = (scrollDelta = 0, isProgrammaticScroll = false) => {
+  const syncTimelinePinnedState = useCallback((scrollDelta = 0, isProgrammaticScroll = false) => {
     const pinnedToBottom = usesRootScroll
       ? (timelineEndRef.current ? timelineViewportIsPinnedToBottom(timelineEndRef.current, composerShellHeight) : true)
       : (timelineRef.current ? timelineIsPinnedToBottom(timelineRef.current) : true);
@@ -1724,9 +1729,9 @@ export function ChatPane({
     if (pinnedToBottom) {
       setHasQueuedUpdates(false);
     }
-  };
+  }, [composerShellHeight, disableAutoFollow, usesRootScroll]);
 
-  const scrollTimelineToBottom = (behavior: ScrollBehavior = "auto") => {
+  const scrollTimelineToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const timelineEnd = timelineEndRef.current;
     if (!timelineEnd) {
       return;
@@ -1746,7 +1751,7 @@ export function ChatPane({
       lastTimelineScrollTopRef.current = readCurrentScrollTop();
       syncTimelinePinnedState(0, true);
     });
-  };
+  }, [readCurrentScrollTop, syncTimelinePinnedState]);
 
   useEffect(() => {
     selectedImagesRef.current = selectedImages;
@@ -2038,7 +2043,7 @@ export function ChatPane({
       touchTarget.removeEventListener("touchend", resetTouchTracking);
       touchTarget.removeEventListener("touchcancel", resetTouchTracking);
     };
-  }, [composerShellHeight, detail?.session.id, usesRootScroll]);
+  }, [composerShellHeight, detail?.session.id, disableAutoFollow, readCurrentScrollTop, syncTimelinePinnedState, usesRootScroll]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -2047,7 +2052,7 @@ export function ChatPane({
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [composerShellHeight, detail?.session.id, usesRootScroll]);
+  }, [composerShellHeight, detail?.session.id, readCurrentScrollTop, syncTimelinePinnedState, usesRootScroll]);
 
   useEffect(() => {
     if (!timelineEndRef.current) {
@@ -2065,7 +2070,7 @@ export function ChatPane({
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [liveActivities, messages, optimisticMessage, showPendingAssistant, streamingText]);
+  }, [liveActivities, messages, optimisticMessage, scrollTimelineToBottom, showPendingAssistant, streamingText]);
 
   const handleSubmit = async () => {
     if (hasPendingRun) {

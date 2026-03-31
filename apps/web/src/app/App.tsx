@@ -11,7 +11,9 @@ import type {
   LiveActivity,
   Message,
   MessageAttachment,
+  Repository,
   SessionFilter,
+  SessionSummary,
   SessionsResponse
 } from "@codex-remote/shared-types";
 import { SESSION_FILTERS } from "@codex-remote/shared-types";
@@ -44,6 +46,9 @@ const SIDEBAR_DEFAULT_WIDTH_PX = 320;
 const SIDEBAR_MAX_WIDTH_PX = 640;
 const SIDEBAR_CHAT_GUTTER_PX = 420;
 const EMPTY_ACTIVITY_MAP: Record<string, LiveActivity> = {};
+const EMPTY_REPOS: Repository[] = [];
+const EMPTY_SESSIONS: SessionSummary[] = [];
+const EMPTY_MESSAGES: Message[] = [];
 type ResolvedRunSettings = {
   approvalPolicy: NonNullable<CodexRunSettings["approvalPolicy"]>;
   sandbox: NonNullable<CodexRunSettings["sandbox"]>;
@@ -622,8 +627,8 @@ export function App() {
     }
   });
 
-  const repos = reposQuery.data?.repos ?? [];
-  const sessions = sessionsQuery.data?.sessions ?? [];
+  const repos = useMemo(() => reposQuery.data?.repos ?? EMPTY_REPOS, [reposQuery.data?.repos]);
+  const sessions = useMemo(() => sessionsQuery.data?.sessions ?? EMPTY_SESSIONS, [sessionsQuery.data?.sessions]);
   const visibleSessions = buildVisibleSessions(sessions, selectedRepoId, pendingThread);
   const formatRepoLabel = useMemo(() => buildRepoLabelFormatter(repos), [repos]);
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
@@ -668,7 +673,10 @@ export function App() {
         ? buildPendingSessionDetail(pendingSessionSummaryForSelection)
         : buildDraftSessionDetail(selectedSessionId!, activeDraftRepo, draftCreatedAt)
       : null;
-  const messages = isDraftSession ? [] : messagesQuery.data?.messages ?? [];
+  const messages = useMemo(
+    () => (isDraftSession ? EMPTY_MESSAGES : (messagesQuery.data?.messages ?? EMPTY_MESSAGES)),
+    [isDraftSession, messagesQuery.data?.messages]
+  );
   const pendingCodexRequests = isDraftSession ? [] : pendingCodexRequestsQuery.data?.requests ?? [];
   const currentPendingCodexRequest = pendingCodexRequests[0] ?? null;
   const currentRunSettings = selectedSessionId
