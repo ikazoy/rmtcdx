@@ -22,6 +22,7 @@ export type ChatViewState =
       kind: "ready";
       detail: SessionDetail;
       messages: Message[];
+      messagesError: string | null;
       repoName?: string;
       isLoadingMessages: boolean;
       hasResolvedDetail: boolean;
@@ -61,7 +62,8 @@ export function buildPendingSessionDetail(summary: SessionSummary): SessionDetai
   return {
     session: summary,
     activeRun: null,
-    latestRun: null
+    latestRun: null,
+    runSettings: null
   };
 }
 
@@ -87,7 +89,8 @@ export function buildDraftSessionDetail(sessionId: string, repo: Repository, cre
       updatedAt: createdAt
     },
     activeRun: null,
-    latestRun: null
+    latestRun: null,
+    runSettings: null
   };
 }
 
@@ -104,6 +107,24 @@ export function buildVisibleSessions(
       : null;
 
   return pendingSessionSummary ? [pendingSessionSummary, ...sessions] : sessions;
+}
+
+export function mergeSessionSummaryIntoDetail(
+  detail: SessionDetail | undefined,
+  summary: SessionSummary | null
+) {
+  if (!detail || !summary || detail.session.id !== summary.id) {
+    return detail;
+  }
+
+  if (detail.session === summary) {
+    return detail;
+  }
+
+  return {
+    ...detail,
+    session: summary
+  };
 }
 
 export function buildSidebarViewState({
@@ -144,6 +165,7 @@ export function buildChatViewState({
   detailIsPending,
   detailError,
   messages,
+  messagesError,
   messagesIsFetching,
   repoName
 }: {
@@ -154,6 +176,7 @@ export function buildChatViewState({
   detailIsPending: boolean;
   detailError: Error | null;
   messages: Message[];
+  messagesError: Error | null;
   messagesIsFetching: boolean;
   repoName?: string;
 }): ChatViewState {
@@ -166,6 +189,7 @@ export function buildChatViewState({
       kind: "ready",
       detail: draftDetail,
       messages: [],
+      messagesError: null,
       repoName: repoName ?? draftDetail.session.repoName,
       isLoadingMessages: false,
       hasResolvedDetail: true
@@ -174,10 +198,12 @@ export function buildChatViewState({
 
   const resolvedDetail = detail ?? (selectedSessionSummary ? buildPendingSessionDetail(selectedSessionSummary) : null);
   if (resolvedDetail) {
+    // A failed history fetch should never masquerade as an empty thread.
     return {
       kind: "ready",
       detail: resolvedDetail,
       messages,
+      messagesError: messagesError?.message || null,
       repoName: repoName ?? resolvedDetail.session.repoName,
       isLoadingMessages: messagesIsFetching,
       hasResolvedDetail: Boolean(detail)

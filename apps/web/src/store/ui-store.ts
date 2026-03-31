@@ -1,22 +1,18 @@
 import { create } from "zustand";
 import type { CodexRunSettings, LiveActivity } from "@codex-remote/shared-types";
+import {
+  equalRunSettings,
+  equalThreadBoundRunSettings,
+  extractThreadBoundRunSettings,
+  normalizeRunSettings
+} from "../features/chat/run-settings";
 
 type WsState = "connecting" | "connected" | "reconnecting";
 export type RepoSelectionSource = "restored" | "user" | "system";
 
 const SELECTED_REPO_STORAGE_KEY = "codex-remote-selected-repo-id";
 const COLLAPSED_REPOS_STORAGE_KEY = "codex-remote-collapsed-repos";
-const RUN_SETTINGS_STORAGE_KEY = "codex-remote-run-settings";
-const LAST_RUN_SETTINGS_STORAGE_KEY = "codex-remote-last-run-settings";
-const APPROVAL_POLICY_VALUES = new Set(["untrusted", "on-failure", "on-request", "never"]);
-const SANDBOX_VALUES = new Set(["read-only", "workspace-write", "danger-full-access"]);
-const SERVICE_TIER_VALUES = new Set(["fast", "flex"]);
-const EMPTY_RUN_SETTINGS: CodexRunSettings = {
-  approvalPolicy: null,
-  sandbox: null,
-  serviceTier: null,
-  model: null
-};
+const USER_DEFAULT_RUN_SETTINGS_STORAGE_KEY = "codex-remote-user-default-run-settings";
 
 function readStoredSelectedRepoId() {
   if (typeof window === "undefined") {
@@ -75,87 +71,15 @@ function persistCollapsedRepoKeys(repoKeys: Set<string>) {
   window.localStorage.setItem(COLLAPSED_REPOS_STORAGE_KEY, JSON.stringify([...repoKeys].sort()));
 }
 
-function normalizeRunSettings(value: unknown): CodexRunSettings | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const payload = value as {
-    approvalPolicy?: unknown;
-    sandbox?: unknown;
-    serviceTier?: unknown;
-    model?: unknown;
-  };
-  const approvalPolicy =
-    typeof payload.approvalPolicy === "string" && APPROVAL_POLICY_VALUES.has(payload.approvalPolicy)
-      ? (payload.approvalPolicy as CodexRunSettings["approvalPolicy"])
-      : null;
-  const sandbox =
-    typeof payload.sandbox === "string" && SANDBOX_VALUES.has(payload.sandbox)
-      ? (payload.sandbox as CodexRunSettings["sandbox"])
-      : null;
-  const serviceTier =
-    typeof payload.serviceTier === "string" && SERVICE_TIER_VALUES.has(payload.serviceTier)
-      ? (payload.serviceTier as CodexRunSettings["serviceTier"])
-      : null;
-  const model = typeof payload.model === "string" ? payload.model : null;
-
-  return {
-    approvalPolicy,
-    sandbox,
-    serviceTier,
-    model
-  };
-}
-
-function readStoredRunSettingsBySession() {
-  if (typeof window === "undefined") {
-    return {} as Record<string, CodexRunSettings>;
-  }
-
-  try {
-    const stored = window.localStorage.getItem(RUN_SETTINGS_STORAGE_KEY);
-    if (!stored) {
-      return {} as Record<string, CodexRunSettings>;
-    }
-
-    const parsed = JSON.parse(stored) as Record<string, unknown>;
-    const next: Record<string, CodexRunSettings> = {};
-    for (const [sessionId, value] of Object.entries(parsed)) {
-      if (!sessionId) {
-        continue;
-      }
-      const settings = normalizeRunSettings(value);
-      if (settings) {
-        next[sessionId] = settings;
-      }
-    }
-    return next;
-  } catch {
-    return {} as Record<string, CodexRunSettings>;
-  }
-}
-
-function persistRunSettingsBySession(runSettingsBySession: Record<string, CodexRunSettings>) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  if (Object.keys(runSettingsBySession).length === 0) {
-    window.localStorage.removeItem(RUN_SETTINGS_STORAGE_KEY);
-    return;
-  }
-
-  window.localStorage.setItem(RUN_SETTINGS_STORAGE_KEY, JSON.stringify(runSettingsBySession));
-}
-
 function readStoredLastRunSettings() {
   if (typeof window === "undefined") {
     return null;
   }
 
   try {
-    const stored = window.localStorage.getItem(LAST_RUN_SETTINGS_STORAGE_KEY);
+    const stored =
+      window.localStorage.getItem(USER_DEFAULT_RUN_SETTINGS_STORAGE_KEY)
+      ?? window.localStorage.getItem("codex-remote-last-run-settings");
     if (!stored) {
       return null;
     }
@@ -172,11 +96,11 @@ function persistLastRunSettings(runSettings: CodexRunSettings | null) {
   }
 
   if (!runSettings) {
-    window.localStorage.removeItem(LAST_RUN_SETTINGS_STORAGE_KEY);
+    window.localStorage.removeItem(USER_DEFAULT_RUN_SETTINGS_STORAGE_KEY);
     return;
   }
 
-  window.localStorage.setItem(LAST_RUN_SETTINGS_STORAGE_KEY, JSON.stringify(runSettings));
+  window.localStorage.setItem(USER_DEFAULT_RUN_SETTINGS_STORAGE_KEY, JSON.stringify(runSettings));
 }
 
 type UiState = {
@@ -188,8 +112,8 @@ type UiState = {
   streaming: Record<string, string>;
   activities: Record<string, Record<string, LiveActivity>>;
   collapsedRepoKeys: Set<string>;
-  runSettingsBySession: Record<string, CodexRunSettings>;
-  lastRunSettings: CodexRunSettings | null;
+  runSettingsOverridesBySession: Record<string, CodexRunSettings>;
+  userDefaultRunSettings: CodexRunSettings | null;
   setSelectedRepoId: (repoId: string | null, source?: RepoSelectionSource) => void;
   setSidebarVisible: (visible: boolean) => void;
   toggleSidebarVisible: () => void;
@@ -204,10 +128,14 @@ type UiState = {
   toggleRepoCollapsed: (repoKey: string) => void;
   collapseRepos: (repoKeys: string[]) => void;
   expandRepos: (repoKeys: string[]) => void;
-  initializeRunSettingsForSession: (sessionId: string) => void;
+  syncRunSettingsForSession: (sessionId: string, settings: CodexRunSettings | null) => void;
   setRunSettingsForSession: (sessionId: string, settings: CodexRunSettings) => void;
   resetRunSettingsForSession: (sessionId: string) => void;
-  copyRunSettings: (sourceSessionId: string, targetSessionId: string) => void;
+  consumeRunSettingsForSession: (
+    sourceSessionId: string,
+    targetSessionId: string,
+    fallbackSettings?: CodexRunSettings
+  ) => void;
 };
 
 export const useUiStore = create<UiState>((set) => ({
@@ -219,8 +147,8 @@ export const useUiStore = create<UiState>((set) => ({
   streaming: {},
   activities: {},
   collapsedRepoKeys: readStoredCollapsedRepoKeys(),
-  runSettingsBySession: readStoredRunSettingsBySession(),
-  lastRunSettings: readStoredLastRunSettings(),
+  runSettingsOverridesBySession: {},
+  userDefaultRunSettings: readStoredLastRunSettings(),
   setSelectedRepoId: (selectedRepoId, source = "user") => {
     persistSelectedRepoId(selectedRepoId);
     set({ selectedRepoId, selectedRepoSource: source });
@@ -333,62 +261,78 @@ export const useUiStore = create<UiState>((set) => ({
       persistCollapsedRepoKeys(next);
       return { collapsedRepoKeys: next };
     }),
-  initializeRunSettingsForSession: (sessionId) =>
+  syncRunSettingsForSession: (sessionId, settings) =>
     set((state) => {
-      if (!sessionId || state.runSettingsBySession[sessionId] || !state.lastRunSettings) {
+      const current = state.runSettingsOverridesBySession[sessionId];
+      if (!sessionId || !current) {
         return state;
       }
 
-      const nextSettings = normalizeRunSettings(state.lastRunSettings) ?? EMPTY_RUN_SETTINGS;
-      const runSettingsBySession = {
-        ...state.runSettingsBySession,
-        [sessionId]: nextSettings
-      };
-      persistRunSettingsBySession(runSettingsBySession);
-      return { runSettingsBySession };
+      const matchesStoredSessionSettings =
+        equalRunSettings(current, settings)
+        || (
+          current.approvalPolicy == null
+          && current.sandbox == null
+          && equalThreadBoundRunSettings(current, settings)
+        );
+      if (!matchesStoredSessionSettings) {
+        return state;
+      }
+
+      const runSettingsOverridesBySession = { ...state.runSettingsOverridesBySession };
+      delete runSettingsOverridesBySession[sessionId];
+      return { runSettingsOverridesBySession };
     }),
   setRunSettingsForSession: (sessionId, settings) =>
     set((state) => {
       if (!sessionId) {
         return state;
       }
-      const nextSettings = normalizeRunSettings(settings) ?? EMPTY_RUN_SETTINGS;
-      const runSettingsBySession = {
-        ...state.runSettingsBySession,
+      const nextSettings = normalizeRunSettings(settings);
+      if (!nextSettings) {
+        return state;
+      }
+      const runSettingsOverridesBySession = {
+        ...state.runSettingsOverridesBySession,
         [sessionId]: nextSettings
       };
-      persistRunSettingsBySession(runSettingsBySession);
       persistLastRunSettings(nextSettings);
       return {
-        runSettingsBySession,
-        lastRunSettings: nextSettings
+        runSettingsOverridesBySession,
+        userDefaultRunSettings: nextSettings
       };
     }),
   resetRunSettingsForSession: (sessionId) =>
     set((state) => {
-      if (!sessionId || !state.runSettingsBySession[sessionId]) {
+      if (!sessionId || !state.runSettingsOverridesBySession[sessionId]) {
         return state;
       }
-      const runSettingsBySession = { ...state.runSettingsBySession };
-      delete runSettingsBySession[sessionId];
-      persistRunSettingsBySession(runSettingsBySession);
-      return { runSettingsBySession };
+      const runSettingsOverridesBySession = { ...state.runSettingsOverridesBySession };
+      delete runSettingsOverridesBySession[sessionId];
+      return { runSettingsOverridesBySession };
     }),
-  copyRunSettings: (sourceSessionId, targetSessionId) =>
+  consumeRunSettingsForSession: (sourceSessionId, targetSessionId, fallbackSettings) =>
     set((state) => {
-      const source = state.runSettingsBySession[sourceSessionId];
-      if (!source || !targetSessionId) {
+      if (!sourceSessionId || !targetSessionId) {
         return state;
       }
-      const runSettingsBySession = {
-        ...state.runSettingsBySession,
-        [targetSessionId]: source
+
+      const source = state.runSettingsOverridesBySession[sourceSessionId] ?? normalizeRunSettings(fallbackSettings);
+      const runSettingsOverridesBySession = {
+        ...state.runSettingsOverridesBySession
       };
-      persistRunSettingsBySession(runSettingsBySession);
-      persistLastRunSettings(source);
+
+      delete runSettingsOverridesBySession[sourceSessionId];
+
+      const threadBoundSettings = extractThreadBoundRunSettings(source);
+      if (threadBoundSettings) {
+        runSettingsOverridesBySession[targetSessionId] = threadBoundSettings;
+      } else {
+        delete runSettingsOverridesBySession[targetSessionId];
+      }
+
       return {
-        runSettingsBySession,
-        lastRunSettings: source
+        runSettingsOverridesBySession
       };
     })
 }));

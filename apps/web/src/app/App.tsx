@@ -25,10 +25,12 @@ import {
   buildPendingSessionDetail,
   buildPendingSessionSummary,
   buildSidebarViewState,
-  buildVisibleSessions
+  buildVisibleSessions,
+  mergeSessionSummaryIntoDetail
 } from "./view-state";
 import type { PendingThread } from "./view-state";
 import { ChatPane } from "../features/chat/ChatPane";
+import { DEFAULT_RUN_SETTINGS, pickRunSettings, runSettingsForRequest } from "../features/chat/run-settings";
 import { CodexRequestDialog } from "../features/codex-requests/CodexRequestDialog";
 import { resolveDraftRepoId } from "../features/repos/repo-defaults";
 import { buildRepoLabelFormatter } from "../features/repos/repo-presentation";
@@ -49,19 +51,6 @@ const EMPTY_ACTIVITY_MAP: Record<string, LiveActivity> = {};
 const EMPTY_REPOS: Repository[] = [];
 const EMPTY_SESSIONS: SessionSummary[] = [];
 const EMPTY_MESSAGES: Message[] = [];
-type ResolvedRunSettings = {
-  approvalPolicy: NonNullable<CodexRunSettings["approvalPolicy"]>;
-  sandbox: NonNullable<CodexRunSettings["sandbox"]>;
-  serviceTier: CodexRunSettings["serviceTier"];
-  model: string;
-};
-
-const DEFAULT_RUN_SETTINGS: ResolvedRunSettings = {
-  approvalPolicy: "on-request",
-  sandbox: "workspace-write",
-  serviceTier: null,
-  model: ""
-};
 
 function readStoredThreadFilters() {
   if (typeof window === "undefined") {
@@ -269,27 +258,6 @@ function sessionIdsForSelection(selectedSessionId: string | null, transition: Se
   return sessionIds;
 }
 
-function resolvedRunSettings(settings: CodexRunSettings | undefined | null): ResolvedRunSettings {
-  return {
-    approvalPolicy: settings?.approvalPolicy ?? DEFAULT_RUN_SETTINGS.approvalPolicy,
-    sandbox: settings?.sandbox ?? DEFAULT_RUN_SETTINGS.sandbox,
-    serviceTier: settings?.serviceTier ?? DEFAULT_RUN_SETTINGS.serviceTier,
-    model: settings?.model ?? DEFAULT_RUN_SETTINGS.model
-  };
-}
-
-function runSettingsForRequest(settings: CodexRunSettings | undefined | null): CodexRunSettings {
-  const resolved = resolvedRunSettings(settings);
-  const model = resolved.model.trim();
-
-  return {
-    approvalPolicy: resolved.approvalPolicy,
-    sandbox: resolved.sandbox,
-    serviceTier: model ? (resolved.serviceTier ?? null) : null,
-    model: model ? model : null
-  };
-}
-
 export function App() {
   useRealtime();
   const queryClient = useQueryClient();
@@ -326,11 +294,12 @@ export function App() {
 
   const selectedRepoId = useUiStore((state) => state.selectedRepoId);
   const selectedRepoSource = useUiStore((state) => state.selectedRepoSource);
-  const runSettingsBySession = useUiStore((state) => state.runSettingsBySession);
-  const initializeRunSettingsForSession = useUiStore((state) => state.initializeRunSettingsForSession);
+  const runSettingsOverridesBySession = useUiStore((state) => state.runSettingsOverridesBySession);
+  const userDefaultRunSettings = useUiStore((state) => state.userDefaultRunSettings);
+  const syncRunSettingsForSession = useUiStore((state) => state.syncRunSettingsForSession);
   const setRunSettingsForSession = useUiStore((state) => state.setRunSettingsForSession);
   const resetRunSettingsForSession = useUiStore((state) => state.resetRunSettingsForSession);
-  const copyRunSettings = useUiStore((state) => state.copyRunSettings);
+  const consumeRunSettingsForSession = useUiStore((state) => state.consumeRunSettingsForSession);
   const selectedSessionId = routeSessionId;
   const isDraftSession = Boolean(selectedSessionId?.startsWith("draft:"));
   const selectedSessionIds = useMemo(
@@ -506,8 +475,8 @@ export function App() {
         sessionId: data.run.sessionId,
         runId: data.run.id
       });
+      consumeRunSettingsForSession(variables.clientSessionId, data.run.sessionId, variables.codexSettings);
       if (variables.clientSessionId.startsWith("draft:") && variables.clientSessionId !== data.run.sessionId) {
-        copyRunSettings(variables.clientSessionId, data.run.sessionId);
         setDraftRepoIdBySessionId((current) => {
           const next = { ...current };
           delete next[variables.clientSessionId];
@@ -632,8 +601,14 @@ export function App() {
   const visibleSessions = buildVisibleSessions(sessions, selectedRepoId, pendingThread);
   const formatRepoLabel = useMemo(() => buildRepoLabelFormatter(repos), [repos]);
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
+  const selectedPolledSessionSummary =
+    sessions.find((session) => selectedSessionIds.has(session.id)) ?? null;
+  const mergedSessionDetail = useMemo(
+    () => mergeSessionSummaryIntoDetail(sessionDetailQuery.data, selectedPolledSessionSummary),
+    [selectedPolledSessionSummary, sessionDetailQuery.data]
+  );
   const currentSessionRepoId =
-    !isDraftSession ? (sessionDetailQuery.data?.session.repoId ?? sessions.find((session) => session.id === selectedSessionId)?.repoId ?? null) : null;
+    !isDraftSession ? (mergedSessionDetail?.session.repoId ?? selectedPolledSessionSummary?.repoId ?? null) : null;
   const defaultDraftRepoId = resolveDraftRepoId({
     repos,
     currentSessionRepoId,
@@ -679,18 +654,24 @@ export function App() {
   );
   const pendingCodexRequests = isDraftSession ? [] : pendingCodexRequestsQuery.data?.requests ?? [];
   const currentPendingCodexRequest = pendingCodexRequests[0] ?? null;
+  const authoritativeRunSettings = isDraftSession ? null : mergedSessionDetail?.runSettings ?? null;
   const currentRunSettings = selectedSessionId
-    ? resolvedRunSettings(runSettingsBySession[selectedSessionId])
+    ? pickRunSettings({
+        isDraftSession,
+        sessionOverride: runSettingsOverridesBySession[selectedSessionId],
+        authoritativeRunSettings,
+        userDefaultRunSettings
+      })
     : DEFAULT_RUN_SETTINGS;
   const availableModels = codexModelsQuery.data?.models ?? [];
   const devSimulatorAvailable = healthQuery.data?.devTools.codexRequestSimulator === true;
   const activeSessionRepo =
     activeDraftRepo
-    ?? repos.find((repo) => repo.id === (sessionDetailQuery.data?.session.repoId ?? selectedSessionSummary?.repoId))
+    ?? repos.find((repo) => repo.id === (mergedSessionDetail?.session.repoId ?? selectedSessionSummary?.repoId))
     ?? selectedRepo;
   const activeRepoName =
     (activeSessionRepo ? formatRepoLabel(activeSessionRepo) : null)
-    ?? sessionDetailQuery.data?.session.repoName
+    ?? mergedSessionDetail?.session.repoName
     ?? selectedSessionSummary?.repoName;
   const draftRepoPicker =
     isDraftSession && activeDraftRepoId
@@ -712,16 +693,25 @@ export function App() {
     sessionId: selectedSessionId,
     draftDetail,
     selectedSessionSummary,
-    detail: sessionDetailQuery.data,
+    detail: mergedSessionDetail,
     detailIsPending: sessionDetailQuery.isPending,
     detailError: sessionDetailQuery.error instanceof Error ? sessionDetailQuery.error : null,
     messages,
+    messagesError: messagesQuery.error instanceof Error ? messagesQuery.error : null,
     messagesIsFetching: messagesQuery.isFetching,
     repoName: activeRepoName
   });
   const readyChatView = chatViewState.kind === "ready" ? chatViewState : null;
   const actionableDetail = readyChatView?.detail ?? null;
   const hasResolvedSessionDetail = readyChatView?.hasResolvedDetail ?? false;
+
+  useEffect(() => {
+    if (!selectedSessionId || isDraftSession) {
+      return;
+    }
+
+    syncRunSettingsForSession(selectedSessionId, mergedSessionDetail?.runSettings ?? null);
+  }, [isDraftSession, mergedSessionDetail?.runSettings, selectedSessionId, syncRunSettingsForSession]);
 
   useEffect(() => {
     debugUiState("chat-view", {
@@ -763,11 +753,11 @@ export function App() {
 
     const hasResolvedPendingThread =
       sessions.some((session) => session.id === pendingThread.sessionId) ||
-      sessionDetailQuery.data?.session.id === pendingThread.sessionId;
+      mergedSessionDetail?.session.id === pendingThread.sessionId;
     if (hasResolvedPendingThread) {
       setPendingThread(null);
     }
-  }, [pendingThread, sessionDetailQuery.data?.session.id, sessions]);
+  }, [mergedSessionDetail?.session.id, pendingThread, sessions]);
 
   useEffect(() => {
     if (!sessionTransition) {
@@ -783,11 +773,11 @@ export function App() {
 
     const hasResolvedRealSession =
       sessions.some((session) => session.id === sessionTransition.realId) ||
-      sessionDetailQuery.data?.session.id === sessionTransition.realId;
+      mergedSessionDetail?.session.id === sessionTransition.realId;
     if (hasResolvedRealSession && selectedSessionId === sessionTransition.realId) {
       setSessionTransition(null);
     }
-  }, [selectedSessionId, sessionDetailQuery.data?.session.id, sessionTransition, sessions]);
+  }, [mergedSessionDetail?.session.id, selectedSessionId, sessionTransition, sessions]);
 
   useEffect(() => {
     if (!optimisticMessageForSession) {
@@ -982,7 +972,6 @@ export function App() {
                 ...current,
                 [draftSessionId]: defaultDraftRepoId
               }));
-              initializeRunSettingsForSession(draftSessionId);
               setSelectedRepoId(defaultDraftRepoId, "system");
               navigate(buildSessionPath(draftSessionId));
             }}

@@ -1263,6 +1263,7 @@ function SearchListSheet({
 
 const ConversationTimeline = memo(function ConversationTimeline({
   messages,
+  messagesError,
   isLoadingMessages,
   streamingText,
   liveActivities,
@@ -1279,6 +1280,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onOpenImageViewer
 }: {
   messages: Message[];
+  messagesError: string | null;
   isLoadingMessages: boolean;
   streamingText: string;
   liveActivities: LiveActivity[];
@@ -1298,6 +1300,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const hasConfirmedOptimistic =
     Boolean(optimisticMessage) &&
     messages.some((message) => optimisticMessage ? messageMatchesOptimistic(message, optimisticMessage) : false);
+  const showTimelineError =
+    Boolean(messagesError) && messages.length === 0 && !isLoadingMessages && !streamingText && !optimisticMessage && !showPendingAssistant;
   const showTimelineSkeleton =
     isLoadingMessages && messages.length === 0 && !streamingText && !optimisticMessage && !showPendingAssistant;
 
@@ -1424,6 +1428,15 @@ const ConversationTimeline = memo(function ConversationTimeline({
             </>
           ) : null}
 
+          {showTimelineError ? (
+            <article className="message-row message-row--system">
+              <div className="message-card message-card--system message-card--error">
+                <p>Unable to load this thread history.</p>
+                <p>{messagesError}</p>
+              </div>
+            </article>
+          ) : null}
+
           <div ref={timelineEndRef} className="timeline-end" aria-hidden="true" />
         </div>
       </div>
@@ -1543,6 +1556,7 @@ export function ChatPane({
   const readyView = viewState.kind === "ready" ? viewState : null;
   const detail = readyView?.detail ?? null;
   const messages = readyView?.messages ?? EMPTY_MESSAGES;
+  const messagesError = readyView?.messagesError ?? null;
   const isLoadingMessages = readyView?.isLoadingMessages ?? false;
   const repoName = readyView?.repoName;
   const orderedDraftRepos = draftRepoPicker ? sortReposForDisplay(draftRepoPicker.repos) : [];
@@ -1582,22 +1596,24 @@ export function ChatPane({
   const showPendingAssistant =
     !streamingText && (Boolean(effectiveOptimisticMessage) || sessionIsRunning || isSubmitting || hasPendingResponse);
   const showComposerEmptyState =
-    !isLoadingMessages && messages.length === 0 && !streamingText && !effectiveOptimisticMessage && !showPendingAssistant;
+    !messagesError && !isLoadingMessages && messages.length === 0 && !streamingText && !effectiveOptimisticMessage && !showPendingAssistant;
   const selectedModel = runSettings.model.trim();
   const selectedServiceTier = runSettings.serviceTier ?? null;
   const defaultModel = availableModels.find((model) => model.isDefault) ?? null;
   const modelSelectionOptions: ModelSelectionOption[] = availableModels.flatMap((model) => {
-    const options: ModelSelectionOption[] = [];
+    const isDefaultModel = defaultModel?.id === model.id;
     const note = `${model.description} Default reasoning: ${model.defaultReasoningEffort}.`;
-    if (defaultModel?.id !== model.id) {
-      options.push({
+    const options: ModelSelectionOption[] = [
+      {
         value: modelSelectionOptionValue(model.model, null),
-        label: model.displayName,
+        label: isDefaultModel ? `${model.displayName} (Fixed)` : model.displayName,
         model: model.model,
         serviceTier: null,
-        note
-      });
-    }
+        note: isDefaultModel
+          ? `${model.description} Pins the next run to this exact model instead of following the backend default. Default reasoning: ${model.defaultReasoningEffort}.`
+          : note
+      }
+    ];
 
     if (model.model === FAST_TIER_MODEL) {
       options.push({
@@ -2597,6 +2613,7 @@ export function ChatPane({
 
           <ConversationTimeline
             messages={messages}
+            messagesError={messagesError}
             isLoadingMessages={isLoadingMessages}
             streamingText={streamingText}
             liveActivities={liveActivities}
