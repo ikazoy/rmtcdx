@@ -616,8 +616,11 @@ export function App() {
     () => mergeSessionSummaryIntoDetail(sessionDetailQuery.data, selectedPolledSessionSummary),
     [selectedPolledSessionSummary, sessionDetailQuery.data]
   );
-  const currentSessionRepoId =
-    !isDraftSession ? (mergedSessionDetail?.session.repoId ?? selectedPolledSessionSummary?.repoId ?? null) : null;
+  const currentSessionRepoId = selectedSessionId
+    ? isDraftSession
+      ? (draftRepoIdBySessionId[selectedSessionId] ?? null)
+      : (mergedSessionDetail?.session.repoId ?? selectedPolledSessionSummary?.repoId ?? null)
+    : null;
   const defaultDraftRepoId = resolveDraftRepoId({
     repos,
     currentSessionRepoId,
@@ -640,8 +643,7 @@ export function App() {
       ...current,
       [selectedSessionId]: defaultDraftRepoId
     }));
-    setSelectedRepoId(defaultDraftRepoId, "system");
-  }, [defaultDraftRepoId, draftRepoIdBySessionId, isDraftSession, selectedSessionId, setSelectedRepoId]);
+  }, [defaultDraftRepoId, draftRepoIdBySessionId, isDraftSession, selectedSessionId]);
 
   const lastHandledListRefreshRef = useRef<string | null>(null);
 
@@ -908,7 +910,6 @@ export function App() {
       [selectedSessionId]: repoId
     }));
     setLastDraftRepoId(repoId);
-    setSelectedRepoId(repoId, "system");
   }
 
   const selectSession = (sessionId: string) => {
@@ -1021,7 +1022,6 @@ export function App() {
                 ...current,
                 [draftSessionId]: defaultDraftRepoId
               }));
-              setSelectedRepoId(defaultDraftRepoId, "system");
               navigate(buildSessionPath(draftSessionId));
             }}
           />

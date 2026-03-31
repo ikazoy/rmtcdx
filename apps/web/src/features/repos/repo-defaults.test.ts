@@ -20,7 +20,7 @@ function createRepo(overrides: Partial<Repository> & Pick<Repository, "id" | "na
   };
 }
 
-test("resolveDraftRepoId prefers the repo of the currently open session", () => {
+test("resolveDraftRepoId prefers an explicit sidebar repo over the currently open session repo", () => {
   const repos = [
     createRepo({ id: "repo-a", name: "Repo A" }),
     createRepo({ id: "repo-b", name: "Repo B", pinned: true })
@@ -34,10 +34,10 @@ test("resolveDraftRepoId prefers the repo of the currently open session", () => 
     selectedRepoSource: "user"
   });
 
-  assert.equal(resolved, "repo-a");
+  assert.equal(resolved, "repo-b");
 });
 
-test("resolveDraftRepoId prefers an explicit sidebar repo over the stored draft repo", () => {
+test("resolveDraftRepoId falls back to the current session repo when no explicit sidebar repo is set", () => {
   const repos = [
     createRepo({ id: "repo-a", name: "Repo A" }),
     createRepo({ id: "repo-b", name: "Repo B" })
@@ -45,13 +45,13 @@ test("resolveDraftRepoId prefers an explicit sidebar repo over the stored draft 
 
   const resolved = resolveDraftRepoId({
     repos,
-    currentSessionRepoId: null,
-    lastDraftRepoId: "repo-a",
-    selectedRepoId: "repo-b",
-    selectedRepoSource: "user"
+    currentSessionRepoId: "repo-a",
+    lastDraftRepoId: "repo-b",
+    selectedRepoId: null,
+    selectedRepoSource: "system"
   });
 
-  assert.equal(resolved, "repo-b");
+  assert.equal(resolved, "repo-a");
 });
 
 test("resolveDraftRepoId ignores a restored sidebar repo and falls back to the last draft repo", () => {

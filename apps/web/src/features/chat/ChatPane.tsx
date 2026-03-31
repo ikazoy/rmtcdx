@@ -1584,6 +1584,7 @@ export function ChatPane({
   const activeRunState = detail?.activeRun?.status ?? null;
   const latestRunState = detail?.latestRun?.status ?? null;
   const sessionIsArchived = Boolean(detail?.session.isArchived);
+  const sessionIsDraft = detail?.session.id.startsWith("draft:") === true;
   const sessionIsRunning = activeRunState === "running" || detail?.session.status === "running";
   const hasPendingRun = sessionIsRunning || isSubmitting || Boolean(effectiveOptimisticMessage) || hasPendingResponse;
   const interruptButtonEnabled = canInterruptRun && !isSubmitting;
@@ -1953,7 +1954,7 @@ export function ChatPane({
   }, [detail?.session.id]);
 
   useEffect(() => {
-    if (!showComposerEmptyState || sessionIsArchived) {
+    if (!showComposerEmptyState || sessionIsArchived || sessionIsDraft) {
       return;
     }
 
@@ -1986,7 +1987,7 @@ export function ChatPane({
         window.clearTimeout(scrollTimeout);
       }
     };
-  }, [detail?.session.id, sessionIsArchived, showComposerEmptyState, showDraftRepoPicker, usesRootScroll]);
+  }, [detail?.session.id, sessionIsArchived, sessionIsDraft, showComposerEmptyState, showDraftRepoPicker, usesRootScroll]);
 
   useEffect(() => {
     const timeline = timelineRef.current;

@@ -49,12 +49,12 @@ export function resolveDraftRepoId({
   selectedRepoId,
   selectedRepoSource
 }: ResolveDraftRepoIdOptions) {
-  if (hasRepo(repos, currentSessionRepoId)) {
-    return currentSessionRepoId;
-  }
-
   if (selectedRepoSource === "user" && hasRepo(repos, selectedRepoId)) {
     return selectedRepoId;
+  }
+
+  if (hasRepo(repos, currentSessionRepoId)) {
+    return currentSessionRepoId;
   }
 
   if (hasRepo(repos, lastDraftRepoId)) {
