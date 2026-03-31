@@ -165,9 +165,17 @@ npm run build -w rmtcdx
 npm run build -w @codex-remote/web
 ```
 
+開発と release の運用: [docs/pr-and-release-workflow.ja.md](./docs/pr-and-release-workflow.ja.md)
+
 ### package 化した起動経路のローカル確認
 
-`npm publish` 前に、生成した tarball から `npx rmtcdx` 相当の経路を確認できます。
+CI と同じ packaged CLI smoke test:
+
+```bash
+npm run smoke:package
+```
+
+`npm publish` 前に、生成した tarball から `npx rmtcdx` 相当の経路を手動で確認することもできます。
 
 ```bash
 npm pack -w rmtcdx

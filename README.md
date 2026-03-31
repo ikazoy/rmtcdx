@@ -165,9 +165,17 @@ npm run build -w rmtcdx
 npm run build -w @codex-remote/web
 ```
 
+Contribution and release workflow: [docs/pr-and-release-workflow.md](./docs/pr-and-release-workflow.md)
+
 ### Local Package Smoke Test
 
-Before `npm publish`, you can verify the packaged `npx rmtcdx` path from the generated tarball:
+Run the packaged CLI smoke path used by CI:
+
+```bash
+npm run smoke:package
+```
+
+Before `npm publish`, you can still inspect the packaged `npx rmtcdx` path from the generated tarball manually:
 
 ```bash
 npm pack -w rmtcdx
