@@ -6,7 +6,7 @@ Codex Remote Web Client is a mobile-first web UI for remotely operating OpenAI C
 
 ## Features
 
-- One-command launch via `npx remodex` or `bunx remodex`
+- One-command launch via `npx rmtcdx` or `bunx rmtcdx`
 - Repository picker built from discovered Codex threads, optional `repos.json` presets, and the current git working tree fallback
 - Session list with search, filters, unread state, rename, and archive
 - Prompt submission with optional image attachments
@@ -23,24 +23,24 @@ Codex Remote Web Client is a mobile-first web UI for remotely operating OpenAI C
 ## One-Command Start
 
 ```bash
-npx remodex
+npx rmtcdx
 # or
-bunx remodex
+bunx rmtcdx
 ```
 
 If `repos.json` is missing and your current working directory is inside a git repository, the app automatically exposes that repository as a pinned entry.
 
 For a persistent multi-repo setup, create `repos.json` in the app config directory:
 
-- macOS: `~/Library/Application Support/remodex/repos.json`
-- Linux: `~/.config/remodex/repos.json`
-- Windows: `%APPDATA%\\remodex\\repos.json`
+- macOS: `~/Library/Application Support/rmtcdx/repos.json`
+- Linux: `~/.config/rmtcdx/repos.json`
+- Windows: `%APPDATA%\\rmtcdx\\repos.json`
 
 State is stored outside the source tree as well:
 
-- macOS: `~/Library/Application Support/remodex`
-- Linux: `~/.local/share/remodex`
-- Windows: `%LOCALAPPDATA%\\remodex`
+- macOS: `~/Library/Application Support/rmtcdx`
+- Linux: `~/.local/share/rmtcdx`
+- Windows: `%LOCALAPPDATA%\\rmtcdx`
 
 ## Persisted State
 
@@ -55,8 +55,8 @@ Session and message history, thread titles, archive state, and run history are r
 ## Source Checkout
 
 ```bash
-git clone https://github.com/ikazoy/remodex.git
-cd remodex
+git clone https://github.com/ikazoy/rmtcdx.git
+cd rmtcdx
 npm install
 npm run build
 # Optional: pre-seed the repository picker for an empty-state setup
@@ -78,7 +78,7 @@ After startup:
 For access from another network, keep the bridge bound to localhost and publish it to your tailnet with Tailscale Serve:
 
 ```bash
-npx remodex &
+npx rmtcdx &
 tailscale serve --bg 3210
 ```
 
@@ -120,7 +120,7 @@ Example:
 [
   {
     "id": "remote_control_codex",
-    "name": "remodex",
+    "name": "rmtcdx",
     "path": ".",
     "description": "This cloned workspace",
     "pinned": true
@@ -146,24 +146,24 @@ npm run dev
 Workspace-specific commands:
 
 ```bash
-npm run dev -w remodex
+npm run dev -w rmtcdx
 npm run dev -w @codex-remote/web
-npm run build -w remodex
+npm run build -w rmtcdx
 npm run build -w @codex-remote/web
 ```
 
 ### Local Package Smoke Test
 
-Before `npm publish`, you can verify the packaged `npx remodex` path from the generated tarball:
+Before `npm publish`, you can verify the packaged `npx rmtcdx` path from the generated tarball:
 
 ```bash
-npm pack -w remodex
+npm pack -w rmtcdx
 TMP_DIR="$(mktemp -d)"
 PORT=33210 HOST=127.0.0.1 CODEX_MODE=mock \
 REPO_CONFIG_PATH="$TMP_DIR/repos.json" \
 DATA_DIR="$TMP_DIR/data" \
 npm_config_cache="$TMP_DIR/npm-cache" \
-npx --yes --package ./remodex-0.1.0.tgz remodex
+npx --yes --package ./rmtcdx-0.1.0.tgz rmtcdx
 ```
 
 In another terminal:
@@ -176,7 +176,7 @@ curl http://127.0.0.1:33210/api/repos
 Cleanup:
 
 ```bash
-rm -rf "$TMP_DIR" ./remodex-0.1.0.tgz
+rm -rf "$TMP_DIR" ./rmtcdx-0.1.0.tgz
 ```
 
 Stop the running bridge with `Ctrl+C` before removing the temp directory.

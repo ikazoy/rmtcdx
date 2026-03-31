@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const appName = "remodex";
+const appName = "rmtcdx";
 
 type RuntimePaths = {
   packageRoot: string | null;
@@ -72,7 +72,7 @@ function isBridgePackageRoot(root: string) {
 
   try {
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as { name?: string };
-    return packageJson.name === "remodex";
+    return packageJson.name === "rmtcdx";
   } catch {
     return false;
   }

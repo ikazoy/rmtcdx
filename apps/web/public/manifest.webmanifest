@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Remodex",
-  "short_name": "Remodex",
+  "name": "Rmtcdx",
+  "short_name": "Rmtcdx",
   "description": "A mobile-friendly web client for remotely controlling coding sessions and runs.",
   "start_url": "/",
   "scope": "/",

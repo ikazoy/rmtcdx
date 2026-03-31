@@ -151,7 +151,7 @@ function buildNotificationRecoverySteps(userAgent: string, isStandalone: boolean
         steps: [
           "Add this app to your home screen first.",
           "Open it from the home screen icon.",
-          "In iPhone or iPad Settings, allow notifications for Remodex."
+          "In iPhone or iPad Settings, allow notifications for Rmtcdx."
         ],
         note: "iOS push notifications only work from the installed web app."
       };
@@ -160,7 +160,7 @@ function buildNotificationRecoverySteps(userAgent: string, isStandalone: boolean
     return {
       steps: [
         "Open iPhone or iPad Settings > Notifications.",
-        "Find Remodex and turn on Allow Notifications.",
+        "Find Rmtcdx and turn on Allow Notifications.",
         "Return here and enable notifications again."
       ],
       note: "Safari does not provide a standard web API to open these settings directly."
@@ -417,7 +417,7 @@ export function StatusMenu({ isMobileViewport }: Props) {
     if (deferredPrompt) {
       return {
         title: "Home screen",
-        detail: "Add Remodex to your home screen.",
+        detail: "Add Rmtcdx to your home screen.",
         actionLabel: isPromptingInstall ? "Waiting..." : "Add",
         disabled: isPromptingInstall
       };

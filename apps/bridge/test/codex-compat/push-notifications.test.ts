@@ -48,7 +48,7 @@ test("push notifications include interrupted status and thread title", async (t)
 
   assert.equal(sentPayloads.length, 1);
   assert.deepEqual(JSON.parse(sentPayloads[0] ?? "{}"), {
-    title: "Remodex · Interrupted",
+    title: "Rmtcdx · Interrupted",
     body: "Thread: Deploy preview · Status: interrupted",
     tag: "run:run-1",
     icon: "/icon-192.png",

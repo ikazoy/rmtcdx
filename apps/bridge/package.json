@@ -1,12 +1,12 @@
 {
-  "name": "remodex",
+  "name": "rmtcdx",
   "version": "0.1.0",
   "description": "Remote web client for operating OpenAI Codex CLI from your browser",
   "type": "module",
-  "homepage": "https://github.com/ikazoy/remodex#readme",
+  "homepage": "https://github.com/ikazoy/rmtcdx#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ikazoy/remodex.git"
+    "url": "git+https://github.com/ikazoy/rmtcdx.git"
   },
   "keywords": [
     "codex",
@@ -16,7 +16,7 @@
     "websocket"
   ],
   "bin": {
-    "remodex": "./dist/main.js"
+    "rmtcdx": "./dist/main.js"
   },
   "files": [
     "dist",

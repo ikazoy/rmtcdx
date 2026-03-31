@@ -1,16 +1,16 @@
 {
-  "name": "remodex-workspace",
+  "name": "rmtcdx-workspace",
   "private": true,
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -k -n bridge,web -c blue,magenta \"PORT=3000 npm run dev -w remodex\" \"npm run dev -w @codex-remote/web\"",
-    "build": "npm run build -w remodex",
-    "compat:canary": "npm run compat:canary -w remodex",
-    "compat:fixtures": "npm run compat:fixtures -w remodex",
-    "start": "npm run start -w remodex",
+    "dev": "concurrently -k -n bridge,web -c blue,magenta \"PORT=3000 npm run dev -w rmtcdx\" \"npm run dev -w @codex-remote/web\"",
+    "build": "npm run build -w rmtcdx",
+    "compat:canary": "npm run compat:canary -w rmtcdx",
+    "compat:fixtures": "npm run compat:fixtures -w rmtcdx",
+    "start": "npm run start -w rmtcdx",
     "test": "npm run test -ws --if-present"
   },
   "devDependencies": {

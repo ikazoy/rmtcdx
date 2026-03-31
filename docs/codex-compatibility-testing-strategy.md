@@ -790,8 +790,8 @@ Layer A/B/C までを必須にし、
 
 実装済みの入口は以下。
 
-- `npm run compat:canary -w remodex`
-- `npm run compat:fixtures -w remodex`
+- `npm run compat:canary -w rmtcdx`
+- `npm run compat:fixtures -w rmtcdx`
 - `apps/bridge/scripts/run-real-codex-canary.ts`
 - `apps/bridge/scripts/generate-compat-fixtures.ts`
 - `apps/bridge/src/compat/canary-report.ts`

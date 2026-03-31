@@ -80,7 +80,7 @@ function buildPayload(detail: SessionDetail, run: Run): PushPayload {
   const body = `Thread: ${detail.session.title} · Status: ${run.status}`;
 
   return {
-    title: `Remodex · ${statusLabel}`,
+    title: `Rmtcdx · ${statusLabel}`,
     body,
     tag: `run:${run.id}`,
     icon: "/icon-192.png",

@@ -6,7 +6,7 @@ Codex Remote Web Client は、mobile-first の Web UI から OpenAI Codex CLI �
 
 ## できること
 
-- `npx remodex` / `bunx remodex` で one-command 起動できる
+- `npx rmtcdx` / `bunx rmtcdx` で one-command 起動できる
 - Codex thread から見つけた repository、任意の `repos.json` preset、現在の git working tree fallback を一覧表示できる
 - session 一覧の検索、filter、未読管理、rename、archive
 - 画像添付付き prompt の送信
@@ -23,24 +23,24 @@ Codex Remote Web Client は、mobile-first の Web UI から OpenAI Codex CLI �
 ## One-Command Start
 
 ```bash
-npx remodex
+npx rmtcdx
 # または
-bunx remodex
+bunx rmtcdx
 ```
 
 `repos.json` がなくても、起動したカレントディレクトリが git repository 配下なら、その repository を pinned entry として自動で使えます。
 
 複数 repository を永続的に登録したい場合は、app config directory に `repos.json` を作成してください。
 
-- macOS: `~/Library/Application Support/remodex/repos.json`
-- Linux: `~/.config/remodex/repos.json`
-- Windows: `%APPDATA%\\remodex\\repos.json`
+- macOS: `~/Library/Application Support/rmtcdx/repos.json`
+- Linux: `~/.config/rmtcdx/repos.json`
+- Windows: `%APPDATA%\\rmtcdx\\repos.json`
 
 state の保存先も source tree の外です。
 
-- macOS: `~/Library/Application Support/remodex`
-- Linux: `~/.local/share/remodex`
-- Windows: `%LOCALAPPDATA%\\remodex`
+- macOS: `~/Library/Application Support/rmtcdx`
+- Linux: `~/.local/share/rmtcdx`
+- Windows: `%LOCALAPPDATA%\\rmtcdx`
 
 ## 永続化する state
 
@@ -55,8 +55,8 @@ session / message 履歴、thread title、archive 状態、run 履歴は `codex 
 ## Source Checkout
 
 ```bash
-git clone https://github.com/ikazoy/remodex.git
-cd remodex
+git clone https://github.com/ikazoy/rmtcdx.git
+cd rmtcdx
 npm install
 npm run build
 # 任意: 初回の空状態用に repository picker を先に埋める
@@ -78,7 +78,7 @@ PORT=3210 npm run start
 別ネットワークから入る場合は、bridge を localhost bind のままにして、Tailscale Serve で tailnet 内に公開するのを推奨します。
 
 ```bash
-npx remodex &
+npx rmtcdx &
 tailscale serve --bg 3210
 ```
 
@@ -120,7 +120,7 @@ cp repos.example.json repos.json
 [
   {
     "id": "remote_control_codex",
-    "name": "remodex",
+    "name": "rmtcdx",
     "path": ".",
     "description": "This cloned workspace",
     "pinned": true
@@ -146,24 +146,24 @@ npm run dev
 個別ワークスペース用コマンド:
 
 ```bash
-npm run dev -w remodex
+npm run dev -w rmtcdx
 npm run dev -w @codex-remote/web
-npm run build -w remodex
+npm run build -w rmtcdx
 npm run build -w @codex-remote/web
 ```
 
 ### package 化した起動経路のローカル確認
 
-`npm publish` 前に、生成した tarball から `npx remodex` 相当の経路を確認できます。
+`npm publish` 前に、生成した tarball から `npx rmtcdx` 相当の経路を確認できます。
 
 ```bash
-npm pack -w remodex
+npm pack -w rmtcdx
 TMP_DIR="$(mktemp -d)"
 PORT=33210 HOST=127.0.0.1 CODEX_MODE=mock \
 REPO_CONFIG_PATH="$TMP_DIR/repos.json" \
 DATA_DIR="$TMP_DIR/data" \
 npm_config_cache="$TMP_DIR/npm-cache" \
-npx --yes --package ./remodex-0.1.0.tgz remodex
+npx --yes --package ./rmtcdx-0.1.0.tgz rmtcdx
 ```
 
 別ターミナルで:
@@ -176,7 +176,7 @@ curl http://127.0.0.1:33210/api/repos
 片付けるときは:
 
 ```bash
-rm -rf "$TMP_DIR" ./remodex-0.1.0.tgz
+rm -rf "$TMP_DIR" ./rmtcdx-0.1.0.tgz
 ```
 
 temp directory を消す前に、起動中の bridge を `Ctrl+C` で止めてください。
