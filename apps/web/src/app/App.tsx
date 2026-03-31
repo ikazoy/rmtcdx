@@ -654,14 +654,6 @@ export function App() {
     setSelectedRepoId(defaultDraftRepoId, "system");
   }, [defaultDraftRepoId, draftRepoIdBySessionId, isDraftSession, selectedSessionId, setSelectedRepoId]);
 
-  useEffect(() => {
-    if (!isDraftSession || !selectedSessionId) {
-      return;
-    }
-
-    initializeRunSettingsForSession(selectedSessionId);
-  }, [initializeRunSettingsForSession, isDraftSession, selectedSessionId]);
-
   const selectedSessionSummary =
     visibleSessions.find((session) => selectedSessionIds.has(session.id)) ?? null;
   const selectedSidebarSessionId = selectedSessionSummary?.id ?? selectedSessionId;

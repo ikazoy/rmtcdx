@@ -1422,6 +1422,8 @@ button {
   min-width: 0;
   max-width: 100%;
   margin: 0 auto;
+  display: grid;
+  gap: 0.5rem;
 }
 
 .chat-head__lead {
@@ -1442,9 +1444,16 @@ button {
   min-width: 0;
 }
 
+.chat-topbar__draft-picker {
+  width: min(940px, 100%);
+  min-width: 0;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
 .chat-head__draft-repo-picker {
   width: min(18rem, 100%);
-  margin-top: 0.45rem;
+  margin-top: 0;
 }
 
 .chat-head__draft-repo-picker .combobox__trigger {
@@ -3410,6 +3419,11 @@ button {
   .chat-topbar .run-banner {
     margin-top: 0.55rem;
     margin-bottom: 0;
+  }
+
+  .chat-topbar__draft-picker,
+  .chat-head__draft-repo-picker {
+    width: 100%;
   }
 
   .chat-card {

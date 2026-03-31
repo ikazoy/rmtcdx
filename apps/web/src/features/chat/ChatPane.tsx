@@ -1552,6 +1552,21 @@ export function ChatPane({
   const formatDraftRepoVariant = draftRepoPicker ? buildRepoVariantLabelFormatter(orderedDraftRepos) : null;
   const selectedDraftRepo =
     draftRepoPicker?.repos.find((repo) => repo.id === draftRepoPicker.selectedRepoId) ?? null;
+  const showDraftRepoPicker = Boolean(
+    draftRepoPicker && formatDraftRepoName && formatDraftRepoVariant && selectedDraftRepo
+  );
+  const draftRepoPickerConfig = showDraftRepoPicker
+    ? {
+        selectedRepoId: selectedDraftRepo!.id,
+        formatRepoLabel: formatDraftRepoName!,
+        formatRepoSecondaryLabel: formatDraftRepoVariant!,
+        onSelectRepo: (repoId: string | null) => {
+          if (repoId) {
+            draftRepoPicker!.onSelectRepo(repoId);
+          }
+        }
+      }
+    : null;
   const effectiveOptimisticMessage = optimisticMessage ?? localOptimisticMessage;
 
   const activeRunState = detail?.activeRun?.status ?? null;
@@ -1935,6 +1950,11 @@ export function ChatPane({
       }
 
       if (usesRootScroll) {
+        if (showDraftRepoPicker) {
+          composer.focus({ preventScroll: true });
+          return;
+        }
+
         composer.focus();
         scrollTimeout = window.setTimeout(() => {
           composerShellRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
@@ -1951,7 +1971,7 @@ export function ChatPane({
         window.clearTimeout(scrollTimeout);
       }
     };
-  }, [detail?.session.id, sessionIsArchived, showComposerEmptyState, usesRootScroll]);
+  }, [detail?.session.id, sessionIsArchived, showComposerEmptyState, showDraftRepoPicker, usesRootScroll]);
 
   useEffect(() => {
     const timeline = timelineRef.current;
@@ -2253,21 +2273,6 @@ export function ChatPane({
                     Updated {formatRelativeTime(detail.session.updatedAt)}
                     {!draftRepoPicker ? ` · ${repoName ?? "unknown workspace"}` : ""}
                   </p>
-                  {draftRepoPicker && formatDraftRepoName && formatDraftRepoVariant && selectedDraftRepo ? (
-                    <WorkspaceCombobox
-                      className="chat-head__draft-repo-picker"
-                      layout="stacked"
-                      repos={orderedDraftRepos}
-                      selectedRepoId={selectedDraftRepo.id}
-                      formatRepoLabel={formatDraftRepoName}
-                      formatRepoSecondaryLabel={formatDraftRepoVariant}
-                      onSelectRepo={(repoId) => {
-                        if (repoId) {
-                          draftRepoPicker.onSelectRepo(repoId);
-                        }
-                      }}
-                    />
-                  ) : null}
                 </div>
               </div>
               <div className="sidebar-menu chat-head__menu">
@@ -2547,6 +2552,19 @@ export function ChatPane({
                 ) : null}
               </div>
             </div>
+            {draftRepoPickerConfig ? (
+              <div className="chat-topbar__draft-picker">
+                <WorkspaceCombobox
+                  className="chat-head__draft-repo-picker"
+                  layout="stacked"
+                  repos={orderedDraftRepos}
+                  selectedRepoId={draftRepoPickerConfig.selectedRepoId}
+                  formatRepoLabel={draftRepoPickerConfig.formatRepoLabel}
+                  formatRepoSecondaryLabel={draftRepoPickerConfig.formatRepoSecondaryLabel}
+                  onSelectRepo={draftRepoPickerConfig.onSelectRepo}
+                />
+              </div>
+            ) : null}
 
             {bannerRunState === "error" ? (
               <div className="run-banner run-banner--error">
