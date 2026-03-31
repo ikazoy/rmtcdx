@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { LiveCatalogService } from "../../src/catalog/live-catalog-service";
@@ -51,6 +54,8 @@ test("fixture thread/read payloads still produce session details and message lis
 
   assert.equal(basicDetail.session.title, "Ask Codex to summarize this repo");
   assert.equal(basicDetail.session.status, "completed");
+  assert.equal(basicDetail.session.statusReasonCode, "latest_turn_completed");
+  assert.equal(basicDetail.session.statusConfidence, "authoritative");
   assert.deepEqual(
     basicMessages.map((message) => ({ kind: message.kind, role: message.role })),
     [
@@ -84,6 +89,111 @@ test("fixture thread/read payloads still produce session details and message lis
     unknownMessages.map((message) => message.kind),
     ["user_message", "assistant_message"]
   );
+});
+
+test("catalog marks an in-progress turn on an inactive thread as suspicious interrupted", async () => {
+  const thread: CodexThread = {
+    id: "thread_suspect",
+    preview: "Long-running task from another client",
+    createdAt: 1_774_899_488,
+    updatedAt: 1_774_899_499,
+    status: { type: "idle" },
+    cwd: "/fixtures/workspaces/external-client",
+    path: "/fixtures/codex/sessions/external-client.jsonl",
+    name: null,
+    modelProvider: "openai",
+    source: "vscode",
+    gitInfo: null,
+    turns: [
+      {
+        id: "turn_suspect_1",
+        items: [],
+        status: "inProgress",
+        error: null
+      }
+    ]
+  };
+
+  const backend = new FixtureCodexBackend([thread]);
+  const catalog = new LiveCatalogService(
+    backend,
+    [
+      {
+        id: "fixture_repo",
+        path: "/fixtures/repo",
+        name: "Fixture Repo",
+        pinned: false
+      }
+    ],
+    uploads
+  );
+
+  const detail = await catalog.getSessionDetail(thread.id);
+
+  assert.equal(detail.session.status, "interrupted");
+  assert.equal(detail.session.statusReasonCode, "in_progress_but_thread_inactive");
+  assert.equal(detail.session.statusConfidence, "suspicious");
+  assert.equal(detail.latestRun?.status, "interrupted");
+  assert.equal(detail.activeRun, null);
+});
+
+test("worktree sessions inherit the configured repo name while keeping a worktree-specific branch", async (t) => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-worktree-fixture-"));
+  const repoPath = path.join(tempDir, "fixture-repo");
+  const worktreePath = path.join(tempDir, "rcx-build-worktree");
+
+  t.after(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  await fs.mkdir(repoPath, { recursive: true });
+  runGit(repoPath, ["init"]);
+  runGit(repoPath, ["config", "user.name", "Fixture User"]);
+  runGit(repoPath, ["config", "user.email", "fixture@example.com"]);
+  await fs.writeFile(path.join(repoPath, "README.md"), "# fixture\n");
+  runGit(repoPath, ["add", "README.md"]);
+  runGit(repoPath, ["commit", "-m", "init"]);
+  runGit(repoPath, ["branch", "-M", "main"]);
+  runGit(repoPath, ["worktree", "add", worktreePath, "-b", "build"]);
+
+  const thread: CodexThread = {
+    id: "thread_worktree",
+    preview: "Ship the build pipeline update",
+    createdAt: 1_774_899_488,
+    updatedAt: 1_774_899_499,
+    status: { type: "idle" },
+    cwd: worktreePath,
+    path: null,
+    name: null,
+    modelProvider: "openai",
+    source: "cli",
+    gitInfo: null,
+    turns: []
+  };
+
+  const backend = new FixtureCodexBackend([thread]);
+  const catalog = new LiveCatalogService(
+    backend,
+    [
+      {
+        id: "fixture_repo",
+        path: repoPath,
+        name: "Fixture Repo",
+        pinned: false
+      }
+    ],
+    uploads
+  );
+
+  const sessions = await catalog.listSessions();
+  const repos = await catalog.listRepos();
+  const worktreeRepo = repos.find((repo) => repo.name === "Fixture Repo" && repo.branch === "build");
+
+  assert.equal(sessions[0]?.repoName, "Fixture Repo");
+  assert.ok(worktreeRepo);
+  assert.equal(worktreeRepo?.name, "Fixture Repo");
+  assert.equal(worktreeRepo?.branch, "build");
+  assert.notEqual(worktreeRepo?.id, "fixture_repo");
 });
 
 test("notification fixtures replay into the expected event stream", async () => {
@@ -294,4 +404,10 @@ async function readBridgeEventFixture(fileName: string) {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => JSON.parse(line) as { type: string });
+}
+
+function runGit(cwd: string, args: string[]) {
+  execFileSync("git", ["-C", cwd, ...args], {
+    stdio: ["ignore", "pipe", "pipe"]
+  });
 }

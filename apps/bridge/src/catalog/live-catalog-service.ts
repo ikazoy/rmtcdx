@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -8,6 +9,8 @@ import type {
   Run,
   SessionDetail,
   SessionFilter,
+  SessionStatusConfidence,
+  SessionStatusReasonCode,
   SessionSummary
 } from "@codex-remote/shared-types";
 import type { RepoConfig } from "../config/repos";
@@ -24,8 +27,23 @@ type ThreadContext = {
   isArchived: boolean;
 };
 
+type DerivedRunState = {
+  status: Run["status"];
+  reasonCode: SessionStatusReasonCode;
+  confidence: SessionStatusConfidence;
+};
+
+type DerivedSessionState = {
+  status: SessionSummary["status"];
+  reasonCode: SessionStatusReasonCode;
+  confidence: SessionStatusConfidence;
+};
+
 export class LiveCatalogService {
-  private readonly repoRootCache = new Map<string, Promise<{ rootPath: string; branch?: string }>>();
+  private readonly repoRootCache = new Map<
+    string,
+    Promise<{ rootPath: string; branch?: string; canonicalRepoPath?: string }>
+  >();
   private readonly repoOverrideByPath: Map<string, RepoConfig>;
   private readonly threadCache = new Map<string, CodexThread>();
 
@@ -34,7 +52,9 @@ export class LiveCatalogService {
     repoOverrides: RepoConfig[],
     private readonly uploads: ImageUploadService
   ) {
-    this.repoOverrideByPath = new Map(repoOverrides.map((repo) => [repo.path, repo]));
+    this.repoOverrideByPath = new Map(
+      repoOverrides.map((repo) => [this.normalizeLookupPath(repo.path), repo] satisfies readonly [string, RepoConfig])
+    );
   }
 
   async listRepos() {
@@ -208,8 +228,13 @@ export class LiveCatalogService {
 
   private async enrichThread(thread: CodexThread, isArchived: boolean): Promise<ThreadContext> {
     const repoResolution = await this.resolveRepo(thread.cwd, thread.gitInfo?.branch ?? undefined);
-    const override = this.repoOverrideByPath.get(repoResolution.rootPath);
-    const repoId = this.repoIdForPath(repoResolution.rootPath, override);
+    const exactOverride = this.repoOverrideByPath.get(this.normalizeLookupPath(repoResolution.rootPath));
+    const inheritedOverride =
+      repoResolution.canonicalRepoPath && repoResolution.canonicalRepoPath !== repoResolution.rootPath
+        ? this.repoOverrideByPath.get(this.normalizeLookupPath(repoResolution.canonicalRepoPath))
+        : undefined;
+    const override = exactOverride ?? inheritedOverride;
+    const repoId = this.repoIdForPath(repoResolution.rootPath, exactOverride);
     const updatedAt = this.toIso(thread.updatedAt);
     const createdAt = this.toIso(thread.createdAt);
 
@@ -321,7 +346,7 @@ export class LiveCatalogService {
     const summary = context.thread.preview.trim()
       ? excerpt(context.thread.preview, 140)
       : `Start a conversation in ${context.repo.name}`;
-    const status = this.mapThreadStatus(context.thread);
+    const sessionState = this.deriveThreadSessionState(context.thread);
     const latestTurn = context.thread.turns.at(-1);
     const updatedAt = this.toIso(context.thread.updatedAt);
     const createdAt = this.toIso(context.thread.createdAt);
@@ -333,13 +358,15 @@ export class LiveCatalogService {
       title,
       summary,
       codexThreadId: context.thread.id,
-      status,
+      status: sessionState.status,
       isArchived: context.isArchived,
       unreadCount: 0,
       lastEventSeq: 0,
       lastReadEventSeq: 0,
       lastMessageAt: updatedAt,
-      lastRunFinishedAt: status === "running" ? undefined : updatedAt,
+      lastRunFinishedAt: sessionState.status === "running" ? undefined : updatedAt,
+      statusReasonCode: sessionState.reasonCode,
+      statusConfidence: sessionState.confidence,
       latestTurnStatus: latestTurn?.status ?? null,
       threadStatusType: context.thread.status.type,
       latestUserPrompt: context.thread.preview.trim() || undefined,
@@ -376,13 +403,14 @@ export class LiveCatalogService {
       };
     }
 
+    const runState = this.deriveTurnRunState(thread, latestTurn);
     const run: Run = {
       id: latestTurn.id,
       sessionId: thread.id,
       turnId: latestTurn.id,
-      status: this.mapTurnStatus(thread, latestTurn),
+      status: runState.status,
       startedAt: this.toIso(thread.updatedAt),
-      finishedAt: this.mapTurnStatus(thread, latestTurn) === "running" ? undefined : this.toIso(thread.updatedAt),
+      finishedAt: runState.status === "running" ? undefined : this.toIso(thread.updatedAt),
       errorMessage: latestTurn.error?.message ?? undefined
     };
 
@@ -392,41 +420,96 @@ export class LiveCatalogService {
     };
   }
 
-  private mapTurnStatus(thread: CodexThread, turn: CodexThreadTurn): Run["status"] {
+  private deriveTurnRunState(thread: CodexThread, turn: CodexThreadTurn): DerivedRunState {
     switch (turn.status) {
       case "completed":
-        return "completed";
+        return {
+          status: "completed",
+          reasonCode: "latest_turn_completed",
+          confidence: "authoritative"
+        };
       case "interrupted":
-        return "interrupted";
+        return {
+          status: "interrupted",
+          reasonCode: "latest_turn_interrupted",
+          confidence: "authoritative"
+        };
       case "failed":
-        return "error";
+        return {
+          status: "error",
+          reasonCode: "latest_turn_failed",
+          confidence: "authoritative"
+        };
       default:
-        // If Codex no longer marks the thread active, a dangling in-progress turn is effectively interrupted.
-        return thread.status.type === "active" ? "running" : "interrupted";
+        if (thread.status.type === "active") {
+          return {
+            status: "running",
+            reasonCode: "thread_active",
+            confidence: "authoritative"
+          };
+        }
+
+        // This is a heuristic. Another Codex client may still own the active turn.
+        return {
+          status: "interrupted",
+          reasonCode: "in_progress_but_thread_inactive",
+          confidence: "suspicious"
+        };
     }
   }
 
-  private mapThreadStatus(thread: CodexThread): SessionSummary["status"] {
+  private deriveThreadSessionState(thread: CodexThread): DerivedSessionState {
     const latestTurn = thread.turns.at(-1);
     if (thread.status.type === "active") {
-      return "running";
+      return {
+        status: "running",
+        reasonCode: "thread_active",
+        confidence: "authoritative"
+      };
     }
     if (thread.status.type === "systemError") {
-      return "error";
+      return {
+        status: "error",
+        reasonCode: "thread_system_error",
+        confidence: "authoritative"
+      };
     }
     if (latestTurn) {
-      const latestRunStatus = this.mapTurnStatus(thread, latestTurn);
-      if (latestRunStatus === "error") {
-        return "error";
+      const latestRunState = this.deriveTurnRunState(thread, latestTurn);
+      if (latestRunState.status === "error") {
+        return {
+          status: "error",
+          reasonCode: latestRunState.reasonCode,
+          confidence: latestRunState.confidence
+        };
       }
-      if (latestRunStatus === "interrupted") {
-        return "interrupted";
+      if (latestRunState.status === "interrupted") {
+        return {
+          status: "interrupted",
+          reasonCode: latestRunState.reasonCode,
+          confidence: latestRunState.confidence
+        };
+      }
+      if (latestRunState.status === "completed") {
+        return {
+          status: "completed",
+          reasonCode: latestRunState.reasonCode,
+          confidence: latestRunState.confidence
+        };
       }
     }
     if (!thread.preview.trim() && !thread.name) {
-      return "idle";
+      return {
+        status: "idle",
+        reasonCode: "empty_thread",
+        confidence: "authoritative"
+      };
     }
-    return "completed";
+    return {
+      status: "completed",
+      reasonCode: "history_present",
+      confidence: "derived"
+    };
   }
 
   private threadTitle(thread: CodexThread, fallback: string) {
@@ -506,6 +589,14 @@ export class LiveCatalogService {
     return override?.id ?? `repo_${createHash("sha1").update(rootPath).digest("hex").slice(0, 12)}`;
   }
 
+  private normalizeLookupPath(candidate: string) {
+    try {
+      return fs.realpathSync.native(candidate);
+    } catch {
+      return path.resolve(candidate);
+    }
+  }
+
   private async resolveRepo(cwd: string, fallbackBranch?: string) {
     const cached = this.repoRootCache.get(cwd);
     if (cached) {
@@ -532,7 +623,21 @@ export class LiveCatalogService {
         // noop
       }
 
-      return { rootPath, branch };
+      let canonicalRepoPath: string | undefined;
+      try {
+        const { stdout } = await execFileAsync("git", ["-C", rootPath, "rev-parse", "--git-common-dir"]);
+        const commonGitDirRaw = stdout.trim();
+        if (commonGitDirRaw) {
+          const commonGitDir = path.isAbsolute(commonGitDirRaw)
+            ? commonGitDirRaw
+            : path.resolve(rootPath, commonGitDirRaw);
+          canonicalRepoPath = path.dirname(commonGitDir);
+        }
+      } catch {
+        // noop
+      }
+
+      return { rootPath, branch, canonicalRepoPath };
     })();
 
     this.repoRootCache.set(cwd, promise);

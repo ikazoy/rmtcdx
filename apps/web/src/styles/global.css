@@ -230,16 +230,46 @@ button {
 }
 
 .sidebar-toolbar__summary {
-  display: block;
+  display: flex;
+  align-items: center;
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
-  overflow: hidden;
   color: #8d9088;
   font-size: 0.78rem;
   line-height: 1.25;
-  text-overflow: ellipsis;
+  overflow: hidden;
   white-space: nowrap;
+}
+
+.sidebar-toolbar__repo {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  min-width: 0;
+  gap: 0.38rem;
+}
+
+.sidebar-toolbar__repo-label,
+.sidebar-toolbar__search-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-toolbar__sync-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(141, 144, 136, 0.42);
+  transition: background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.sidebar-toolbar__sync-dot.is-active {
+  background: #ef8d57;
+  box-shadow: 0 0 0 0 rgba(239, 141, 87, 0.24);
+  animation: sidebar-sync-pulse 1.1s ease-in-out infinite;
 }
 
 .sidebar-brand__state {
@@ -955,14 +985,6 @@ button {
   -webkit-overflow-scrolling: touch;
 }
 
-.sidebar-loading-note {
-  margin: 0;
-  padding: 0 1rem 0.35rem;
-  color: #8a8f88;
-  font-size: 0.75rem;
-  letter-spacing: 0.02em;
-}
-
 .sidebar-footer {
   display: flex;
   position: absolute;
@@ -999,6 +1021,18 @@ button {
   transform: none;
   opacity: 0.55;
   box-shadow: none;
+}
+
+@keyframes sidebar-sync-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(239, 141, 87, 0.34);
+  }
+
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 0.35rem rgba(239, 141, 87, 0);
+  }
 }
 
 .session-group {
@@ -1408,6 +1442,18 @@ button {
   min-width: 0;
 }
 
+.chat-head__draft-repo-picker {
+  width: min(18rem, 100%);
+  margin-top: 0.45rem;
+}
+
+.chat-head__draft-repo-picker .combobox__trigger {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.84rem;
+  border-radius: 0.8rem;
+}
+
 .chat-head__title {
   display: flex;
   align-items: center;
@@ -1564,6 +1610,13 @@ button {
 .chat-head__debug-copy-button svg {
   width: 0.92rem;
   height: 0.92rem;
+}
+
+.chat-head__debug-note {
+  margin: 0.16rem 0.08rem 0;
+  color: #f0ce97;
+  font-size: 0.72rem;
+  line-height: 1.4;
 }
 
 .chat-head h2 {
@@ -3660,6 +3713,28 @@ button {
   white-space: nowrap;
 }
 
+.combobox__trigger-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  text-align: left;
+}
+
+.combobox__trigger-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combobox__trigger-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #8d9088;
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
 .combobox__chevron {
   width: 1rem;
   height: 1rem;
@@ -3783,6 +3858,22 @@ button {
   white-space: nowrap;
 }
 
+.combobox__option-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.06rem;
+}
+
+.combobox__option-meta {
+  color: #7f837c;
+  font-size: 0.72rem;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .combobox__empty {
   padding: 1rem 0.625rem;
   text-align: center;
@@ -3820,6 +3911,22 @@ button {
 .combobox__inline-body .combobox__list {
   max-height: 11rem;
   overflow-y: auto;
+}
+
+.combobox--stacked .combobox__trigger {
+  height: auto;
+  min-height: 3.15rem;
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+  align-items: flex-start;
+}
+
+.combobox--stacked .combobox__option {
+  height: auto;
+  min-height: 3rem;
+  align-items: flex-start;
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
 }
 
 /* ═══════════════════════════════════════════

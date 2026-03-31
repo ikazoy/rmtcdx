@@ -8,6 +8,8 @@ import type {
   Message,
   Run,
   SessionDetail,
+  SessionStatusConfidence,
+  SessionStatusReasonCode,
   SessionSummary
 } from "@codex-remote/shared-types";
 import type { AppConfig } from "../config/env";
@@ -16,6 +18,7 @@ import { LiveCatalogService } from "../catalog/live-catalog-service";
 import { PushNotificationService } from "../notifications/push-notification-service";
 import { RealtimeGateway } from "../realtime/realtime-gateway";
 import { ImageUploadService } from "../uploads/image-upload-service";
+import type { CodexDebugLog } from "../observability/codex-debug-log";
 import { nowIso } from "../utils/time";
 
 function isRunInProgress(status: Run["status"]) {
@@ -26,10 +29,27 @@ function isTerminalRunStatus(status: Run["status"]): status is Extract<Run["stat
   return status === "completed" || status === "interrupted" || status === "error";
 }
 
+type PresentedSessionState = {
+  status: SessionSummary["status"];
+  reasonCode: SessionStatusReasonCode | undefined;
+  confidence: SessionStatusConfidence | undefined;
+};
+
+type SessionStatusSnapshot = {
+  status: SessionSummary["status"];
+  reasonCode: SessionStatusReasonCode | null;
+  confidence: SessionStatusConfidence | null;
+  latestTurnStatus: SessionSummary["latestTurnStatus"] | null;
+  threadStatusType: SessionSummary["threadStatusType"] | null;
+  activeRunStatus: Run["status"] | null;
+  latestRunStatus: Run["status"] | null;
+};
+
 export class RunService {
   private readonly runsById = new Map<string, Run>();
   private readonly activeRunBySession = new Map<string, string>();
   private readonly latestRunBySession = new Map<string, string>();
+  private readonly lastPresentedSnapshotBySession = new Map<string, SessionStatusSnapshot>();
 
   constructor(
     private readonly config: AppConfig,
@@ -38,7 +58,8 @@ export class RunService {
     private readonly codex: CodexBackend,
     private readonly uploads: ImageUploadService,
     private readonly pushNotifications: PushNotificationService,
-    private readonly logger: FastifyBaseLogger
+    private readonly logger: FastifyBaseLogger,
+    private readonly debugLog?: CodexDebugLog
   ) {
     this.codex.on("event", (event: CodexBridgeEvent) => {
       void this.handleBackendEvent(event);
@@ -149,7 +170,7 @@ export class RunService {
       activeRun: null,
       latestRun: null
     });
-    const status = this.presentedSessionStatus(session, runs);
+    const presentedState = this.presentedSessionState(session, runs);
     const lastUserMessageAt = runs.latestRun?.startedAt ?? session.lastUserMessageAt;
     const lastRunFinishedAt =
       runs.activeRun || runs.latestRun?.status === "queued" || runs.latestRun?.status === "running"
@@ -157,19 +178,27 @@ export class RunService {
         : runs.latestRun?.finishedAt ?? session.lastRunFinishedAt;
 
     if (
-      status === session.status &&
+      presentedState.status === session.status &&
+      presentedState.reasonCode === session.statusReasonCode &&
+      presentedState.confidence === session.statusConfidence &&
       lastUserMessageAt === session.lastUserMessageAt &&
       lastRunFinishedAt === session.lastRunFinishedAt
     ) {
+      this.logPresentedSessionSummary(session, runs);
       return session;
     }
 
-    return {
+    const presentedSession = {
       ...session,
-      status,
+      status: presentedState.status,
+      statusReasonCode: presentedState.reasonCode,
+      statusConfidence: presentedState.confidence,
       lastUserMessageAt,
       lastRunFinishedAt
     };
+
+    this.logPresentedSessionSummary(presentedSession, runs);
+    return presentedSession;
   }
 
   presentSessionSummaries(sessions: SessionSummary[]) {
@@ -201,27 +230,117 @@ export class RunService {
         };
   }
 
-  private presentedSessionStatus(
+  private presentedSessionState(
     session: SessionSummary,
     runs: { activeRun: Run | null; latestRun: Run | null }
-  ): SessionSummary["status"] {
+  ): PresentedSessionState {
     if (runs.activeRun) {
-      return "running";
+      return {
+        status: "running",
+        reasonCode: "local_active_run",
+        confidence: "authoritative"
+      };
     }
 
     switch (runs.latestRun?.status) {
       case "queued":
+        return {
+          status: "running",
+          reasonCode: "local_latest_run_queued",
+          confidence: "authoritative"
+        };
       case "running":
-        return "running";
+        return {
+          status: "running",
+          reasonCode: "local_latest_run_running",
+          confidence: "authoritative"
+        };
       case "completed":
-        return "completed";
+        return {
+          status: "completed",
+          reasonCode: "local_latest_run_completed",
+          confidence: "authoritative"
+        };
       case "interrupted":
-        return "interrupted";
+        return {
+          status: "interrupted",
+          reasonCode: "local_latest_run_interrupted",
+          confidence: "authoritative"
+        };
       case "error":
-        return "error";
+        return {
+          status: "error",
+          reasonCode: "local_latest_run_error",
+          confidence: "authoritative"
+        };
       default:
-        return session.status;
+        return {
+          status: session.status,
+          reasonCode: session.statusReasonCode,
+          confidence: session.statusConfidence
+        };
     }
+  }
+
+  private logPresentedSessionSummary(
+    session: SessionSummary,
+    runs: { activeRun: Run | null; latestRun: Run | null }
+  ) {
+    if (!this.debugLog) {
+      return;
+    }
+
+    const nextSnapshot: SessionStatusSnapshot = {
+      status: session.status,
+      reasonCode: session.statusReasonCode ?? null,
+      confidence: session.statusConfidence ?? null,
+      latestTurnStatus: session.latestTurnStatus ?? null,
+      threadStatusType: session.threadStatusType ?? null,
+      activeRunStatus: runs.activeRun?.status ?? null,
+      latestRunStatus: runs.latestRun?.status ?? null
+    };
+    const previousSnapshot = this.lastPresentedSnapshotBySession.get(session.id);
+    if (previousSnapshot && this.sameSnapshot(previousSnapshot, nextSnapshot)) {
+      return;
+    }
+
+    this.debugLog.write("session.status.derived", {
+      sessionId: session.id,
+      previousStatus: previousSnapshot?.status ?? null,
+      status: nextSnapshot.status,
+      previousReasonCode: previousSnapshot?.reasonCode ?? null,
+      statusReasonCode: nextSnapshot.reasonCode,
+      previousConfidence: previousSnapshot?.confidence ?? null,
+      statusConfidence: nextSnapshot.confidence,
+      latestTurnStatus: nextSnapshot.latestTurnStatus,
+      threadStatusType: nextSnapshot.threadStatusType,
+      activeRunStatus: nextSnapshot.activeRunStatus,
+      latestRunStatus: nextSnapshot.latestRunStatus
+    });
+
+    if (nextSnapshot.confidence === "suspicious") {
+      this.debugLog.write("session.status.suspected_misclassification", {
+        sessionId: session.id,
+        status: nextSnapshot.status,
+        statusReasonCode: nextSnapshot.reasonCode,
+        latestTurnStatus: nextSnapshot.latestTurnStatus,
+        threadStatusType: nextSnapshot.threadStatusType,
+        activeRunStatus: nextSnapshot.activeRunStatus,
+        latestRunStatus: nextSnapshot.latestRunStatus
+      });
+    }
+
+    this.lastPresentedSnapshotBySession.set(session.id, nextSnapshot);
+  }
+
+  private sameSnapshot(left: SessionStatusSnapshot, right: SessionStatusSnapshot) {
+    return left.status === right.status
+      && left.reasonCode === right.reasonCode
+      && left.confidence === right.confidence
+      && left.latestTurnStatus === right.latestTurnStatus
+      && left.threadStatusType === right.threadStatusType
+      && left.activeRunStatus === right.activeRunStatus
+      && left.latestRunStatus === right.latestRunStatus;
   }
 
   private async handleBackendEvent(event: CodexBridgeEvent) {

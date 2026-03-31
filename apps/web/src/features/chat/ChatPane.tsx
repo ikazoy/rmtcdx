@@ -24,11 +24,18 @@ import type {
   LiveActivity,
   Message,
   MessageAttachment,
+  Repository,
   SessionDetail
 } from "@codex-remote/shared-types";
 import type { ChatViewState as ChatScreenViewState } from "../../app/view-state";
 import { formatRelativeTime } from "../../components/formatters";
 import { useAnchoredMenu } from "../../hooks/use-anchored-menu";
+import {
+  buildRepoNameFormatter,
+  buildRepoVariantLabelFormatter,
+  sortReposForDisplay
+} from "../repos/repo-presentation";
+import { WorkspaceCombobox } from "../repos/WorkspaceCombobox";
 import { sessionDisplayStatus } from "../sessions/session-state";
 
 const MAX_IMAGE_ATTACHMENTS = 5;
@@ -170,6 +177,13 @@ type Props = {
   canInterruptRun: boolean;
   wsState: string;
   backendMode: "real" | "mock" | undefined;
+  draftRepoPicker:
+    | {
+        repos: Repository[];
+        selectedRepoId: string;
+        onSelectRepo: (repoId: string) => void;
+      }
+    | null;
   onBack: () => void;
   onSubmit: (payload: { prompt: string; files: File[] }) => Promise<void>;
   onRunSettingsChange: (settings: CodexRunSettings) => void;
@@ -527,6 +541,14 @@ function formatLatestTurnStatusDebug(detail: SessionDetail) {
 
 function formatThreadStatusTypeDebug(detail: SessionDetail) {
   return detail.session.threadStatusType ?? "missing";
+}
+
+function formatStatusReasonDebug(detail: SessionDetail) {
+  return detail.session.statusReasonCode ?? "missing";
+}
+
+function formatStatusConfidenceDebug(detail: SessionDetail) {
+  return detail.session.statusConfidence ?? "missing";
 }
 
 async function copyTextToClipboard(text: string) {
@@ -1471,6 +1493,7 @@ export function ChatPane({
   canInterruptRun,
   wsState,
   backendMode,
+  draftRepoPicker,
   onBack,
   onSubmit,
   onRunSettingsChange,
@@ -1524,6 +1547,11 @@ export function ChatPane({
   const messages = viewState.kind === "ready" ? viewState.messages : [];
   const isLoadingMessages = viewState.kind === "ready" ? viewState.isLoadingMessages : false;
   const repoName = viewState.kind === "ready" ? viewState.repoName : undefined;
+  const orderedDraftRepos = draftRepoPicker ? sortReposForDisplay(draftRepoPicker.repos) : [];
+  const formatDraftRepoName = draftRepoPicker ? buildRepoNameFormatter(orderedDraftRepos) : null;
+  const formatDraftRepoVariant = draftRepoPicker ? buildRepoVariantLabelFormatter(orderedDraftRepos) : null;
+  const selectedDraftRepo =
+    draftRepoPicker?.repos.find((repo) => repo.id === draftRepoPicker.selectedRepoId) ?? null;
   const effectiveOptimisticMessage = optimisticMessage ?? localOptimisticMessage;
 
   const activeRunState = detail?.activeRun?.status ?? null;
@@ -1536,6 +1564,7 @@ export function ChatPane({
     activeRunState ??
     (sessionIsRunning ? "running" : null) ??
     (latestRunState === "error" || latestRunState === "interrupted" ? latestRunState : null);
+  const statusLooksSuspicious = detail?.session.statusConfidence === "suspicious";
   const sessionBadgeState = detail ? sessionDisplayStatus(detail.session) : "idle";
   const showPendingAssistant =
     !streamingText && (Boolean(effectiveOptimisticMessage) || sessionIsRunning || isSubmitting || hasPendingResponse);
@@ -2221,8 +2250,24 @@ export function ChatPane({
                     ) : null}
                   </div>
                   <p className="subtle">
-                    Updated {formatRelativeTime(detail.session.updatedAt)} · {repoName ?? "unknown workspace"}
+                    Updated {formatRelativeTime(detail.session.updatedAt)}
+                    {!draftRepoPicker ? ` · ${repoName ?? "unknown workspace"}` : ""}
                   </p>
+                  {draftRepoPicker && formatDraftRepoName && formatDraftRepoVariant && selectedDraftRepo ? (
+                    <WorkspaceCombobox
+                      className="chat-head__draft-repo-picker"
+                      layout="stacked"
+                      repos={orderedDraftRepos}
+                      selectedRepoId={selectedDraftRepo.id}
+                      formatRepoLabel={formatDraftRepoName}
+                      formatRepoSecondaryLabel={formatDraftRepoVariant}
+                      onSelectRepo={(repoId) => {
+                        if (repoId) {
+                          draftRepoPicker.onSelectRepo(repoId);
+                        }
+                      }}
+                    />
+                  ) : null}
                 </div>
               </div>
               <div className="sidebar-menu chat-head__menu">
@@ -2479,6 +2524,19 @@ export function ChatPane({
                                   <span className="chat-head__debug-label">thread.status.type</span>
                                   <code className="chat-head__debug-value">{formatThreadStatusTypeDebug(detail)}</code>
                                 </div>
+                                <div className="chat-head__debug-row">
+                                  <span className="chat-head__debug-label">session.status.reason</span>
+                                  <code className="chat-head__debug-value">{formatStatusReasonDebug(detail)}</code>
+                                </div>
+                                <div className="chat-head__debug-row">
+                                  <span className="chat-head__debug-label">session.status.confidence</span>
+                                  <code className="chat-head__debug-value">{formatStatusConfidenceDebug(detail)}</code>
+                                </div>
+                                {statusLooksSuspicious ? (
+                                  <p className="chat-head__debug-note">
+                                    This status is inferred from a thread snapshot and may be stale if another Codex client is active.
+                                  </p>
+                                ) : null}
                               </div>
                             </div>
                           ) : null}
@@ -2510,6 +2568,11 @@ export function ChatPane({
                       ? `Last run stopped ${formatRelativeTime(detail.latestRun.finishedAt)}`
                       : "The latest run was interrupted."}
                   </p>
+                  {statusLooksSuspicious ? (
+                    <p>
+                      This interrupted status is heuristic and may be stale if another Codex client is still running.
+                    </p>
+                  ) : null}
                 </div>
               </div>
             ) : null}

@@ -2,6 +2,22 @@ export type SessionStatus = "idle" | "running" | "completed" | "interrupted" | "
 export type RunStatus = "queued" | "running" | "completed" | "interrupted" | "error";
 export type CodexTurnStatus = "completed" | "interrupted" | "failed" | "inProgress";
 export type CodexThreadStatusType = "notLoaded" | "idle" | "systemError" | "active";
+export type SessionStatusReasonCode =
+  | "thread_active"
+  | "thread_system_error"
+  | "latest_turn_completed"
+  | "latest_turn_interrupted"
+  | "latest_turn_failed"
+  | "in_progress_but_thread_inactive"
+  | "empty_thread"
+  | "history_present"
+  | "local_active_run"
+  | "local_latest_run_queued"
+  | "local_latest_run_running"
+  | "local_latest_run_completed"
+  | "local_latest_run_interrupted"
+  | "local_latest_run_error";
+export type SessionStatusConfidence = "authoritative" | "derived" | "suspicious";
 export type MessageRole = "user" | "assistant" | "system";
 export type MessageKind =
   | "user_message"
@@ -49,6 +65,8 @@ export type SessionSummary = {
   lastMessageAt: string;
   lastUserMessageAt?: string;
   lastRunFinishedAt?: string;
+  statusReasonCode?: SessionStatusReasonCode;
+  statusConfidence?: SessionStatusConfidence;
   latestTurnStatus?: CodexTurnStatus | null;
   threadStatusType?: CodexThreadStatusType;
   latestUserPrompt?: string;

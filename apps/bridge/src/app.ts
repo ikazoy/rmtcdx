@@ -178,7 +178,7 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
       realtime.broadcastPong();
     }
   });
-  const runs = new RunService(config, catalog, realtime, codex, uploads, pushNotifications, app.log);
+  const runs = new RunService(config, catalog, realtime, codex, uploads, pushNotifications, app.log, codexDebugLog);
   const presentSessions = (sessions: SessionSummary[]) => runs.presentSessionSummaries(sessions);
   const presentDetail = (detail: SessionDetail) => runs.presentSessionDetail(detail);
 

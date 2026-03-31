@@ -28,11 +28,14 @@ import {
 import type { PendingThread } from "./view-state";
 import { ChatPane } from "../features/chat/ChatPane";
 import { CodexRequestDialog } from "../features/codex-requests/CodexRequestDialog";
+import { resolveDraftRepoId } from "../features/repos/repo-defaults";
+import { buildRepoLabelFormatter } from "../features/repos/repo-presentation";
 import { SidebarPane } from "../features/sidebar/SidebarPane";
 import { useRealtime } from "../hooks/use-realtime";
 import { useUiStore } from "../store/ui-store";
 
 const SIDEBAR_WIDTH_KEY = "codex-remote-sidebar-width";
+const LAST_DRAFT_REPO_ID_KEY = "codex-remote-last-draft-repo-id";
 const THREAD_LIST_FILTERS_KEY = "codex-remote-thread-list-filters";
 const MOBILE_BREAKPOINT_PX = 860;
 const MOBILE_MEDIA_QUERY = `(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`;
@@ -99,6 +102,32 @@ function persistThreadFilters(search: string, filter: SessionFilter) {
       filter
     })
   );
+}
+
+function readStoredLastDraftRepoId() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const stored = window.localStorage.getItem(LAST_DRAFT_REPO_ID_KEY)?.trim();
+  return stored ? stored : null;
+}
+
+function persistLastDraftRepoId(repoId: string | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (repoId) {
+    window.localStorage.setItem(LAST_DRAFT_REPO_ID_KEY, repoId);
+    return;
+  }
+
+  window.localStorage.removeItem(LAST_DRAFT_REPO_ID_KEY);
+}
+
+function createDraftSessionId() {
+  return `draft:${Date.now()}`;
 }
 
 type OptimisticUserMessage = {
@@ -268,6 +297,8 @@ export function App() {
   const [sessionTransition, setSessionTransition] = useState<SessionTransition | null>(null);
   const [pendingResponseSessionId, setPendingResponseSessionId] = useState<string | null>(null);
   const [pendingInterruptRun, setPendingInterruptRun] = useState<PendingInterruptRun | null>(null);
+  const [draftRepoIdBySessionId, setDraftRepoIdBySessionId] = useState<Record<string, string>>({});
+  const [lastDraftRepoId, setLastDraftRepoId] = useState(() => readStoredLastDraftRepoId());
   const optimisticMessageRef = useRef<OptimisticUserMessage | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") {
@@ -289,7 +320,9 @@ export function App() {
   useEffect(() => () => revokeOptimisticAttachments(optimisticMessageRef.current), []);
 
   const selectedRepoId = useUiStore((state) => state.selectedRepoId);
+  const selectedRepoSource = useUiStore((state) => state.selectedRepoSource);
   const runSettingsBySession = useUiStore((state) => state.runSettingsBySession);
+  const initializeRunSettingsForSession = useUiStore((state) => state.initializeRunSettingsForSession);
   const setRunSettingsForSession = useUiStore((state) => state.setRunSettingsForSession);
   const resetRunSettingsForSession = useUiStore((state) => state.resetRunSettingsForSession);
   const copyRunSettings = useUiStore((state) => state.copyRunSettings);
@@ -430,6 +463,10 @@ export function App() {
     persistThreadFilters(search, filter);
   }, [filter, search]);
 
+  useEffect(() => {
+    persistLastDraftRepoId(lastDraftRepoId);
+  }, [lastDraftRepoId]);
+
   const runMutation = useMutation({
     mutationFn: ({
       prompt,
@@ -443,7 +480,7 @@ export function App() {
     }) =>
       api.startRun(
         isDraftSession
-          ? { repoId: selectedRepoId!, prompt, attachments, codex: runSettingsForRequest(codexSettings) }
+          ? { repoId: activeDraftRepoId!, prompt, attachments, codex: runSettingsForRequest(codexSettings) }
           : { sessionId: selectedSessionId!, prompt, attachments, codex: runSettingsForRequest(codexSettings) }
       ),
     onSuccess: (data, variables) => {
@@ -466,6 +503,11 @@ export function App() {
       });
       if (variables.clientSessionId.startsWith("draft:") && variables.clientSessionId !== data.run.sessionId) {
         copyRunSettings(variables.clientSessionId, data.run.sessionId);
+        setDraftRepoIdBySessionId((current) => {
+          const next = { ...current };
+          delete next[variables.clientSessionId];
+          return next;
+        });
         setSessionTransition({
           draftId: variables.clientSessionId,
           realId: data.run.sessionId
@@ -583,26 +625,56 @@ export function App() {
   const repos = reposQuery.data?.repos ?? [];
   const sessions = sessionsQuery.data?.sessions ?? [];
   const visibleSessions = buildVisibleSessions(sessions, selectedRepoId, pendingThread);
+  const formatRepoLabel = useMemo(() => buildRepoLabelFormatter(repos), [repos]);
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
+  const currentSessionRepoId =
+    !isDraftSession ? (sessionDetailQuery.data?.session.repoId ?? sessions.find((session) => session.id === selectedSessionId)?.repoId ?? null) : null;
+  const defaultDraftRepoId = resolveDraftRepoId({
+    repos,
+    currentSessionRepoId,
+    lastDraftRepoId,
+    selectedRepoId,
+    selectedRepoSource
+  });
+  const activeDraftRepoId =
+    isDraftSession && selectedSessionId
+      ? (draftRepoIdBySessionId[selectedSessionId] ?? defaultDraftRepoId)
+      : null;
+  const activeDraftRepo = repos.find((repo) => repo.id === activeDraftRepoId) ?? null;
+
+  useEffect(() => {
+    if (!isDraftSession || !selectedSessionId || !defaultDraftRepoId || draftRepoIdBySessionId[selectedSessionId]) {
+      return;
+    }
+
+    setDraftRepoIdBySessionId((current) => ({
+      ...current,
+      [selectedSessionId]: defaultDraftRepoId
+    }));
+    setSelectedRepoId(defaultDraftRepoId, "system");
+  }, [defaultDraftRepoId, draftRepoIdBySessionId, isDraftSession, selectedSessionId, setSelectedRepoId]);
+
+  useEffect(() => {
+    if (!isDraftSession || !selectedSessionId) {
+      return;
+    }
+
+    initializeRunSettingsForSession(selectedSessionId);
+  }, [initializeRunSettingsForSession, isDraftSession, selectedSessionId]);
+
   const selectedSessionSummary =
     visibleSessions.find((session) => selectedSessionIds.has(session.id)) ?? null;
   const selectedSidebarSessionId = selectedSessionSummary?.id ?? selectedSessionId;
-  const fallbackCreateRepoId =
-    selectedRepoId ??
-    sessionDetailQuery.data?.session.repoId ??
-    selectedSessionSummary?.repoId ??
-    repos[0]?.id ??
-    null;
   const draftCreatedAt = new Date().toISOString();
   const pendingSessionSummaryForSelection =
     pendingThread && selectedSessionIds.has(pendingThread.sessionId)
       ? buildPendingSessionSummary(pendingThread)
       : null;
   const draftDetail =
-    isDraftSession && selectedRepo
+    isDraftSession && activeDraftRepo
       ? pendingSessionSummaryForSelection
         ? buildPendingSessionDetail(pendingSessionSummaryForSelection)
-        : buildDraftSessionDetail(selectedSessionId!, selectedRepo, draftCreatedAt)
+        : buildDraftSessionDetail(selectedSessionId!, activeDraftRepo, draftCreatedAt)
       : null;
   const messages = isDraftSession ? [] : messagesQuery.data?.messages ?? [];
   const pendingCodexRequests = isDraftSession ? [] : pendingCodexRequestsQuery.data?.requests ?? [];
@@ -612,7 +684,22 @@ export function App() {
     : DEFAULT_RUN_SETTINGS;
   const availableModels = codexModelsQuery.data?.models ?? [];
   const devSimulatorAvailable = healthQuery.data?.devTools.codexRequestSimulator === true;
-  const activeRepoName = selectedRepo?.name ?? sessionDetailQuery.data?.session.repoName ?? selectedSessionSummary?.repoName;
+  const activeSessionRepo =
+    activeDraftRepo
+    ?? repos.find((repo) => repo.id === (sessionDetailQuery.data?.session.repoId ?? selectedSessionSummary?.repoId))
+    ?? selectedRepo;
+  const activeRepoName =
+    (activeSessionRepo ? formatRepoLabel(activeSessionRepo) : null)
+    ?? sessionDetailQuery.data?.session.repoName
+    ?? selectedSessionSummary?.repoName;
+  const draftRepoPicker =
+    isDraftSession && activeDraftRepoId
+      ? {
+          repos,
+          selectedRepoId: activeDraftRepoId,
+          onSelectRepo: selectDraftRepo
+        }
+      : null;
   const optimisticMessageForSession =
     optimisticMessage && selectedSessionIds.has(optimisticMessage.sessionId) ? optimisticMessage : null;
   const sidebarViewState = buildSidebarViewState({
@@ -765,12 +852,25 @@ export function App() {
     selectedSessionId
   ]);
 
-  const selectRepo = (repoId: string | null) => {
-    setSelectedRepoId(repoId);
+  function selectRepo(repoId: string | null) {
+    setSelectedRepoId(repoId, "user");
     if (location.pathname !== "/") {
       navigate("/", { replace: true });
     }
-  };
+  }
+
+  function selectDraftRepo(repoId: string) {
+    if (!selectedSessionId) {
+      return;
+    }
+
+    setDraftRepoIdBySessionId((current) => ({
+      ...current,
+      [selectedSessionId]: repoId
+    }));
+    setLastDraftRepoId(repoId);
+    setSelectedRepoId(repoId, "system");
+  }
 
   const selectSession = (sessionId: string) => {
     const nextPath = buildSessionPath(sessionId);
@@ -785,7 +885,7 @@ export function App() {
     }
 
     if (!repos.some((repo) => repo.id === selectedRepoId)) {
-      setSelectedRepoId(null);
+      setSelectedRepoId(null, "system");
       navigate("/", { replace: true });
     }
   }, [navigate, repos, reposQuery.isSuccess, selectedRepoId, setSelectedRepoId]);
@@ -872,13 +972,18 @@ export function App() {
               });
             }}
             isCreatingSession={false}
-            canCreateSession={Boolean(fallbackCreateRepoId)}
+            canCreateSession={Boolean(defaultDraftRepoId)}
             onCreateSession={() => {
-              if (!fallbackCreateRepoId) {
+              if (!defaultDraftRepoId) {
                 return;
               }
-              const draftSessionId = `draft:${fallbackCreateRepoId}:${Date.now()}`;
-              setSelectedRepoId(fallbackCreateRepoId);
+              const draftSessionId = createDraftSessionId();
+              setDraftRepoIdBySessionId((current) => ({
+                ...current,
+                [draftSessionId]: defaultDraftRepoId
+              }));
+              initializeRunSettingsForSession(draftSessionId);
+              setSelectedRepoId(defaultDraftRepoId, "system");
               navigate(buildSessionPath(draftSessionId));
             }}
           />
@@ -915,6 +1020,7 @@ export function App() {
             canInterruptRun={Boolean(interruptibleRunId)}
             wsState={wsState}
             backendMode={healthQuery.data?.codex.mode}
+            draftRepoPicker={draftRepoPicker}
             onBack={() => {
               navigate("/", { replace: true });
 
@@ -934,16 +1040,18 @@ export function App() {
               debugUiState("submit", {
                 selectedSessionId,
                 isDraftSession,
+                draftRepoId: activeDraftRepoId,
                 selectedRepoId,
                 promptLength: prompt.length,
                 fileCount: files.length
               });
               const createdAt = new Date().toISOString();
-              if (isDraftSession && selectedRepoId) {
+              if (isDraftSession && activeDraftRepoId) {
+                setLastDraftRepoId(activeDraftRepoId);
                 setPendingThread({
                   sessionId: selectedSessionId,
-                  repoId: selectedRepoId,
-                  repoName: selectedRepo?.name,
+                  repoId: activeDraftRepoId,
+                  repoName: activeDraftRepo?.name,
                   prompt,
                   createdAt
                 });

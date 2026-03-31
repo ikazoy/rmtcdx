@@ -11,7 +11,7 @@
     "compat:canary": "npm run compat:canary -w remote-control-codex",
     "compat:fixtures": "npm run compat:fixtures -w remote-control-codex",
     "start": "npm run start -w remote-control-codex",
-    "test": "npm run test -w remote-control-codex"
+    "test": "npm run test -ws --if-present"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

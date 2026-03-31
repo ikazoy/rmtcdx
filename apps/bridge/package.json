@@ -34,7 +34,7 @@
     "start": "node dist/main.js",
     "compat:canary": "tsx scripts/run-real-codex-canary.ts",
     "compat:fixtures": "tsx scripts/generate-compat-fixtures.ts",
-    "test": "tsx --test test/codex-compat/*.test.ts",
+    "test": "node --import tsx --test test/codex-compat/*.test.ts",
     "prepack": "npm --prefix ../.. run build"
   },
   "dependencies": {

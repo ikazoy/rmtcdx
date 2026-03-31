@@ -1,10 +1,17 @@
 import { FloatingPortal } from "@floating-ui/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Repository, SessionFilter, SessionSummary } from "@codex-remote/shared-types";
 import { SESSION_FILTERS } from "@codex-remote/shared-types";
 import type { SidebarViewState } from "../../app/view-state";
 import { formatRelativeTime } from "../../components/formatters";
 import { useAnchoredMenu } from "../../hooks/use-anchored-menu";
+import {
+  buildRepoLabelFormatter,
+  buildSessionRepoNameFormatter,
+  buildSessionRepoVariantLabelFormatter,
+  sortReposForDisplay
+} from "../repos/repo-presentation";
+import { WorkspaceCombobox } from "../repos/WorkspaceCombobox";
 import { StatusMenu } from "../status/StatusMenu";
 import { sessionDisplayStatus } from "../sessions/session-state";
 import { useUiStore } from "../../store/ui-store";
@@ -32,10 +39,13 @@ type Props = {
 };
 
 type RepoGroup = {
-  repoName: string;
+  repoKey: string;
+  repoLabel: string;
   sessions: SessionSummary[];
   latestSortAt: string;
 };
+
+const REFRESH_INDICATOR_DELAY_MS = 300;
 
 function getPreviewText(session: SessionSummary) {
   return session.latestAssistantExcerpt ?? session.latestUserPrompt ?? session.summary;
@@ -64,28 +74,32 @@ function filterLabel(filter: SessionFilter) {
   }
 }
 
-function groupByRepo(sessions: SessionSummary[]): RepoGroup[] {
-  const map = new Map<string, SessionSummary[]>();
+function groupByRepo(
+  sessions: SessionSummary[],
+  formatSessionRepoName: (session: Pick<SessionSummary, "repoId" | "repoName">) => string
+): RepoGroup[] {
+  const map = new Map<string, RepoGroup>();
 
   for (const session of sessions) {
-    const key = session.repoName ?? "Unknown";
-    const list = map.get(key);
-    if (list) {
-      list.push(session);
-    } else {
-      map.set(key, [session]);
+    const repoKey = formatSessionRepoName(session);
+    const group = map.get(repoKey);
+    if (group) {
+      group.sessions.push(session);
+      continue;
     }
-  }
 
-  const groups: RepoGroup[] = [];
-  for (const [repoName, repoSessions] of map) {
-    groups.push({
-      repoName,
-      sessions: repoSessions,
-      latestSortAt: repoSessions[0] ? sessionSortAt(repoSessions[0]) : ""
+    map.set(repoKey, {
+      repoKey,
+      repoLabel: repoKey,
+      sessions: [session],
+      latestSortAt: sessionSortAt(session)
     });
   }
 
+  const groups = [...map.values()].map((group) => ({
+    ...group,
+    latestSortAt: group.sessions[0] ? sessionSortAt(group.sessions[0]) : ""
+  }));
   groups.sort((a, b) => b.latestSortAt.localeCompare(a.latestSortAt));
   return groups;
 }
@@ -110,7 +124,8 @@ export function SidebarPane({
   onCreateSession
 }: Props) {
   const [isListMenuOpen, setIsListMenuOpen] = useState(false);
-  const collapsedRepos = useUiStore((state) => state.collapsedRepos);
+  const [showRefreshIndicator, setShowRefreshIndicator] = useState(false);
+  const collapsedRepoKeys = useUiStore((state) => state.collapsedRepoKeys);
   const toggleRepoCollapsed = useUiStore((state) => state.toggleRepoCollapsed);
   const collapseRepos = useUiStore((state) => state.collapseRepos);
   const expandRepos = useUiStore((state) => state.expandRepos);
@@ -119,27 +134,10 @@ export function SidebarPane({
     onOpenChange: setIsListMenuOpen
   });
 
-  const orderedRepos = [...repos].sort((left, right) => {
-    if (left.pinned !== right.pinned) {
-      return left.pinned ? -1 : 1;
-    }
-    return left.name.localeCompare(right.name);
-  });
-  const nameCounts = orderedRepos.reduce<Map<string, number>>((counts, repo) => {
-    counts.set(repo.name, (counts.get(repo.name) ?? 0) + 1);
-    return counts;
-  }, new Map());
-  const duplicateNames = new Set(
-    [...nameCounts.entries()].filter(([, count]) => count > 1).map(([name]) => name)
-  );
-
-  function formatRepoLabel(repo: Repository) {
-    if (!duplicateNames.has(repo.name)) {
-      return repo.name;
-    }
-    const segment = repo.path.split("/").filter(Boolean).at(-1) ?? repo.path;
-    return repo.branch ? `${repo.name} · ${repo.branch}` : `${repo.name} · ${segment}`;
-  }
+  const orderedRepos = sortReposForDisplay(repos);
+  const formatRepoLabel = buildRepoLabelFormatter(orderedRepos);
+  const formatSessionRepoName = buildSessionRepoNameFormatter(orderedRepos);
+  const formatSessionRepoVariantLabel = buildSessionRepoVariantLabelFormatter(orderedRepos);
 
   const sessions = sessionsState.kind === "ready" ? sessionsState.sessions : [];
   const isLoadingSessions = sessionsState.kind === "loading";
@@ -147,18 +145,27 @@ export function SidebarPane({
   const hasEmptyState = sessionsState.kind === "empty";
   const errorMessage = sessionsState.kind === "error" ? sessionsState.message : null;
   const selectedRepo = orderedRepos.find((repo) => repo.id === selectedRepoId) ?? null;
-  const repoGroups = selectedRepoId ? [] : groupByRepo(sessions);
+  const repoGroups = selectedRepoId ? [] : groupByRepo(sessions, formatSessionRepoName);
   const singleRepoSessions = selectedRepoId ? sessions : [];
-  const repoGroupNames = repoGroups.map((group) => group.repoName);
-  const canToggleAllRepos = !selectedRepoId && repoGroupNames.length > 0;
-  const collapsedGroupCount = repoGroupNames.filter((repoName) => collapsedRepos.has(repoName)).length;
-  const allReposCollapsed = canToggleAllRepos && collapsedGroupCount === repoGroupNames.length;
-  const activeSummary = [
-    selectedRepo ? formatRepoLabel(selectedRepo) : "All projects",
-    search.trim() ? `Search: ${search.trim()}` : null
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const repoGroupKeys = repoGroups.map((group) => group.repoKey);
+  const canToggleAllRepos = !selectedRepoId && repoGroupKeys.length > 0;
+  const collapsedGroupCount = repoGroupKeys.filter((repoKey) => collapsedRepoKeys.has(repoKey)).length;
+  const allReposCollapsed = canToggleAllRepos && collapsedGroupCount === repoGroupKeys.length;
+  const selectedRepoLabel = selectedRepo ? formatRepoLabel(selectedRepo) : "All projects";
+  const searchSummary = search.trim() ? `Search: ${search.trim()}` : null;
+
+  useEffect(() => {
+    if (!isRefreshingSessions) {
+      setShowRefreshIndicator(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setShowRefreshIndicator(true);
+    }, REFRESH_INDICATOR_DELAY_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isRefreshingSessions]);
 
   function closeListMenu() {
     setIsListMenuOpen(false);
@@ -175,9 +182,9 @@ export function SidebarPane({
     }
 
     if (allReposCollapsed) {
-      expandRepos(repoGroupNames);
+      expandRepos(repoGroupKeys);
     } else {
-      collapseRepos(repoGroupNames);
+      collapseRepos(repoGroupKeys);
     }
 
     closeListMenu();
@@ -203,7 +210,17 @@ export function SidebarPane({
             <div className="sidebar-brand__copy">
               <div className="sidebar-brand__headline">
                 <h1>Threads</h1>
-                <p className="sidebar-toolbar__summary">{activeSummary}</p>
+                <p className="sidebar-toolbar__summary">
+                  <span className="sidebar-toolbar__repo">
+                    <span className="sidebar-toolbar__repo-label">{selectedRepoLabel}</span>
+                    <span
+                      className={`sidebar-toolbar__sync-dot ${showRefreshIndicator ? "is-active" : ""}`}
+                      aria-hidden="true"
+                    />
+                    <span className="sr-only">{showRefreshIndicator ? "Refreshing threads" : "Threads up to date"}</span>
+                  </span>
+                  {searchSummary ? <span className="sidebar-toolbar__search-summary"> · {searchSummary}</span> : null}
+                </p>
                 {filter !== "all" ? <span className="sidebar-brand__state">{filterLabel(filter)}</span> : null}
               </div>
             </div>
@@ -295,6 +312,7 @@ export function SidebarPane({
                         repos={orderedRepos}
                         selectedRepoId={selectedRepoId}
                         formatRepoLabel={formatRepoLabel}
+                        emptyOptionLabel="All projects"
                         onSelectRepo={(repoId) => {
                           onSelectRepo(repoId);
                           closeListMenu();
@@ -343,8 +361,6 @@ export function SidebarPane({
         </div>
 
         <div className="sidebar-scroll">
-          {isRefreshingSessions ? <p className="sidebar-loading-note">Refreshing threads…</p> : null}
-
           {isLoadingSessions ? (
             <SidebarSkeleton />
           ) : null}
@@ -372,16 +388,16 @@ export function SidebarPane({
           {!isLoadingSessions && !errorMessage ? (
             <>
               {repoGroups.map((group) => {
-                const isCollapsed = collapsedRepos.has(group.repoName);
+                const isCollapsed = collapsedRepoKeys.has(group.repoKey);
                 return (
-                  <section key={group.repoName} className="repo-group">
+                  <section key={group.repoKey} className="repo-group">
                     <button
                       className="repo-group__header"
-                      onClick={() => toggleRepoCollapsed(group.repoName)}
+                      onClick={() => toggleRepoCollapsed(group.repoKey)}
                       type="button"
                     >
                       <span className={`repo-group__chevron ${isCollapsed ? "is-collapsed" : ""}`}>▾</span>
-                      <span className="repo-group__name">{group.repoName}</span>
+                      <span className="repo-group__name">{group.repoLabel}</span>
                       <span className="repo-group__count">{group.sessions.length}</span>
                     </button>
                     {!isCollapsed ? (
@@ -396,7 +412,7 @@ export function SidebarPane({
                             }
                             onSelect={onSelectSession}
                             onHover={onHoverSession}
-                            showRepo={false}
+                            repoVariantLabel={formatSessionRepoVariantLabel(session)}
                           />
                         ))}
                       </div>
@@ -417,7 +433,7 @@ export function SidebarPane({
                       }
                       onSelect={onSelectSession}
                       onHover={onHoverSession}
-                      showRepo={false}
+                      repoVariantLabel={null}
                     />
                   ))}
                 </div>
@@ -514,118 +530,20 @@ function RepoGroupToggleIcon({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-function WorkspaceCombobox({
-  repos,
-  selectedRepoId,
-  formatRepoLabel,
-  onSelectRepo
-}: {
-  repos: Repository[];
-  selectedRepoId: string | null;
-  formatRepoLabel: (repo: Repository) => string;
-  onSelectRepo: (repoId: string | null) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const searchRef = useRef<HTMLInputElement | null>(null);
-
-  const selectedLabel = selectedRepoId
-    ? (repos.find((r) => r.id === selectedRepoId)
-        ? formatRepoLabel(repos.find((r) => r.id === selectedRepoId)!)
-        : "All projects")
-    : "All projects";
-
-  const filtered = query
-    ? repos.filter((r) => formatRepoLabel(r).toLowerCase().includes(query.toLowerCase()))
-    : repos;
-
-  useEffect(() => {
-    if (isOpen) {
-      setQuery("");
-      setTimeout(() => searchRef.current?.focus(), 50);
-    }
-  }, [isOpen]);
-
-  return (
-    <div className="combobox combobox--inline">
-      <button
-        className="combobox__trigger"
-        type="button"
-        aria-expanded={isOpen}
-        onClick={() => setIsOpen(!isOpen)}
-      >
-        <span className="combobox__trigger-text">{selectedLabel}</span>
-        <svg className="combobox__chevron" viewBox="0 0 16 16" fill="none">
-          <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-      {isOpen ? (
-        <div className="combobox__inline-body">
-          <div className="combobox__search">
-            <input
-              ref={searchRef}
-              className="combobox__search-input"
-              type="text"
-              placeholder="Search workspaces..."
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              autoComplete="off"
-            />
-          </div>
-          <div className="combobox__list" role="listbox">
-            {!query ? (
-              <button
-                className={`combobox__option ${selectedRepoId === null ? "is-active" : ""}`}
-                role="option"
-                aria-selected={selectedRepoId === null}
-                onClick={() => { onSelectRepo(null); setIsOpen(false); }}
-                type="button"
-              >
-                <span className="combobox__option-check">
-                  <svg viewBox="0 0 16 16" fill="none" width="16" height="16"><path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                </span>
-                <span className="combobox__option-label">All projects</span>
-              </button>
-            ) : null}
-            {filtered.map((repo) => (
-              <button
-                key={repo.id}
-                className={`combobox__option ${selectedRepoId === repo.id ? "is-active" : ""}`}
-                role="option"
-                aria-selected={selectedRepoId === repo.id}
-                onClick={() => { onSelectRepo(repo.id); setIsOpen(false); }}
-                type="button"
-              >
-                <span className="combobox__option-check">
-                  <svg viewBox="0 0 16 16" fill="none" width="16" height="16"><path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                </span>
-                <span className="combobox__option-label">{formatRepoLabel(repo)}</span>
-              </button>
-            ))}
-            {query && filtered.length === 0 ? (
-              <div className="combobox__empty">No matching workspaces</div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function SessionRow({
   session,
   isActive,
   pendingRequestCount,
   onSelect,
   onHover,
-  showRepo
+  repoVariantLabel
 }: {
   session: SessionSummary;
   isActive: boolean;
   pendingRequestCount: number;
   onSelect: (id: string) => void;
   onHover: (id: string) => void;
-  showRepo: boolean;
+  repoVariantLabel: string | null;
 }) {
   const displayStatus = sessionDisplayStatus(session);
 
@@ -645,7 +563,7 @@ function SessionRow({
       </div>
       <p className="session-row__preview">{getPreviewText(session)}</p>
       <div className="session-row__meta">
-        {showRepo && session.repoName ? <span>{session.repoName}</span> : null}
+        {repoVariantLabel ? <span>{repoVariantLabel}</span> : null}
         {displayStatus === "interrupted" ? (
           <span className="badge badge--interrupted">interrupted</span>
         ) : null}

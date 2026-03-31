@@ -2,13 +2,21 @@ import { create } from "zustand";
 import type { CodexRunSettings, LiveActivity } from "@codex-remote/shared-types";
 
 type WsState = "connecting" | "connected" | "reconnecting";
+export type RepoSelectionSource = "restored" | "user" | "system";
 
 const SELECTED_REPO_STORAGE_KEY = "codex-remote-selected-repo-id";
 const COLLAPSED_REPOS_STORAGE_KEY = "codex-remote-collapsed-repos";
 const RUN_SETTINGS_STORAGE_KEY = "codex-remote-run-settings";
+const LAST_RUN_SETTINGS_STORAGE_KEY = "codex-remote-last-run-settings";
 const APPROVAL_POLICY_VALUES = new Set(["untrusted", "on-failure", "on-request", "never"]);
 const SANDBOX_VALUES = new Set(["read-only", "workspace-write", "danger-full-access"]);
 const SERVICE_TIER_VALUES = new Set(["fast", "flex"]);
+const EMPTY_RUN_SETTINGS: CodexRunSettings = {
+  approvalPolicy: null,
+  sandbox: null,
+  serviceTier: null,
+  model: null
+};
 
 function readStoredSelectedRepoId() {
   if (typeof window === "undefined") {
@@ -32,7 +40,7 @@ function persistSelectedRepoId(repoId: string | null) {
   window.localStorage.removeItem(SELECTED_REPO_STORAGE_KEY);
 }
 
-function readStoredCollapsedRepos() {
+function readStoredCollapsedRepoKeys() {
   if (typeof window === "undefined") {
     return new Set<string>();
   }
@@ -54,17 +62,17 @@ function readStoredCollapsedRepos() {
   }
 }
 
-function persistCollapsedRepos(repoNames: Set<string>) {
+function persistCollapsedRepoKeys(repoKeys: Set<string>) {
   if (typeof window === "undefined") {
     return;
   }
 
-  if (repoNames.size === 0) {
+  if (repoKeys.size === 0) {
     window.localStorage.removeItem(COLLAPSED_REPOS_STORAGE_KEY);
     return;
   }
 
-  window.localStorage.setItem(COLLAPSED_REPOS_STORAGE_KEY, JSON.stringify([...repoNames].sort()));
+  window.localStorage.setItem(COLLAPSED_REPOS_STORAGE_KEY, JSON.stringify([...repoKeys].sort()));
 }
 
 function normalizeRunSettings(value: unknown): CodexRunSettings | null {
@@ -141,16 +149,48 @@ function persistRunSettingsBySession(runSettingsBySession: Record<string, CodexR
   window.localStorage.setItem(RUN_SETTINGS_STORAGE_KEY, JSON.stringify(runSettingsBySession));
 }
 
+function readStoredLastRunSettings() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const stored = window.localStorage.getItem(LAST_RUN_SETTINGS_STORAGE_KEY);
+    if (!stored) {
+      return null;
+    }
+
+    return normalizeRunSettings(JSON.parse(stored));
+  } catch {
+    return null;
+  }
+}
+
+function persistLastRunSettings(runSettings: CodexRunSettings | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!runSettings) {
+    window.localStorage.removeItem(LAST_RUN_SETTINGS_STORAGE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(LAST_RUN_SETTINGS_STORAGE_KEY, JSON.stringify(runSettings));
+}
+
 type UiState = {
   selectedRepoId: string | null;
+  selectedRepoSource: RepoSelectionSource;
   sidebarVisible: boolean;
   wsState: WsState;
   backendBanner: string | null;
   streaming: Record<string, string>;
   activities: Record<string, Record<string, LiveActivity>>;
-  collapsedRepos: Set<string>;
+  collapsedRepoKeys: Set<string>;
   runSettingsBySession: Record<string, CodexRunSettings>;
-  setSelectedRepoId: (repoId: string | null) => void;
+  lastRunSettings: CodexRunSettings | null;
+  setSelectedRepoId: (repoId: string | null, source?: RepoSelectionSource) => void;
   setSidebarVisible: (visible: boolean) => void;
   toggleSidebarVisible: () => void;
   setWsState: (state: WsState) => void;
@@ -161,9 +201,10 @@ type UiState = {
   appendActivityOutput: (sessionId: string, itemId: string, delta: string, updatedAt: string) => void;
   removeActivity: (sessionId: string, itemId: string) => void;
   clearActivities: (sessionId: string) => void;
-  toggleRepoCollapsed: (repoName: string) => void;
-  collapseRepos: (repoNames: string[]) => void;
-  expandRepos: (repoNames: string[]) => void;
+  toggleRepoCollapsed: (repoKey: string) => void;
+  collapseRepos: (repoKeys: string[]) => void;
+  expandRepos: (repoKeys: string[]) => void;
+  initializeRunSettingsForSession: (sessionId: string) => void;
   setRunSettingsForSession: (sessionId: string, settings: CodexRunSettings) => void;
   resetRunSettingsForSession: (sessionId: string) => void;
   copyRunSettings: (sourceSessionId: string, targetSessionId: string) => void;
@@ -171,16 +212,18 @@ type UiState = {
 
 export const useUiStore = create<UiState>((set) => ({
   selectedRepoId: readStoredSelectedRepoId(),
+  selectedRepoSource: readStoredSelectedRepoId() ? "restored" : "system",
   sidebarVisible: true,
   wsState: "connecting",
   backendBanner: null,
   streaming: {},
   activities: {},
-  collapsedRepos: readStoredCollapsedRepos(),
+  collapsedRepoKeys: readStoredCollapsedRepoKeys(),
   runSettingsBySession: readStoredRunSettingsBySession(),
-  setSelectedRepoId: (selectedRepoId) => {
+  lastRunSettings: readStoredLastRunSettings(),
+  setSelectedRepoId: (selectedRepoId, source = "user") => {
     persistSelectedRepoId(selectedRepoId);
-    set({ selectedRepoId });
+    set({ selectedRepoId, selectedRepoSource: source });
   },
   setSidebarVisible: (sidebarVisible) => set({ sidebarVisible }),
   toggleSidebarVisible: () => set((state) => ({ sidebarVisible: !state.sidebarVisible })),
@@ -259,53 +302,67 @@ export const useUiStore = create<UiState>((set) => ({
       delete nextActivities[sessionId];
       return { activities: nextActivities };
     }),
-  toggleRepoCollapsed: (repoName) =>
+  toggleRepoCollapsed: (repoKey) =>
     set((state) => {
-      const next = new Set(state.collapsedRepos);
-      if (next.has(repoName)) {
-        next.delete(repoName);
+      const next = new Set(state.collapsedRepoKeys);
+      if (next.has(repoKey)) {
+        next.delete(repoKey);
       } else {
-        next.add(repoName);
+        next.add(repoKey);
       }
-      persistCollapsedRepos(next);
-      return { collapsedRepos: next };
+      persistCollapsedRepoKeys(next);
+      return { collapsedRepoKeys: next };
     }),
-  collapseRepos: (repoNames) =>
+  collapseRepos: (repoKeys) =>
     set((state) => {
-      const next = new Set(state.collapsedRepos);
-      for (const repoName of repoNames) {
-        if (repoName) {
-          next.add(repoName);
+      const next = new Set(state.collapsedRepoKeys);
+      for (const repoKey of repoKeys) {
+        if (repoKey) {
+          next.add(repoKey);
         }
       }
-      persistCollapsedRepos(next);
-      return { collapsedRepos: next };
+      persistCollapsedRepoKeys(next);
+      return { collapsedRepoKeys: next };
     }),
-  expandRepos: (repoNames) =>
+  expandRepos: (repoKeys) =>
     set((state) => {
-      const next = new Set(state.collapsedRepos);
-      for (const repoName of repoNames) {
-        next.delete(repoName);
+      const next = new Set(state.collapsedRepoKeys);
+      for (const repoKey of repoKeys) {
+        next.delete(repoKey);
       }
-      persistCollapsedRepos(next);
-      return { collapsedRepos: next };
+      persistCollapsedRepoKeys(next);
+      return { collapsedRepoKeys: next };
+    }),
+  initializeRunSettingsForSession: (sessionId) =>
+    set((state) => {
+      if (!sessionId || state.runSettingsBySession[sessionId] || !state.lastRunSettings) {
+        return state;
+      }
+
+      const nextSettings = normalizeRunSettings(state.lastRunSettings) ?? EMPTY_RUN_SETTINGS;
+      const runSettingsBySession = {
+        ...state.runSettingsBySession,
+        [sessionId]: nextSettings
+      };
+      persistRunSettingsBySession(runSettingsBySession);
+      return { runSettingsBySession };
     }),
   setRunSettingsForSession: (sessionId, settings) =>
     set((state) => {
       if (!sessionId) {
         return state;
       }
+      const nextSettings = normalizeRunSettings(settings) ?? EMPTY_RUN_SETTINGS;
       const runSettingsBySession = {
         ...state.runSettingsBySession,
-        [sessionId]: normalizeRunSettings(settings) ?? {
-          approvalPolicy: null,
-          sandbox: null,
-          serviceTier: null,
-          model: null
-        }
+        [sessionId]: nextSettings
       };
       persistRunSettingsBySession(runSettingsBySession);
-      return { runSettingsBySession };
+      persistLastRunSettings(nextSettings);
+      return {
+        runSettingsBySession,
+        lastRunSettings: nextSettings
+      };
     }),
   resetRunSettingsForSession: (sessionId) =>
     set((state) => {
@@ -328,6 +385,10 @@ export const useUiStore = create<UiState>((set) => ({
         [targetSessionId]: source
       };
       persistRunSettingsBySession(runSettingsBySession);
-      return { runSettingsBySession };
+      persistLastRunSettings(source);
+      return {
+        runSettingsBySession,
+        lastRunSettings: source
+      };
     })
 }));
