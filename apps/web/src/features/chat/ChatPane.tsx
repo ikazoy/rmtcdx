@@ -43,6 +43,12 @@ import {
   DEFAULT_MODEL_OPTION
 } from "./model-selection";
 import { MermaidBlock } from "./MermaidBlock";
+import {
+  nextTimelineFollowMode,
+  shouldAutoScrollTimelineUpdate,
+  timelineContentExpanded,
+  type TimelineFollowMode
+} from "./scroll-follow-state";
 import { inferSyntaxLanguageFromPath, SyntaxCodeBlock, syntaxLanguageFromMarkdownClassName } from "./SyntaxCodeBlock";
 import { WorkspaceCombobox } from "../repos/WorkspaceCombobox";
 import { sessionIndicatorTone } from "../sessions/session-state";
@@ -2104,10 +2110,11 @@ export function ChatPane({
   const composerShellRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const selectedImagesRef = useRef<ComposerImage[]>([]);
-  const autoFollowEnabledRef = useRef(true);
+  const followModeRef = useRef<TimelineFollowMode>("following");
   const isPinnedToBottomRef = useRef(true);
   const isProgrammaticScrollRef = useRef(false);
   const lastTimelineScrollTopRef = useRef(0);
+  const lastTimelineEndOffsetRef = useRef(0);
   const shouldScrollToBottomRef = useRef(true);
   const touchStartYRef = useRef<number | null>(null);
   const [selectedImages, setSelectedImages] = useState<ComposerImage[]>([]);
@@ -2298,8 +2305,17 @@ export function ChatPane({
     [usesRootScroll]
   );
 
+  const readTimelineEndOffset = useCallback(() => {
+    const timelineEnd = timelineEndRef.current;
+    if (!timelineEnd) {
+      return 0;
+    }
+
+    return timelineEnd.offsetTop + timelineEnd.offsetHeight;
+  }, []);
+
   const disableAutoFollow = useCallback(() => {
-    autoFollowEnabledRef.current = false;
+    followModeRef.current = "detached";
     shouldScrollToBottomRef.current = false;
   }, []);
 
@@ -2307,14 +2323,12 @@ export function ChatPane({
     const pinnedToBottom = usesRootScroll
       ? (timelineEndRef.current ? timelineViewportIsPinnedToBottom(timelineEndRef.current, composerShellHeight) : true)
       : (timelineRef.current ? timelineIsPinnedToBottom(timelineRef.current) : true);
-
-    if (!isProgrammaticScroll && scrollDelta < -1) {
-      disableAutoFollow();
-    }
-
-    if (pinnedToBottom && (isProgrammaticScroll || scrollDelta > 1)) {
-      autoFollowEnabledRef.current = true;
-    }
+    followModeRef.current = nextTimelineFollowMode({
+      currentMode: followModeRef.current,
+      pinnedToBottom,
+      scrollDelta,
+      isProgrammaticScroll
+    });
 
     isPinnedToBottomRef.current = pinnedToBottom;
     setShowJumpToLatest(!pinnedToBottom);
@@ -2322,7 +2336,7 @@ export function ChatPane({
     if (pinnedToBottom) {
       setHasQueuedUpdates(false);
     }
-  }, [composerShellHeight, disableAutoFollow, usesRootScroll]);
+  }, [composerShellHeight, usesRootScroll]);
 
   const scrollTimelineToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const timelineEnd = timelineEndRef.current;
@@ -2330,11 +2344,12 @@ export function ChatPane({
       return;
     }
 
-    autoFollowEnabledRef.current = true;
+    followModeRef.current = "following";
     shouldScrollToBottomRef.current = false;
     isProgrammaticScrollRef.current = true;
     timelineEnd.scrollIntoView({ block: "end", behavior });
     lastTimelineScrollTopRef.current = readCurrentScrollTop();
+    lastTimelineEndOffsetRef.current = readTimelineEndOffset();
     isPinnedToBottomRef.current = true;
     setShowJumpToLatest(false);
     setHasQueuedUpdates(false);
@@ -2342,9 +2357,10 @@ export function ChatPane({
     window.requestAnimationFrame(() => {
       isProgrammaticScrollRef.current = false;
       lastTimelineScrollTopRef.current = readCurrentScrollTop();
+      lastTimelineEndOffsetRef.current = readTimelineEndOffset();
       syncTimelinePinnedState(0, true);
     });
-  }, [readCurrentScrollTop, syncTimelinePinnedState]);
+  }, [readCurrentScrollTop, readTimelineEndOffset, syncTimelinePinnedState]);
 
   useEffect(() => {
     selectedImagesRef.current = selectedImages;
@@ -2519,10 +2535,11 @@ export function ChatPane({
     setSheetState(null);
     setImageViewerState(null);
     setIsActionsMenuOpen(false);
-    autoFollowEnabledRef.current = true;
+    followModeRef.current = "following";
     isPinnedToBottomRef.current = true;
     isProgrammaticScrollRef.current = false;
     lastTimelineScrollTopRef.current = 0;
+    lastTimelineEndOffsetRef.current = 0;
     shouldScrollToBottomRef.current = true;
     touchStartYRef.current = null;
     setShowJumpToLatest(false);
@@ -2641,19 +2658,30 @@ export function ChatPane({
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       lastTimelineScrollTopRef.current = readCurrentScrollTop();
+      lastTimelineEndOffsetRef.current = readTimelineEndOffset();
       syncTimelinePinnedState(0, isProgrammaticScrollRef.current);
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [composerShellHeight, detail?.session.id, readCurrentScrollTop, syncTimelinePinnedState, usesRootScroll]);
+  }, [composerShellHeight, detail?.session.id, readCurrentScrollTop, readTimelineEndOffset, syncTimelinePinnedState, usesRootScroll]);
 
   useEffect(() => {
     if (!timelineEndRef.current) {
       return;
     }
 
-    if (!shouldScrollToBottomRef.current && !autoFollowEnabledRef.current) {
-      setHasQueuedUpdates(true);
+    const nextTimelineEndOffset = readTimelineEndOffset();
+    const contentExpanded = timelineContentExpanded(lastTimelineEndOffsetRef.current, nextTimelineEndOffset);
+    lastTimelineEndOffsetRef.current = nextTimelineEndOffset;
+
+    if (!shouldAutoScrollTimelineUpdate({
+      followMode: followModeRef.current,
+      pendingScrollToBottom: shouldScrollToBottomRef.current,
+      contentExpanded
+    })) {
+      if (followModeRef.current === "detached") {
+        setHasQueuedUpdates(true);
+      }
       return;
     }
 
@@ -2663,7 +2691,7 @@ export function ChatPane({
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [liveActivities, messages, optimisticMessage, scrollTimelineToBottom, showPendingAssistant, streamingText]);
+  }, [liveActivities, messages, optimisticMessage, readTimelineEndOffset, scrollTimelineToBottom, showPendingAssistant, streamingText]);
 
   const handleSubmit = async () => {
     if (hasPendingRun) {
@@ -2685,6 +2713,7 @@ export function ChatPane({
     const files = selectedImages.map((image) => image.file);
     const nextLocalOptimisticMessage = optimisticMessageFromComposer(prompt, selectedImages);
 
+    followModeRef.current = "following";
     isPinnedToBottomRef.current = true;
     shouldScrollToBottomRef.current = true;
     setShowJumpToLatest(false);
