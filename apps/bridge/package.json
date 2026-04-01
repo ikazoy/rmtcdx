@@ -1,6 +1,6 @@
 {
   "name": "rmtcdx",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Remote web client for operating OpenAI Codex CLI from your browser",
   "type": "module",
   "homepage": "https://github.com/ikazoy/rmtcdx#readme",
