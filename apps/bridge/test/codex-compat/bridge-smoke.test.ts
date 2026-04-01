@@ -392,6 +392,131 @@ test("bridge smoke test tracks unread from live completion events and clears it 
   }
 });
 
+test("bridge smoke test broadcasts session updates when a session is renamed", async () => {
+  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-rename-"));
+  const repoPath = path.join(rootDir, "repo");
+  const dataDir = path.join(rootDir, "data");
+  const uploadsDir = path.join(dataDir, "uploads");
+  await fs.mkdir(repoPath, { recursive: true });
+  await fs.mkdir(uploadsDir, { recursive: true });
+
+  const thread: CodexThread = {
+    id: "fixture_thread_rename",
+    preview: "Original thread title source",
+    createdAt: 1711756800,
+    updatedAt: 1711756860,
+    status: { type: "idle" },
+    cwd: repoPath,
+    path: null,
+    name: null,
+    modelProvider: "openai",
+    source: "appServer",
+    gitInfo: {
+      sha: "abc123",
+      branch: "main",
+      originUrl: "https://example.test/repo.git"
+    },
+    turns: [
+      {
+        id: "fixture_turn_rename_1",
+        status: "completed",
+        error: null,
+        items: [
+          {
+            type: "userMessage",
+            id: "fixture_user_rename_1",
+            content: [
+              {
+                type: "text",
+                text: "Original thread title source",
+                text_elements: []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+
+  const backend = new FixtureBridgeBackend([thread]);
+  const config: AppConfig = {
+    port: 0,
+    host: "127.0.0.1",
+    reposFile: path.join(rootDir, "repos.json"),
+    dataDir,
+    stateFile: path.join(dataDir, "state.json"),
+    runtimeFile: path.join(dataDir, "runtime.json"),
+    codexDebugLogFile: path.join(dataDir, "codex-app-server.jsonl"),
+    uploadsDir,
+    webDistDir: path.join(rootDir, "missing-web-dist"),
+    codexMode: "mock",
+    maxPromptLength: 12_000,
+    maxImageAttachments: 5,
+    maxImageAttachmentBytes: 10_485_760,
+    devSimulatorEnabled: true
+  };
+
+  const { app, realtime } = await buildApp({
+    config,
+    codex: backend,
+    repoConfig: [
+      {
+        id: "fixture_repo",
+        name: "Fixture Repo",
+        path: repoPath,
+        pinned: false
+      }
+    ]
+  });
+
+  const wsEvents = createWebSocketCollector();
+  try {
+    realtime.register(wsEvents.socket, backend.getState().mode);
+    await wsEvents.waitFor((event) => event.type === "hello");
+
+    const renameResponse = await app.inject({
+      method: "PATCH",
+      url: "/api/sessions/fixture_thread_rename",
+      payload: {
+        title: "Renamed session"
+      }
+    });
+    assert.equal(renameResponse.statusCode, 200);
+    const renamePayload = renameResponse.json() as {
+      session: { id: string; title: string };
+    };
+    assert.equal(renamePayload.session.id, "fixture_thread_rename");
+    assert.equal(renamePayload.session.title, "Renamed session");
+
+    const sessionUpdated = await wsEvents.waitFor(
+      (event): event is Extract<ServerWsEvent, { type: "sessions.updated" }> =>
+        event.type === "sessions.updated" && event.session.id === "fixture_thread_rename"
+    );
+    assert.equal(sessionUpdated.session.title, "Renamed session");
+
+    const detailUpdated = await wsEvents.waitFor(
+      (event): event is Extract<ServerWsEvent, { type: "session.updated" }> =>
+        event.type === "session.updated" && event.detail.session.id === "fixture_thread_rename"
+    );
+    assert.equal(detailUpdated.detail.session.title, "Renamed session");
+
+    const sessionsResponse = await app.inject({
+      method: "GET",
+      url: "/api/sessions"
+    });
+    assert.equal(sessionsResponse.statusCode, 200);
+    const sessionsPayload = sessionsResponse.json() as {
+      sessions: Array<{ id: string; title: string }>;
+    };
+    assert.equal(sessionsPayload.sessions[0]?.id, "fixture_thread_rename");
+    assert.equal(sessionsPayload.sessions[0]?.title, "Renamed session");
+  } finally {
+    wsEvents.socket.emit("close");
+    await app.close();
+    await fs.rm(rootDir, { recursive: true, force: true });
+  }
+});
+
 class FixtureBridgeBackend extends EventEmitter implements CodexBackend {
   private readonly threads = new Map<string, CodexThread>();
   private readonly pendingRequests = new Map<string, CodexPendingRequest>();
@@ -432,8 +557,17 @@ class FixtureBridgeBackend extends EventEmitter implements CodexBackend {
     return null;
   }
 
-  async setThreadName(_threadId: string, _name: string) {
-    throw new Error("Not implemented in fixture backend");
+  async setThreadName(threadId: string, name: string) {
+    const thread = this.threads.get(threadId);
+    if (!thread) {
+      throw new Error(`Unknown fixture thread: ${threadId}`);
+    }
+
+    this.threads.set(threadId, {
+      ...thread,
+      name,
+      updatedAt: thread.updatedAt + 1
+    });
   }
 
   async archiveThread(_threadId: string) {

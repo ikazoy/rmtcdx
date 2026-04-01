@@ -474,7 +474,10 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
     const body = renameSessionSchema.parse(request.body);
 
     try {
-      return presentDetail(await catalog.renameSession(params.sessionId, body.title));
+      const updated = presentDetail(await catalog.renameSession(params.sessionId, body.title));
+      realtime.broadcastSession(updated.session);
+      realtime.broadcastSessionDetail(updated);
+      return updated;
     } catch (error) {
       return reply.code(400).send({ message: error instanceof Error ? error.message : "Unable to rename session" });
     }
