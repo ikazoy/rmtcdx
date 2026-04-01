@@ -189,6 +189,18 @@ export type StartRunResult = {
   turnId: string;
 };
 
+export type CodexFileReadResult = {
+  dataBase64: string;
+};
+
+export type CodexFileMetadata = {
+  isDirectory: boolean;
+  isFile: boolean;
+  createdAtMs: number | null;
+  modifiedAtMs: number | null;
+  sizeBytes?: number | null;
+};
+
 export interface CodexBackend extends EventEmitter {
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -197,6 +209,8 @@ export interface CodexBackend extends EventEmitter {
   readThread(threadId: string, options?: { includeTurns?: boolean }): Promise<CodexThread>;
   listModels(): Promise<CodexAvailableModel[]>;
   readAccountRateLimits(): Promise<CodexAccountRateLimits | null>;
+  readFile(path: string): Promise<CodexFileReadResult>;
+  getFileMetadata(path: string): Promise<CodexFileMetadata>;
   setThreadName(threadId: string, name: string): Promise<void>;
   archiveThread(threadId: string): Promise<void>;
   unarchiveThread(threadId: string): Promise<void>;

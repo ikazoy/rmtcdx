@@ -5,6 +5,11 @@
 Codex Remote Web Client — mobile-first の Web UI から OpenAI Codex CLI をリモート操作するアプリケーション。
 ローカルリポジトリの選択、session 管理、prompt 送信、run 監視、message 履歴確認を提供する。
 
+## Competitive Benchmarks
+
+- Remodex: https://www.phodex.app/
+- Farfield: https://github.com/achimala/farfield
+
 ## Tech Stack
 
 - **Runtime**: Node.js >= 20, npm workspaces

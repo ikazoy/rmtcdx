@@ -336,6 +336,26 @@ export type MessagesResponse = { messages: Message[] };
 export type RunResponse = { run: Run };
 export type CodexModelsResponse = { models: CodexAvailableModel[] };
 export type PendingCodexRequestsResponse = { requests: CodexPendingRequest[] };
+export type SessionFilePreviewRequest = {
+  path: string;
+  diff?: string | null;
+  changeKind?: FileChangeEntry["kind"] | null;
+  movePath?: string | null;
+};
+export type SessionFilePreviewContentStatus = "ok" | "missing" | "directory" | "binary" | "too_large";
+export type SessionFilePreviewResponse = {
+  path: string;
+  resolvedPath: string | null;
+  contentStatus: SessionFilePreviewContentStatus;
+  mediaType: string | null;
+  sizeBytes: number | null;
+  isMarkdown: boolean;
+  text: string | null;
+  imageDataUrl: string | null;
+  diff: string | null;
+  changeKind: FileChangeEntry["kind"] | null;
+  movePath: string | null;
+};
 
 export type CreateSessionRequest = {
   repoId: string;

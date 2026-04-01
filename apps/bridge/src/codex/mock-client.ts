@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { promises as fsp } from "node:fs";
 
 import type { CodexAvailableModel, CodexPendingRequest, CodexPendingRequestResponse } from "@codex-remote/shared-types";
 
@@ -150,6 +151,24 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
 
   async readAccountRateLimits(): Promise<CodexAccountRateLimits | null> {
     return null;
+  }
+
+  async readFile(path: string) {
+    const data = await fsp.readFile(path);
+    return {
+      dataBase64: data.toString("base64")
+    };
+  }
+
+  async getFileMetadata(path: string) {
+    const stat = await fsp.stat(path);
+    return {
+      isDirectory: stat.isDirectory(),
+      isFile: stat.isFile(),
+      createdAtMs: Number.isFinite(stat.birthtimeMs) ? Math.round(stat.birthtimeMs) : null,
+      modifiedAtMs: Number.isFinite(stat.mtimeMs) ? Math.round(stat.mtimeMs) : null,
+      sizeBytes: stat.isFile() ? stat.size : null
+    };
   }
 
   async setThreadName(threadId: string, name: string) {

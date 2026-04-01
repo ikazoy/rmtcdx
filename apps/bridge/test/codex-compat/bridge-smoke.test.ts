@@ -17,6 +17,8 @@ import type {
   CodexAccountRateLimits,
   CodexBackend,
   CodexBridgeEvent,
+  CodexFileMetadata,
+  CodexFileReadResult,
   CodexRuntimeState,
   CodexThread,
   EnsureThreadParams,
@@ -392,6 +394,213 @@ test("bridge smoke test tracks unread from live completion events and clears it 
   }
 });
 
+test("bridge smoke test previews session files from the current workspace", async () => {
+  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-preview-"));
+  const repoPath = path.join(rootDir, "repo");
+  const docsPath = path.join(repoPath, "docs");
+  const dataDir = path.join(rootDir, "data");
+  const uploadsDir = path.join(dataDir, "uploads");
+  const previewFilePath = path.join(docsPath, "preview.md");
+  const previewDiff = ["@@ -0,0 +1,3 @@", "+# Preview file", "+", "+This markdown file is available."].join("\n");
+  await fs.mkdir(docsPath, { recursive: true });
+  await fs.mkdir(uploadsDir, { recursive: true });
+  await fs.writeFile(previewFilePath, "# Preview file\n\nThis markdown file is available.\n", "utf8");
+  const expectedResolvedPath = await fs.realpath(previewFilePath).catch(() => previewFilePath);
+
+  const thread: CodexThread = {
+    id: "fixture_thread_preview",
+    preview: "Preview file support",
+    createdAt: 1711756800,
+    updatedAt: 1711756860,
+    status: { type: "idle" },
+    cwd: repoPath,
+    path: null,
+    name: null,
+    modelProvider: "openai",
+    source: "appServer",
+    gitInfo: {
+      sha: "abc123",
+      branch: "main",
+      originUrl: "https://example.test/repo.git"
+    },
+    turns: []
+  };
+
+  const backend = new FixtureBridgeBackend([thread]);
+  const config: AppConfig = {
+    port: 0,
+    host: "127.0.0.1",
+    reposFile: path.join(rootDir, "repos.json"),
+    dataDir,
+    stateFile: path.join(dataDir, "state.json"),
+    runtimeFile: path.join(dataDir, "runtime.json"),
+    codexDebugLogFile: path.join(dataDir, "codex-app-server.jsonl"),
+    uploadsDir,
+    webDistDir: path.join(rootDir, "missing-web-dist"),
+    codexMode: "mock",
+    maxPromptLength: 12_000,
+    maxImageAttachments: 5,
+    maxImageAttachmentBytes: 10_485_760,
+    devSimulatorEnabled: true
+  };
+
+  const { app } = await buildApp({
+    config,
+    codex: backend,
+    repoConfig: [
+      {
+        id: "fixture_repo",
+        name: "Fixture Repo",
+        path: repoPath,
+        pinned: false
+      }
+    ]
+  });
+
+  try {
+    const previewResponse = await app.inject({
+      method: "POST",
+      url: "/api/sessions/fixture_thread_preview/files/preview",
+      payload: {
+        path: "docs/preview.md",
+        diff: previewDiff,
+        changeKind: "add"
+      }
+    });
+    assert.equal(previewResponse.statusCode, 200);
+    const previewPayload = previewResponse.json() as {
+      path: string;
+      resolvedPath: string | null;
+      contentStatus: string;
+      isMarkdown: boolean;
+      text: string | null;
+      imageDataUrl: string | null;
+      diff: string | null;
+      sizeBytes: number | null;
+    };
+    assert.equal(previewPayload.path, "docs/preview.md");
+    assert.equal(previewPayload.resolvedPath, expectedResolvedPath);
+    assert.equal(previewPayload.contentStatus, "ok");
+    assert.equal(previewPayload.isMarkdown, true);
+    assert.match(previewPayload.text ?? "", /# Preview file/);
+    assert.equal(previewPayload.imageDataUrl, null);
+    assert.equal(previewPayload.diff, previewDiff);
+    assert.ok((previewPayload.sizeBytes ?? 0) > 0);
+
+    const outsideResponse = await app.inject({
+      method: "POST",
+      url: "/api/sessions/fixture_thread_preview/files/preview",
+      payload: {
+        path: path.join(rootDir, "outside.md")
+      }
+    });
+    assert.equal(outsideResponse.statusCode, 400);
+  } finally {
+    await app.close();
+    await fs.rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("bridge smoke test previews png files as images", async () => {
+  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-preview-image-"));
+  const repoPath = path.join(rootDir, "repo");
+  const assetsPath = path.join(repoPath, "assets");
+  const dataDir = path.join(rootDir, "data");
+  const uploadsDir = path.join(dataDir, "uploads");
+  const previewFilePath = path.join(assetsPath, "preview.png");
+  const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jFz8AAAAASUVORK5CYII=";
+  await fs.mkdir(assetsPath, { recursive: true });
+  await fs.mkdir(uploadsDir, { recursive: true });
+  await fs.writeFile(previewFilePath, Buffer.from(pngBase64, "base64"));
+  const expectedResolvedPath = await fs.realpath(previewFilePath).catch(() => previewFilePath);
+
+  const thread: CodexThread = {
+    id: "fixture_thread_preview_image",
+    preview: "Preview image support",
+    createdAt: 1711756800,
+    updatedAt: 1711756860,
+    status: { type: "idle" },
+    cwd: repoPath,
+    path: null,
+    name: null,
+    modelProvider: "openai",
+    source: "appServer",
+    gitInfo: {
+      sha: "abc123",
+      branch: "main",
+      originUrl: "https://example.test/repo.git"
+    },
+    turns: []
+  };
+
+  const backend = new FixtureBridgeBackend([thread]);
+  const config: AppConfig = {
+    port: 0,
+    host: "127.0.0.1",
+    reposFile: path.join(rootDir, "repos.json"),
+    dataDir,
+    stateFile: path.join(dataDir, "state.json"),
+    runtimeFile: path.join(dataDir, "runtime.json"),
+    codexDebugLogFile: path.join(dataDir, "codex-app-server.jsonl"),
+    uploadsDir,
+    webDistDir: path.join(rootDir, "missing-web-dist"),
+    codexMode: "mock",
+    maxPromptLength: 12_000,
+    maxImageAttachments: 5,
+    maxImageAttachmentBytes: 10_485_760,
+    devSimulatorEnabled: true
+  };
+
+  const { app } = await buildApp({
+    config,
+    codex: backend,
+    repoConfig: [
+      {
+        id: "fixture_repo",
+        name: "Fixture Repo",
+        path: repoPath,
+        pinned: false
+      }
+    ]
+  });
+
+  try {
+    const previewResponse = await app.inject({
+      method: "POST",
+      url: "/api/sessions/fixture_thread_preview_image/files/preview",
+      payload: {
+        path: "assets/preview.png",
+        diff: "Binary files differ",
+        changeKind: "add"
+      }
+    });
+    assert.equal(previewResponse.statusCode, 200);
+    const previewPayload = previewResponse.json() as {
+      path: string;
+      resolvedPath: string | null;
+      contentStatus: string;
+      mediaType: string | null;
+      isMarkdown: boolean;
+      text: string | null;
+      imageDataUrl: string | null;
+      diff: string | null;
+      sizeBytes: number | null;
+    };
+    assert.equal(previewPayload.path, "assets/preview.png");
+    assert.equal(previewPayload.resolvedPath, expectedResolvedPath);
+    assert.equal(previewPayload.contentStatus, "ok");
+    assert.equal(previewPayload.mediaType, "image/png");
+    assert.equal(previewPayload.isMarkdown, false);
+    assert.equal(previewPayload.text, null);
+    assert.match(previewPayload.imageDataUrl ?? "", /^data:image\/png;base64,/);
+    assert.equal(previewPayload.diff, "Binary files differ");
+    assert.ok((previewPayload.sizeBytes ?? 0) > 0);
+  } finally {
+    await app.close();
+    await fs.rm(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("bridge smoke test broadcasts session updates when a session is renamed", async () => {
   const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-rename-"));
   const repoPath = path.join(rootDir, "repo");
@@ -555,6 +764,24 @@ class FixtureBridgeBackend extends EventEmitter implements CodexBackend {
 
   async readAccountRateLimits(): Promise<CodexAccountRateLimits | null> {
     return null;
+  }
+
+  async readFile(_path: string): Promise<CodexFileReadResult> {
+    const data = await fs.readFile(_path);
+    return {
+      dataBase64: data.toString("base64")
+    };
+  }
+
+  async getFileMetadata(_path: string): Promise<CodexFileMetadata> {
+    const stat = await fs.stat(_path);
+    return {
+      isDirectory: stat.isDirectory(),
+      isFile: stat.isFile(),
+      createdAtMs: Number.isFinite(stat.birthtimeMs) ? Math.round(stat.birthtimeMs) : null,
+      modifiedAtMs: Number.isFinite(stat.mtimeMs) ? Math.round(stat.mtimeMs) : null,
+      sizeBytes: stat.isFile() ? stat.size : null
+    };
   }
 
   async setThreadName(threadId: string, name: string) {

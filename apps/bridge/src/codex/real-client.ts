@@ -180,6 +180,40 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
     return this.extractAccountRateLimits(response);
   }
 
+  async readFile(path: string) {
+    await this.ensureReady();
+    const response = await this.request("fs/readFile", { path });
+    const result = response as { dataBase64?: string };
+    if (typeof result.dataBase64 !== "string") {
+      throw new Error(`Codex did not return file contents for ${path}`);
+    }
+    return {
+      dataBase64: result.dataBase64
+    };
+  }
+
+  async getFileMetadata(path: string) {
+    await this.ensureReady();
+    const response = await this.request("fs/getMetadata", { path });
+    const result = response as {
+      isDirectory?: boolean;
+      isFile?: boolean;
+      createdAtMs?: number;
+      modifiedAtMs?: number;
+      sizeBytes?: number;
+    };
+    if (typeof result.isDirectory !== "boolean" || typeof result.isFile !== "boolean") {
+      throw new Error(`Codex did not return file metadata for ${path}`);
+    }
+    return {
+      isDirectory: result.isDirectory,
+      isFile: result.isFile,
+      createdAtMs: typeof result.createdAtMs === "number" ? result.createdAtMs : null,
+      modifiedAtMs: typeof result.modifiedAtMs === "number" ? result.modifiedAtMs : null,
+      sizeBytes: typeof result.sizeBytes === "number" ? result.sizeBytes : null
+    };
+  }
+
   async setThreadName(threadId: string, name: string) {
     await this.ensureReady();
     await this.request("thread/name/set", {

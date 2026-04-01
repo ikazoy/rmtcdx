@@ -1,4 +1,8 @@
 import fs from "node:fs";
+import path from "node:path";
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
@@ -18,6 +22,8 @@ import type {
   PendingCodexRequestsResponse,
   SavePushSubscriptionRequest,
   SessionDetail,
+  SessionFilePreviewRequest,
+  SessionFilePreviewResponse,
   SessionFilter,
   SessionSummary,
   SimulateCodexRequestRequest,
@@ -37,6 +43,8 @@ import { SessionUnreadService } from "./sessions/session-unread-service";
 import { ImageUploadService } from "./uploads/image-upload-service";
 
 const filterSchema = z.enum(["all", "running", "unread", "completed", "interrupted", "error", "archived"]).optional();
+const filePreviewMaxBytes = 256 * 1024;
+const execFileAsync = promisify(execFile);
 const renameSessionSchema = z.object({
   title: z.string().trim().min(1)
 });
@@ -84,6 +92,12 @@ const simulateCodexRequestSchema = z.object({
     "request_user_input",
     "mcp_elicitation"
   ])
+});
+const sessionFilePreviewSchema = z.object({
+  path: z.string().trim().min(1),
+  diff: z.string().optional().nullable(),
+  changeKind: z.enum(["add", "delete", "update"]).optional().nullable(),
+  movePath: z.string().trim().min(1).optional().nullable()
 });
 const codexPendingRequestResponseSchema = z.discriminatedUnion("type", [
   z.object({
@@ -380,6 +394,166 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
     };
   });
 
+  app.post("/api/sessions/:sessionId/files/preview", async (request, reply): Promise<SessionFilePreviewResponse> => {
+    const params = z.object({ sessionId: z.string().min(1) }).parse(request.params);
+    const body = sessionFilePreviewSchema.parse(request.body) as SessionFilePreviewRequest;
+
+    let thread;
+    try {
+      thread = await catalog.getThread(params.sessionId);
+    } catch {
+      return reply.code(404).send({ message: "Session not found" }) as never;
+    }
+
+    const repoRoot = await resolveSessionRepoRoot(thread.cwd);
+    const previewPath = body.movePath ?? body.path;
+
+    let resolvedPath: string;
+    try {
+      resolvedPath = resolveSessionPreviewPath(previewPath, thread.cwd, repoRoot);
+    } catch (error) {
+      return reply.code(400).send({ message: error instanceof Error ? error.message : "Unable to resolve file path" }) as never;
+    }
+
+    const snapshot = readPreviewPathSnapshot(resolvedPath);
+    if (snapshot.type === "missing") {
+      return {
+        path: body.path,
+        resolvedPath,
+        contentStatus: "missing",
+        mediaType: guessFilePreviewMediaType(resolvedPath, false),
+        sizeBytes: null,
+        isMarkdown: false,
+        text: null,
+        imageDataUrl: null,
+        diff: body.diff ?? null,
+        changeKind: body.changeKind ?? null,
+        movePath: body.movePath ?? null
+      };
+    }
+
+    if (snapshot.type === "directory") {
+      return {
+        path: body.path,
+        resolvedPath,
+        contentStatus: "directory",
+        mediaType: null,
+        sizeBytes: null,
+        isMarkdown: false,
+        text: null,
+        imageDataUrl: null,
+        diff: body.diff ?? null,
+        changeKind: body.changeKind ?? null,
+        movePath: body.movePath ?? null
+      };
+    }
+
+    let metadata;
+    try {
+      metadata = await codex.getFileMetadata(resolvedPath);
+    } catch (error) {
+      app.log.warn({ err: error, path: resolvedPath }, "Unable to read file metadata from Codex");
+      metadata = {
+        isDirectory: false,
+        isFile: true,
+        createdAtMs: null,
+        modifiedAtMs: null,
+        sizeBytes: snapshot.sizeBytes
+      };
+    }
+
+    if (metadata.isDirectory) {
+      return {
+        path: body.path,
+        resolvedPath,
+        contentStatus: "directory",
+        mediaType: null,
+        sizeBytes: null,
+        isMarkdown: false,
+        text: null,
+        imageDataUrl: null,
+        diff: body.diff ?? null,
+        changeKind: body.changeKind ?? null,
+        movePath: body.movePath ?? null
+      };
+    }
+
+    let file;
+    try {
+      file = await codex.readFile(resolvedPath);
+    } catch (error) {
+      app.log.warn({ err: error, path: resolvedPath }, "Unable to read file contents from Codex");
+      return reply.code(400).send({ message: "Unable to read file contents" }) as never;
+    }
+
+    const buffer = Buffer.from(file.dataBase64, "base64");
+    const sizeBytes = metadata.sizeBytes ?? snapshot.sizeBytes ?? buffer.byteLength;
+    const isMarkdown = isMarkdownPreviewPath(resolvedPath);
+    const mediaType = guessFilePreviewMediaType(resolvedPath, isMarkdown);
+
+    if (sizeBytes > filePreviewMaxBytes) {
+      return {
+        path: body.path,
+        resolvedPath,
+        contentStatus: "too_large",
+        mediaType,
+        sizeBytes,
+        isMarkdown,
+        text: null,
+        imageDataUrl: null,
+        diff: body.diff ?? null,
+        changeKind: body.changeKind ?? null,
+        movePath: body.movePath ?? null
+      };
+    }
+
+    if (isPreviewableImageMediaType(mediaType)) {
+      return {
+        path: body.path,
+        resolvedPath,
+        contentStatus: "ok",
+        mediaType,
+        sizeBytes,
+        isMarkdown: false,
+        text: null,
+        imageDataUrl: `data:${mediaType};base64,${file.dataBase64}`,
+        diff: body.diff ?? null,
+        changeKind: body.changeKind ?? null,
+        movePath: body.movePath ?? null
+      };
+    }
+
+    if (looksBinaryBuffer(buffer)) {
+      return {
+        path: body.path,
+        resolvedPath,
+        contentStatus: "binary",
+        mediaType,
+        sizeBytes,
+        isMarkdown: false,
+        text: null,
+        imageDataUrl: null,
+        diff: body.diff ?? null,
+        changeKind: body.changeKind ?? null,
+        movePath: body.movePath ?? null
+      };
+    }
+
+    return {
+      path: body.path,
+      resolvedPath,
+      contentStatus: "ok",
+      mediaType,
+      sizeBytes,
+      isMarkdown,
+      text: decodeUtf8(buffer),
+      imageDataUrl: null,
+      diff: body.diff ?? null,
+      changeKind: body.changeKind ?? null,
+      movePath: body.movePath ?? null
+    };
+  });
+
   app.get("/api/sessions/:sessionId/codex/requests", async (request, reply): Promise<PendingCodexRequestsResponse> => {
     const params = z.object({ sessionId: z.string().min(1) }).parse(request.params);
     const detail = await catalog.getSessionDetail(params.sessionId);
@@ -598,4 +772,185 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
     config,
     realtime
   };
+}
+
+function normalizePreviewPathRoot(candidate: string) {
+  try {
+    return fs.realpathSync.native(candidate);
+  } catch {
+    return path.resolve(candidate);
+  }
+}
+
+function normalizeRequestedPreviewPath(rawPath: string) {
+  let next = rawPath.trim();
+  if (!next) {
+    throw new Error("File path is required");
+  }
+
+  if (next.startsWith("<") && next.endsWith(">")) {
+    next = next.slice(1, -1).trim();
+  }
+
+  const fragmentOrQueryIndex = next.search(/[?#]/);
+  if (fragmentOrQueryIndex >= 0) {
+    next = next.slice(0, fragmentOrQueryIndex);
+  }
+
+  if (next.startsWith("file://")) {
+    return fileURLToPath(next);
+  }
+
+  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(next)) {
+    throw new Error("Only local file paths can be previewed");
+  }
+
+  try {
+    next = decodeURIComponent(next);
+  } catch {
+    // Preserve the original path when the link contains invalid escapes.
+  }
+
+  if (!next) {
+    throw new Error("File path is required");
+  }
+
+  return next;
+}
+
+function isWithinPreviewRoot(candidate: string, root: string) {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function resolveSessionPreviewPath(rawPath: string, cwd: string, repoRoot: string) {
+  const requestedPath = normalizeRequestedPreviewPath(rawPath);
+  const allowedRoots = [...new Set([normalizePreviewPathRoot(cwd), normalizePreviewPathRoot(repoRoot)])];
+
+  if (path.isAbsolute(requestedPath)) {
+    const absoluteCandidate = normalizePreviewPathRoot(requestedPath);
+    if (!allowedRoots.some((root) => isWithinPreviewRoot(absoluteCandidate, root))) {
+      throw new Error("File path is outside this session's workspace");
+    }
+    return absoluteCandidate;
+  }
+
+  const candidateBases = [...new Set([cwd, repoRoot])];
+  const candidates = candidateBases
+    .map((basePath) => normalizePreviewPathRoot(path.resolve(basePath, requestedPath)))
+    .filter((candidate) => allowedRoots.some((root) => isWithinPreviewRoot(candidate, root)));
+
+  if (candidates.length === 0) {
+    throw new Error("File path is outside this session's workspace");
+  }
+
+  const existingCandidate = candidates.find((candidate) => readPreviewPathSnapshot(candidate).type !== "missing");
+  return existingCandidate ?? candidates[0]!;
+}
+
+async function resolveSessionRepoRoot(cwd: string) {
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+      encoding: "utf8"
+    });
+    return stdout.trim() || cwd;
+  } catch {
+    return cwd;
+  }
+}
+
+function readPreviewPathSnapshot(candidate: string) {
+  try {
+    const stat = fs.statSync(candidate);
+    if (stat.isDirectory()) {
+      return { type: "directory" as const, sizeBytes: null };
+    }
+    if (stat.isFile()) {
+      return { type: "file" as const, sizeBytes: stat.size };
+    }
+    return { type: "missing" as const, sizeBytes: null };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      return { type: "missing" as const, sizeBytes: null };
+    }
+    throw error;
+  }
+}
+
+function isMarkdownPreviewPath(candidate: string) {
+  const basename = path.basename(candidate).toLowerCase();
+  const extension = path.extname(basename);
+  return extension === ".md" || extension === ".mdx" || extension === ".markdown" || basename === "readme";
+}
+
+function guessFilePreviewMediaType(candidate: string, isMarkdown: boolean) {
+  if (isMarkdown) {
+    return "text/markdown";
+  }
+
+  switch (path.extname(candidate).toLowerCase()) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".webp":
+      return "image/webp";
+    case ".gif":
+      return "image/gif";
+    case ".json":
+      return "application/json";
+    case ".yml":
+    case ".yaml":
+      return "application/yaml";
+    case ".html":
+    case ".htm":
+      return "text/html";
+    case ".css":
+      return "text/css";
+    case ".js":
+    case ".mjs":
+    case ".cjs":
+      return "text/javascript";
+    case ".ts":
+    case ".tsx":
+      return "text/typescript";
+    case ".jsx":
+      return "text/jsx";
+    case ".sh":
+      return "application/x-sh";
+    case ".sql":
+      return "application/sql";
+    case ".toml":
+      return "application/toml";
+    case ".txt":
+    default:
+      return "text/plain";
+  }
+}
+
+function isPreviewableImageMediaType(mediaType: string | null) {
+  return mediaType === "image/png" || mediaType === "image/jpeg" || mediaType === "image/webp" || mediaType === "image/gif";
+}
+
+function looksBinaryBuffer(buffer: Buffer) {
+  if (buffer.length === 0) {
+    return false;
+  }
+
+  const sample = buffer.subarray(0, 8192);
+  if (sample.includes(0)) {
+    return true;
+  }
+
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(sample);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function decodeUtf8(buffer: Buffer) {
+  return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
 }

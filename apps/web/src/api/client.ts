@@ -11,6 +11,8 @@ import type {
   PendingCodexRequestsResponse,
   ReposResponse,
   RunResponse,
+  SessionFilePreviewRequest,
+  SessionFilePreviewResponse,
   SavePushSubscriptionRequest,
   SessionDetail,
   SimulateCodexRequestRequest,
@@ -60,6 +62,11 @@ export const api = {
   },
   session: (sessionId: string) => request<SessionDetail>(`/api/sessions/${sessionId}`),
   messages: (sessionId: string) => request<MessagesResponse>(`/api/sessions/${sessionId}/messages`),
+  filePreview: (sessionId: string, payload: SessionFilePreviewRequest) =>
+    request<SessionFilePreviewResponse>(`/api/sessions/${sessionId}/files/preview`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   pendingCodexRequests: (sessionId: string) =>
     request<PendingCodexRequestsResponse>(`/api/sessions/${sessionId}/codex/requests`),
   createSession: (payload: CreateSessionRequest) =>

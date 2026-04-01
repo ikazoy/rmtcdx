@@ -24,9 +24,12 @@ import type {
   Message,
   MessageAttachment,
   Repository,
+  SessionFilePreviewRequest,
+  SessionFilePreviewResponse,
   SessionDetail
 } from "@codex-remote/shared-types";
 import type { ChatViewState as ChatScreenViewState } from "../../app/view-state";
+import { api } from "../../api/client";
 import { formatRelativeTime } from "../../components/formatters";
 import { moveActiveItemKey, resolveActiveItemKey } from "../../components/listbox-navigation";
 import { useAnchoredMenu } from "../../hooks/use-anchored-menu";
@@ -40,6 +43,7 @@ import {
   DEFAULT_MODEL_OPTION
 } from "./model-selection";
 import { MermaidBlock } from "./MermaidBlock";
+import { inferSyntaxLanguageFromPath, SyntaxCodeBlock, syntaxLanguageFromMarkdownClassName } from "./SyntaxCodeBlock";
 import { WorkspaceCombobox } from "../repos/WorkspaceCombobox";
 import { sessionIndicatorTone } from "../sessions/session-state";
 
@@ -148,11 +152,30 @@ type TimelineEntry =
   | { type: "file_group"; id: string; changes: FileChangeEntry[]; count: number; createdAt: string }
   | { type: "search_group"; id: string; searches: SearchQueryEntry[]; createdAt: string };
 
+type FileChangeSheetState = {
+  type: "file_list";
+  changes: FileChangeEntry[];
+  count: number;
+  title?: string;
+};
+
+type FilePreviewSourceList = {
+  changes: FileChangeEntry[];
+  count: number;
+};
+
+type FilePreviewSheetState = {
+  type: "file_preview";
+  request: SessionFilePreviewRequest;
+  sourceList: FilePreviewSourceList | null;
+};
+
 type BottomSheetState =
   | null
   | { type: "command_list"; commands: CommandExecutionEntry[] }
   | { type: "command_detail"; commands: CommandExecutionEntry[]; selectedIndex: number }
-  | { type: "file_list"; changes: FileChangeEntry[]; count: number }
+  | FileChangeSheetState
+  | FilePreviewSheetState
   | { type: "search_list"; searches: SearchQueryEntry[] };
 
 type ImageViewerState =
@@ -478,6 +501,18 @@ function buildTimelineEntries(messages: Message[]): TimelineEntry[] {
   return entries;
 }
 
+function collectThreadFileChanges(messages: Message[]): FilePreviewSourceList | null {
+  const changes = messages.flatMap((message) => fileChangesFromMessage(message));
+  if (changes.length === 0) {
+    return null;
+  }
+
+  return {
+    changes,
+    count: changes.length
+  };
+}
+
 function formatCountLabel(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -488,6 +523,14 @@ function formatCommandGroupTitle(count: number) {
 
 function formatFileGroupTitle(count: number) {
   return `Edited ${formatCountLabel(count, "file")}`;
+}
+
+function formatThreadDiffTitle(count: number) {
+  return count > 0 ? `Thread diff · ${formatCountLabel(count, "file")}` : "Thread diff";
+}
+
+function formatCompactThreadDiffCount(count: number) {
+  return count > 99 ? "99+" : String(count);
 }
 
 function formatSearchGroupTitle(count: number) {
@@ -572,6 +615,129 @@ function fileChangeVerb(change: FileChangeEntry) {
   }
 }
 
+function displayPathForPreview(preview: Pick<SessionFilePreviewRequest, "path" | "movePath">) {
+  return preview.movePath ?? preview.path;
+}
+
+function fileLeafName(candidate: string) {
+  const parts = candidate.split(/[\\/]/);
+  return parts[parts.length - 1] || candidate;
+}
+
+function looksLikeMarkdownPath(candidate: string) {
+  const normalized = candidate.split(/[?#]/, 1)[0]?.toLowerCase() ?? "";
+  const leaf = fileLeafName(normalized).toLowerCase();
+  return normalized.endsWith(".md") || normalized.endsWith(".mdx") || normalized.endsWith(".markdown") || leaf === "readme";
+}
+
+function isLikelyLocalFileHref(href: string) {
+  if (!href || href.startsWith("#")) {
+    return false;
+  }
+
+  if (href.startsWith("file://")) {
+    return true;
+  }
+
+  if (/^(https?:|mailto:|tel:)/i.test(href)) {
+    return false;
+  }
+
+  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(href)) {
+    return false;
+  }
+
+  if (href.startsWith("/") || href.startsWith("./") || href.startsWith("../")) {
+    return true;
+  }
+
+  return href.includes("/") || /\.[a-z0-9]+([?#].*)?$/i.test(href) || /^readme([?#].*)?$/i.test(href);
+}
+
+function defaultFilePreviewTab(request: Pick<SessionFilePreviewRequest, "path" | "movePath" | "diff">) {
+  if (request.diff?.trim()) {
+    return "diff" as const;
+  }
+
+  if (looksLikeMarkdownPath(displayPathForPreview(request))) {
+    return "preview" as const;
+  }
+  return "source" as const;
+}
+
+function filePreviewStatusLabel(preview: SessionFilePreviewResponse) {
+  switch (preview.contentStatus) {
+    case "ok":
+      return "Current file";
+    case "missing":
+      return "Missing";
+    case "directory":
+      return "Directory";
+    case "binary":
+      return "Binary";
+    case "too_large":
+      return "Too large";
+    default:
+      return "File";
+  }
+}
+
+function filePreviewKindLabel(preview: SessionFilePreviewResponse) {
+  if (preview.contentStatus === "directory") {
+    return "Directory";
+  }
+  if (preview.contentStatus === "binary") {
+    return "Binary file";
+  }
+  if (preview.mediaType?.startsWith("image/")) {
+    return "Image file";
+  }
+  if (preview.isMarkdown) {
+    return "Markdown";
+  }
+  return "Text file";
+}
+
+function formatFileSize(sizeBytes: number | null) {
+  if (sizeBytes === null || Number.isNaN(sizeBytes)) {
+    return null;
+  }
+
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+  if (sizeBytes < 1024 * 1024) {
+    return `${(sizeBytes / 1024).toFixed(sizeBytes >= 10 * 1024 ? 0 : 1)} KB`;
+  }
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function filePreviewEmptyMessage(preview: SessionFilePreviewResponse) {
+  switch (preview.contentStatus) {
+    case "missing":
+      return preview.diff?.trim()
+        ? "This file is no longer present on disk. The recorded diff is still available."
+        : "This file is no longer present on disk.";
+    case "directory":
+      return "This path resolves to a directory, so file preview is not available.";
+    case "binary":
+      return preview.diff?.trim()
+        ? "Binary file preview is not available here. The recorded diff is still available."
+        : "Binary file preview is not available here.";
+    case "too_large":
+      return preview.diff?.trim()
+        ? "This file is larger than the preview limit. The recorded diff is still available."
+        : "This file is larger than the preview limit.";
+    case "ok":
+    default:
+      return "No preview data is available for this file.";
+  }
+}
+
+function filePreviewHasImage(preview: SessionFilePreviewResponse | null) {
+  return Boolean(preview?.imageDataUrl && preview.mediaType?.startsWith("image/"));
+}
+
 function flattenNodeText(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") {
     return String(node);
@@ -584,7 +750,7 @@ function flattenNodeText(node: ReactNode): string {
   return "";
 }
 
-function mermaidCodeFromMarkdownPre(children: ReactNode) {
+function markdownCodeBlockFromPre(children: ReactNode) {
   const [child] = Children.toArray(children);
   if (!child || !isValidElement(child)) {
     return null;
@@ -595,23 +761,32 @@ function mermaidCodeFromMarkdownPre(children: ReactNode) {
     children?: ReactNode;
   };
   const className = typeof props.className === "string" ? props.className : "";
-
-  if (!className.split(/\s+/).includes("language-mermaid")) {
+  const code = flattenNodeText(props.children ?? "").replace(/\n$/, "");
+  if (!code) {
     return null;
   }
 
-  const code = flattenNodeText(props.children ?? "").replace(/\n$/, "");
-  return code || null;
+  return {
+    code,
+    language: syntaxLanguageFromMarkdownClassName(className)
+  };
+}
+
+function mermaidCodeFromMarkdownPre(children: ReactNode) {
+  const codeBlock = markdownCodeBlockFromPre(children);
+  return codeBlock?.language === "mermaid" ? codeBlock.code : null;
 }
 
 const MessageBody = memo(function MessageBody({
   text,
   repairIncompleteMarkdown = false,
-  allowMermaid = true
+  allowMermaid = true,
+  onOpenFileLink
 }: {
   text: string;
   repairIncompleteMarkdown?: boolean;
   allowMermaid?: boolean;
+  onOpenFileLink?: (href: string) => void;
 }) {
   const markdown = repairIncompleteMarkdown ? remend(text, { linkMode: "text-only" }) : text;
 
@@ -620,11 +795,37 @@ const MessageBody = memo(function MessageBody({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          a({ children, href, node: _node, ...props }) {
+            const isExternalHref = typeof href === "string" && /^(https?:|mailto:|tel:)/i.test(href);
+            const shouldHandleInApp = typeof href === "string" && Boolean(onOpenFileLink) && isLikelyLocalFileHref(href);
+
+            return (
+              <a
+                {...props}
+                href={href}
+                target={isExternalHref ? "_blank" : undefined}
+                rel={isExternalHref ? "noreferrer" : undefined}
+                onClick={(event) => {
+                  if (shouldHandleInApp && href) {
+                    event.preventDefault();
+                    onOpenFileLink?.(href);
+                  }
+                }}
+              >
+                {children}
+              </a>
+            );
+          },
           pre({ children, node: _node, ...props }) {
+            const codeBlock = markdownCodeBlockFromPre(children);
             const mermaidCode = allowMermaid ? mermaidCodeFromMarkdownPre(children) : null;
 
             if (mermaidCode !== null) {
               return <MermaidBlock code={mermaidCode} />;
+            }
+
+            if (codeBlock) {
+              return <SyntaxCodeBlock code={codeBlock.code} language={codeBlock.language} className="message-code-block" />;
             }
 
             return <pre {...props}>{children}</pre>;
@@ -1038,6 +1239,27 @@ const SummaryCard = memo(function SummaryCard({
   );
 });
 
+const ThreadDiffEntry = memo(function ThreadDiffEntry({
+  count,
+  onOpen
+}: {
+  count: number;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      className="thread-diff-entry"
+      type="button"
+      onClick={onOpen}
+      aria-label={`Open thread diff. ${formatCountLabel(count, "file")} changed.`}
+      title={formatThreadDiffTitle(count)}
+    >
+      <span className="thread-diff-entry__label">Diff</span>
+      <span className="thread-diff-entry__count">{formatCompactThreadDiffCount(count)}</span>
+    </button>
+  );
+});
+
 const ActivityTray = memo(function ActivityTray({ activities }: { activities: LiveActivity[] }) {
   if (activities.length === 0) {
     return null;
@@ -1369,18 +1591,27 @@ function CommandDetailSheet({
 function FileChangeSheet({
   changes,
   count,
-  onClose
+  title,
+  onClose,
+  onSelect
 }: {
   changes: FileChangeEntry[];
   count: number;
+  title?: string;
   onClose: () => void;
+  onSelect: (change: FileChangeEntry) => void;
 }) {
   return (
-    <BottomSheet title={formatFileGroupTitle(count)} onClose={onClose}>
+    <BottomSheet title={title ?? formatFileGroupTitle(count)} onClose={onClose}>
       <div className="sheet-list">
         {changes.length > 0 ? (
           changes.map((change, index) => (
-            <div key={`${change.path}:${index}`} className="sheet-row">
+            <button
+              key={`${change.path}:${index}`}
+              className="sheet-row sheet-row--button"
+              type="button"
+              onClick={() => onSelect(change)}
+            >
               <span className="sheet-row__icon sheet-row__icon--file">
                 <FileIcon />
               </span>
@@ -1393,12 +1624,174 @@ function FileChangeSheet({
                   <MiddleTruncate className="sheet-row__meta" suffixLength={18} text={change.path} />
                 ) : null}
               </div>
-            </div>
+            </button>
           ))
         ) : (
           <p className="sheet-empty">No file details were recorded for this run.</p>
         )}
       </div>
+    </BottomSheet>
+  );
+}
+
+function FilePreviewSheet({
+  sessionId,
+  request,
+  onClose,
+  onBack,
+  onOpenFileLink
+}: {
+  sessionId: string;
+  request: SessionFilePreviewRequest;
+  onClose: () => void;
+  onBack?: () => void;
+  onOpenFileLink: (href: string) => void;
+}) {
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [response, setResponse] = useState<SessionFilePreviewResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"preview" | "source" | "diff">(() => defaultFilePreviewTab(request));
+
+  useEffect(() => {
+    setActiveTab(defaultFilePreviewTab(request));
+  }, [request]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus("loading");
+    setResponse(null);
+    setError(null);
+
+    void api
+      .filePreview(sessionId, request)
+      .then((next) => {
+        if (cancelled) {
+          return;
+        }
+        setResponse(next);
+        setStatus("ready");
+      })
+      .catch((nextError) => {
+        if (cancelled) {
+          return;
+        }
+        setStatus("error");
+        setError(nextError instanceof Error ? nextError.message : "Unable to load file preview.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, request]);
+
+  const preview = response ?? null;
+  const displayPath = displayPathForPreview(preview ?? request);
+  const title = fileLeafName(displayPath) || "File";
+  const subtitle = displayPath !== title ? displayPath : undefined;
+  const hasPreviewTab = preview?.contentStatus === "ok" && preview.isMarkdown;
+  const hasImageSource = filePreviewHasImage(preview);
+  const hasSourceTab = preview?.contentStatus === "ok" && (preview.text !== null || hasImageSource);
+  const hasDiffTab = Boolean(preview?.diff?.trim());
+  const sourceLanguage = inferSyntaxLanguageFromPath(displayPath);
+  const availableTabs = [
+    ...(hasDiffTab ? (["diff"] as const) : []),
+    ...(hasPreviewTab ? (["preview"] as const) : []),
+    ...(hasSourceTab ? (["source"] as const) : [])
+  ];
+  const selectedTab = availableTabs.includes(activeTab) ? activeTab : (availableTabs[0] ?? null);
+  const sizeLabel = preview ? formatFileSize(preview.sizeBytes) : null;
+
+  return (
+    <BottomSheet title={title} subtitle={subtitle} onClose={onClose} onBack={onBack}>
+      {status === "loading" ? <p className="sheet-empty">Loading file preview…</p> : null}
+      {status === "error" ? <p className="sheet-empty">{error ?? "Unable to load file preview."}</p> : null}
+
+      {preview ? (
+        <>
+          <div className="sheet-meta">
+            <span className="sheet-meta__badge">{filePreviewStatusLabel(preview)}</span>
+            <span className="sheet-meta__badge">{filePreviewKindLabel(preview)}</span>
+            {sizeLabel ? <span className="sheet-meta__badge">{sizeLabel}</span> : null}
+            {preview.movePath ? <span className="sheet-meta__badge">From {preview.path}</span> : null}
+          </div>
+
+          {preview.resolvedPath && preview.resolvedPath !== displayPath ? (
+            <p className="file-preview__resolved">{preview.resolvedPath}</p>
+          ) : null}
+
+          {availableTabs.length > 0 ? (
+            <div className="file-preview__tabs" role="tablist" aria-label="File preview tabs">
+              {hasDiffTab ? (
+                <button
+                  className={`file-preview__tab${selectedTab === "diff" ? " is-active" : ""}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={selectedTab === "diff"}
+                  onClick={() => setActiveTab("diff")}
+                >
+                  Diff
+                </button>
+              ) : null}
+              {hasPreviewTab ? (
+                <button
+                  className={`file-preview__tab${selectedTab === "preview" ? " is-active" : ""}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={selectedTab === "preview"}
+                  onClick={() => setActiveTab("preview")}
+                >
+                  Preview
+                </button>
+              ) : null}
+              {hasSourceTab ? (
+                <button
+                  className={`file-preview__tab${selectedTab === "source" ? " is-active" : ""}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={selectedTab === "source"}
+                  onClick={() => setActiveTab("source")}
+                >
+                  Source
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {selectedTab === "preview" && preview.text !== null ? (
+            <div className="file-preview__panel">
+              <MessageBody text={preview.text} onOpenFileLink={onOpenFileLink} />
+            </div>
+          ) : null}
+
+          {selectedTab === "source" && preview ? (
+            <section className="file-preview__panel">
+              {hasImageSource ? (
+                <figure className="file-preview__image-frame">
+                  <img className="file-preview__image" src={preview.imageDataUrl!} alt={title} />
+                </figure>
+              ) : preview.text !== null ? (
+                <SyntaxCodeBlock code={preview.text} language={sourceLanguage} className="file-preview__code" />
+              ) : null}
+            </section>
+          ) : null}
+
+          {selectedTab === "diff" && preview ? (
+            <section className="file-preview__panel">
+              {hasImageSource ? (
+                <figure className="file-preview__image-frame file-preview__image-frame--diff">
+                  <img className="file-preview__image" src={preview.imageDataUrl!} alt={title} />
+                  <figcaption>Current image snapshot</figcaption>
+                </figure>
+              ) : null}
+              {preview.diff ? (
+                <SyntaxCodeBlock code={preview.diff} language="diff" className="file-preview__code" />
+              ) : null}
+            </section>
+          ) : null}
+
+          {!selectedTab ? <p className="sheet-empty">{filePreviewEmptyMessage(preview)}</p> : null}
+        </>
+      ) : null}
     </BottomSheet>
   );
 }
@@ -1445,6 +1838,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onJumpToLatest,
   onOpenCommands,
   onOpenFileChanges,
+  onOpenFileLink,
   onOpenSearches,
   onOpenImageViewer
 }: {
@@ -1462,6 +1856,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onJumpToLatest: () => void;
   onOpenCommands: (commands: CommandExecutionEntry[]) => void;
   onOpenFileChanges: (changes: FileChangeEntry[], count: number) => void;
+  onOpenFileLink: (href: string) => void;
   onOpenSearches: (searches: SearchQueryEntry[]) => void;
   onOpenImageViewer: (attachments: MessageAttachment[], selectedIndex: number) => void;
 }) {
@@ -1556,7 +1951,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
                   {message.attachments?.length ? (
                     <MessageAttachments attachments={message.attachments} onOpen={onOpenImageViewer} />
                   ) : null}
-                  {message.text ? <MessageBody text={message.text} repairIncompleteMarkdown={message.role !== "user"} /> : null}
+                  {message.text ? (
+                    <MessageBody
+                      text={message.text}
+                      repairIncompleteMarkdown={message.role !== "user"}
+                      onOpenFileLink={onOpenFileLink}
+                    />
+                  ) : null}
                 </div>
               </article>
             );
@@ -1568,7 +1969,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 {optimisticMessage.attachments.length ? (
                   <MessageAttachments attachments={optimisticMessage.attachments} onOpen={onOpenImageViewer} />
                 ) : null}
-                {optimisticMessage.prompt ? <MessageBody text={optimisticMessage.prompt} /> : null}
+                {optimisticMessage.prompt ? <MessageBody text={optimisticMessage.prompt} onOpenFileLink={onOpenFileLink} /> : null}
               </div>
             </article>
           ) : null}
@@ -1576,7 +1977,12 @@ const ConversationTimeline = memo(function ConversationTimeline({
           {streamingText ? (
             <article className="message-row message-row--assistant">
               <div className="message-card message-card--assistant message-card--thinking message-card--streaming">
-                <MessageBody text={streamingText} repairIncompleteMarkdown allowMermaid={false} />
+                <MessageBody
+                  text={streamingText}
+                  repairIncompleteMarkdown
+                  allowMermaid={false}
+                  onOpenFileLink={onOpenFileLink}
+                />
               </div>
             </article>
           ) : null}
@@ -1727,6 +2133,8 @@ export function ChatPane({
   const messages = readyView?.messages ?? EMPTY_MESSAGES;
   const messagesError = readyView?.messagesError ?? null;
   const isLoadingMessages = readyView?.isLoadingMessages ?? false;
+  const threadDiffSourceList = collectThreadFileChanges(messages);
+  const threadDiffCount = threadDiffSourceList?.count ?? 0;
   const repoName = readyView?.repoName;
   const orderedDraftRepos = draftRepoPicker ? sortReposForDisplay(draftRepoPicker.repos) : [];
   const formatDraftRepoName = draftRepoPicker ? buildRepoNameFormatter(orderedDraftRepos) : null;
@@ -1795,6 +2203,31 @@ export function ChatPane({
         ? matchedModelSelectionOption.note
         : defaultModelNote;
   const usesRootScroll = isMobileViewport;
+  const openFilePreview = useCallback((request: SessionFilePreviewRequest, sourceList: FilePreviewSourceList | null = null) => {
+    setSheetState({
+      type: "file_preview",
+      request,
+      sourceList
+    });
+  }, []);
+  const openThreadDiff = useCallback(() => {
+    if (!threadDiffSourceList) {
+      return;
+    }
+
+    setSheetState({
+      type: "file_list",
+      changes: threadDiffSourceList.changes,
+      count: threadDiffSourceList.count,
+      title: formatThreadDiffTitle(threadDiffSourceList.count)
+    });
+  }, [threadDiffSourceList]);
+  const openFilePreviewFromLink = useCallback(
+    (href: string, sourceList: FilePreviewSourceList | null = null) => {
+      openFilePreview({ path: href }, sourceList);
+    },
+    [openFilePreview]
+  );
 
   useEffect(() => {
     if (!showModelPicker) {
@@ -2772,6 +3205,7 @@ export function ChatPane({
             onJumpToLatest={() => scrollTimelineToBottom()}
             onOpenCommands={(commands) => setSheetState({ type: "command_list", commands })}
             onOpenFileChanges={(changes, count) => setSheetState({ type: "file_list", changes, count })}
+            onOpenFileLink={(href) => openFilePreviewFromLink(href)}
             onOpenSearches={(searches) => setSheetState({ type: "search_list", searches })}
             onOpenImageViewer={(attachments, selectedIndex) => setImageViewerState({ attachments, selectedIndex })}
           />
@@ -2810,7 +3244,8 @@ export function ChatPane({
                   <p>Start with a prompt and keep the session around for later follow-up work.</p>
                 </div>
               ) : null}
-              <div className="composer-input-row">
+              <div className={`composer-input-row${threadDiffSourceList ? " composer-input-row--thread-diff-pill" : ""}`}>
+                {threadDiffSourceList ? <ThreadDiffEntry count={threadDiffCount} onOpen={openThreadDiff} /> : null}
                 <div className="composer-field">
                   <textarea
                     ref={composerRef}
@@ -2906,7 +3341,41 @@ export function ChatPane({
         <FileChangeSheet
           changes={sheetState.changes}
           count={sheetState.count}
+          title={sheetState.title}
           onClose={() => setSheetState(null)}
+          onSelect={(change) =>
+            openFilePreview(
+              {
+                path: change.path,
+                diff: change.diff ?? null,
+                changeKind: change.kind,
+                movePath: change.movePath ?? null
+              },
+              {
+                changes: sheetState.changes,
+                count: sheetState.count
+              }
+            )
+          }
+        />
+      ) : null}
+
+      {sheetState?.type === "file_preview" && detail ? (
+        <FilePreviewSheet
+          sessionId={detail.session.id}
+          request={sheetState.request}
+          onClose={() => setSheetState(null)}
+          onBack={
+            sheetState.sourceList
+              ? () =>
+                  setSheetState({
+                    type: "file_list",
+                    changes: sheetState.sourceList!.changes,
+                    count: sheetState.sourceList!.count
+                  })
+              : undefined
+          }
+          onOpenFileLink={(href) => openFilePreviewFromLink(href, sheetState.sourceList)}
         />
       ) : null}
 

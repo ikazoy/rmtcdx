@@ -11,6 +11,8 @@ import { parseBridgeNotification } from "../../src/codex/parsers/bridge-events";
 import type {
   CodexAccountRateLimits,
   CodexBackend,
+  CodexFileMetadata,
+  CodexFileReadResult,
   CodexRuntimeState,
   CodexThread,
   EnsureThreadParams,
@@ -398,6 +400,24 @@ class FixtureCodexBackend extends EventEmitter implements CodexBackend {
 
   async readAccountRateLimits(): Promise<CodexAccountRateLimits | null> {
     return null;
+  }
+
+  async readFile(_path: string): Promise<CodexFileReadResult> {
+    const data = await fs.readFile(_path);
+    return {
+      dataBase64: data.toString("base64")
+    };
+  }
+
+  async getFileMetadata(_path: string): Promise<CodexFileMetadata> {
+    const stat = await fs.stat(_path);
+    return {
+      isDirectory: stat.isDirectory(),
+      isFile: stat.isFile(),
+      createdAtMs: Number.isFinite(stat.birthtimeMs) ? Math.round(stat.birthtimeMs) : null,
+      modifiedAtMs: Number.isFinite(stat.mtimeMs) ? Math.round(stat.mtimeMs) : null,
+      sizeBytes: stat.isFile() ? stat.size : null
+    };
   }
 
   async setThreadName(_threadId: string, _name: string) {

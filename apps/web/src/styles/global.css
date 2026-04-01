@@ -1526,6 +1526,57 @@ button {
   height: 1rem;
 }
 
+.thread-diff-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+  width: fit-content;
+  max-width: 100%;
+  height: 1.72rem;
+  padding: 0 0.72rem;
+  border: 1px solid rgba(154, 206, 255, 0.17);
+  border-radius: 999px;
+  background: rgba(55, 64, 84, 0.76);
+  box-shadow: 0 12px 24px rgba(5, 8, 14, 0.18);
+  color: #eef4ff;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.thread-diff-entry:hover {
+  border-color: rgba(171, 219, 255, 0.28);
+  background: rgba(67, 78, 102, 0.88);
+  transform: translateY(-1px);
+}
+
+.thread-diff-entry__label {
+  color: #f1f6ff;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.thread-diff-entry__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  background: rgba(176, 214, 255, 0.12);
+  color: #c2ddff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .chat-head__menu-popover {
   width: min(18rem, calc(100vw - 2rem));
   gap: 0.4rem;
@@ -2449,11 +2500,93 @@ button {
   background: rgba(255, 255, 255, 0.12);
 }
 
+.syntax-block {
+  margin: 0;
+  overflow: auto;
+  color: #ebe7db;
+  font-family: "SF Mono", "Monaco", monospace;
+  font-size: 0.83rem;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.syntax-block code {
+  display: block;
+  min-width: 100%;
+  white-space: inherit;
+}
+
+.message-code-block {
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #1e2023;
+}
+
+.message-card--user .message-code-block {
+  background: rgba(255, 255, 255, 0.12);
+}
+
 .message-markdown pre code {
   padding: 0;
   background: transparent;
   overflow-wrap: normal;
   word-break: normal;
+}
+
+.syntax-block .token.comment,
+.syntax-block .token.prolog,
+.syntax-block .token.doctype,
+.syntax-block .token.cdata {
+  color: #7f848e;
+}
+
+.syntax-block .token.punctuation {
+  color: #c9ccd3;
+}
+
+.syntax-block .token.property,
+.syntax-block .token.tag,
+.syntax-block .token.boolean,
+.syntax-block .token.number,
+.syntax-block .token.constant,
+.syntax-block .token.symbol,
+.syntax-block .token.deleted {
+  color: #f28779;
+}
+
+.syntax-block .token.selector,
+.syntax-block .token.attr-name,
+.syntax-block .token.string,
+.syntax-block .token.char,
+.syntax-block .token.builtin,
+.syntax-block .token.inserted {
+  color: #b8cc7a;
+}
+
+.syntax-block .token.operator,
+.syntax-block .token.entity,
+.syntax-block .token.url,
+.syntax-block .language-css .token.string,
+.syntax-block .style .token.string {
+  color: #86c5da;
+}
+
+.syntax-block .token.atrule,
+.syntax-block .token.attr-value,
+.syntax-block .token.keyword {
+  color: #c792ea;
+}
+
+.syntax-block .token.function,
+.syntax-block .token.class-name {
+  color: #82b1ff;
+}
+
+.syntax-block .token.regex,
+.syntax-block .token.important,
+.syntax-block .token.variable {
+  color: #f7c66b;
 }
 
 .mermaid-block {
@@ -2971,6 +3104,94 @@ button {
   line-height: 1.55;
 }
 
+.file-preview__resolved {
+  margin: 0 0 0.8rem;
+  color: #8e918a;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.file-preview__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.8rem;
+}
+
+.file-preview__tab {
+  min-height: 2rem;
+  padding: 0.38rem 0.78rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #cfd2ca;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.file-preview__tab:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.file-preview__tab.is-active {
+  border-color: rgba(139, 196, 255, 0.34);
+  background: rgba(139, 196, 255, 0.14);
+  color: #e8f3ff;
+}
+
+.file-preview__panel {
+  margin-bottom: 0;
+}
+
+.file-preview__code {
+  padding: 0.95rem;
+  border-radius: 1rem;
+  background: #151515;
+}
+
+.file-preview__image-frame {
+  margin: 0;
+  padding: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+  background:
+    linear-gradient(180deg, rgba(26, 26, 26, 0.96), rgba(20, 20, 20, 0.96)),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.04) 75%),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.04) 75%);
+  background-size: auto, 18px 18px, 18px 18px;
+  background-position: 0 0, 0 0, 9px 9px;
+}
+
+.file-preview__image-frame--diff {
+  margin-bottom: 0.85rem;
+}
+
+.file-preview__image-frame figcaption {
+  margin-top: 0.7rem;
+  color: #9ca099;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.file-preview__image {
+  display: block;
+  max-width: 100%;
+  max-height: min(60vh, 520px);
+  margin: 0 auto;
+  border-radius: 0.8rem;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+.file-preview__panel > .message-markdown {
+  padding-inline: 0.05rem;
+}
+
 .codex-request-backdrop {
   justify-content: flex-end;
   padding-inline: 1rem;
@@ -3220,6 +3441,16 @@ button {
 .composer-input-row {
   display: block;
   min-width: 0;
+}
+
+.composer-input-row--thread-diff-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.composer-input-row--thread-diff-pill .thread-diff-entry {
+  margin-left: 0.18rem;
 }
 
 .composer-field {
@@ -3570,11 +3801,42 @@ button {
     margin-bottom: 0;
   }
 
+  .chat-head__copy {
+    gap: 0.35rem;
+  }
+
   .chat-head__menu {
     position: absolute;
     top: 0;
     right: -0.85rem;
     align-self: auto;
+  }
+
+  .thread-diff-entry {
+    height: 1.64rem;
+    padding-inline: 0.66rem;
+  }
+
+  .composer-input-row--thread-diff-pill .thread-diff-entry {
+    margin-left: 0;
+  }
+
+  .thread-diff-entry__label {
+    font-size: 0.72rem;
+  }
+
+  .thread-diff-entry__count {
+    min-width: 1rem;
+    height: 1rem;
+    font-size: 0.61rem;
+  }
+
+  .composer-input-row--thread-diff-pill {
+    gap: 0.32rem;
+  }
+
+  .composer-field {
+    padding-left: 0.46rem;
   }
 
   .chat-topbar .run-banner {

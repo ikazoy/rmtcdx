@@ -19,6 +19,8 @@ Codex app-server が本来持つ制御面を
   - `docs/plan-first-workflow-design.md`
 - message-based fork / edit
   - `docs/message-fork-edit-design.md`
+- file preview / diff
+  - `docs/file-preview-and-diff-design.md`
 
 ## 2. 前提
 
