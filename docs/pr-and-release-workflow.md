@@ -24,8 +24,8 @@ This repository now uses a pull-request-based workflow for all changes that can 
 
 - Open a PR for every change that should land in `main`.
 - Keep the PR focused enough that the release impact is obvious.
-- Wait for `CI` and `Changeset Required` to pass before merging.
-- Use the PR template and state whether a changeset is included.
+- Wait for `CI` to pass before merging.
+- Use the PR template and describe the release impact in the PR body.
 
 ## Local Gates
 
@@ -38,46 +38,41 @@ This split keeps commits fast while still blocking pushes that would obviously f
 
 If you need to bypass the push hook intentionally, set `SKIP_PRE_PUSH=1` for that push only.
 
-Add a changeset when the PR changes the published `rmtcdx` package in a way users may care about:
+Call out release impact in the PR when the change affects the published `rmtcdx` package in a way users may care about:
 
 - CLI behavior
 - bridge or bundled web UI behavior
 - install, startup, upgrade, rollback, or compatibility expectations
 
-A changeset is usually not needed for:
+You usually do not need a user-facing release note for:
 
 - docs-only changes
 - test-only changes
 - CI-only or repo-only changes that do not alter the published package
 
-Create a changeset with:
+For user-facing PRs, add a short release note draft to the PR summary:
 
-```bash
-npm run changeset
-```
-
-Choose `rmtcdx`, pick the right bump level, and write the summary for end users.
+- what changed for users
+- any upgrade or rollback caveat
+- whether the change is additive, behavioral, or breaking
 
 ## Merge and Release
 
 - Prefer squash merge so the main branch stays easy to scan.
 - Merging a normal PR to `main` does not publish immediately.
-- The `Release` workflow opens or updates a release PR from pending changesets.
-- Merge that release PR when you want to publish the queued version.
-- Merging the release PR publishes `rmtcdx` to npm `latest` with npm provenance.
+- Version bumps, changelog text, and npm publish are manual until a replacement release flow lands.
+- Before publish, review merged PRs since the last release and turn their release-impact notes into the final release note.
 
 Relevant automation:
 
 - `CI` runs typecheck, lint, tests, and a packaged CLI smoke test.
-- `Changeset Required` blocks release-relevant PRs that forgot a changeset.
-- `Release` manages version bumps, changelog updates, and npm publish.
+- Local git hooks keep the common lint and pre-push checks in place.
 
 ## Hotfix Flow
 
 - Branch from `main` with `hotfix/<topic>`.
-- Add a patch changeset.
 - Merge the PR after review and green checks.
-- Merge the generated release PR to publish the hotfix.
+- Bump the package version manually and publish when the fix is ready.
 
 ## User Upgrade and Rollback
 
@@ -119,7 +114,7 @@ Configure the repository so the documented workflow is enforced:
 
 - protect `main`
 - require a pull request before merge
-- require `CI` and `Changeset Required`
+- require `CI`
 - restrict direct pushes to `main`
 - allow squash merge
 

@@ -6,8 +6,9 @@
 
 - 
 
-## Release Checklist
+## Release Impact
 
-- [ ] I added a changeset because the published `rmtcdx` package changes for users
-- [ ] No changeset is needed because this PR is docs-only, test-only, or internal-only
+- [ ] This PR changes user-facing behavior in the published `rmtcdx` package
+- [ ] This PR is docs-only, test-only, or internal-only
+- [ ] I added a short user-facing release note to the summary when needed
 - [ ] I updated docs if setup, release, or upgrade behavior changed

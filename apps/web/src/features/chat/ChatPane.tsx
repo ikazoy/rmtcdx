@@ -32,7 +32,6 @@ import { moveActiveItemKey, resolveActiveItemKey } from "../../components/listbo
 import { useAnchoredMenu } from "../../hooks/use-anchored-menu";
 import {
   buildRepoNameFormatter,
-  buildRepoVariantLabelFormatter,
   sortReposForDisplay
 } from "../repos/repo-presentation";
 import {
@@ -1731,17 +1730,13 @@ export function ChatPane({
   const repoName = readyView?.repoName;
   const orderedDraftRepos = draftRepoPicker ? sortReposForDisplay(draftRepoPicker.repos) : [];
   const formatDraftRepoName = draftRepoPicker ? buildRepoNameFormatter(orderedDraftRepos) : null;
-  const formatDraftRepoVariant = draftRepoPicker ? buildRepoVariantLabelFormatter(orderedDraftRepos) : null;
   const selectedDraftRepo =
     draftRepoPicker?.repos.find((repo) => repo.id === draftRepoPicker.selectedRepoId) ?? null;
-  const showDraftRepoPicker = Boolean(
-    draftRepoPicker && formatDraftRepoName && formatDraftRepoVariant && selectedDraftRepo
-  );
+  const showDraftRepoPicker = Boolean(draftRepoPicker && formatDraftRepoName && selectedDraftRepo);
   const draftRepoPickerConfig = showDraftRepoPicker
     ? {
         selectedRepoId: selectedDraftRepo!.id,
         formatRepoLabel: formatDraftRepoName!,
-        formatRepoSecondaryLabel: formatDraftRepoVariant!,
         onSelectRepo: (repoId: string | null) => {
           if (repoId) {
             draftRepoPicker!.onSelectRepo(repoId);
@@ -2724,11 +2719,9 @@ export function ChatPane({
               <div className="chat-topbar__draft-picker">
                 <WorkspaceCombobox
                   className="chat-head__draft-repo-picker"
-                  layout="stacked"
                   repos={orderedDraftRepos}
                   selectedRepoId={draftRepoPickerConfig.selectedRepoId}
                   formatRepoLabel={draftRepoPickerConfig.formatRepoLabel}
-                  formatRepoSecondaryLabel={draftRepoPickerConfig.formatRepoSecondaryLabel}
                   onSelectRepo={draftRepoPickerConfig.onSelectRepo}
                 />
               </div>

@@ -24,8 +24,8 @@
 
 - `main` に入れる変更は必ず PR にします。
 - 何が release されるのか判断しやすい粒度に保ちます。
-- merge 前に `CI` と `Changeset Required` の両方を通します。
-- PR template を使い、changeset を含めたかどうかを書きます。
+- merge 前に `CI` を通します。
+- PR template を使い、release impact を PR 本文に書きます。
 
 ## ローカル gate
 
@@ -38,46 +38,41 @@
 
 意図的に bypass したい場合だけ、その push に限って `SKIP_PRE_PUSH=1` を使ってください。
 
-次のような変更では changeset を追加します。
+次のような変更では、PR に release impact を書きます。
 
 - CLI の挙動変更
 - bridge や同梱 web UI の挙動変更
 - install、起動、upgrade、rollback、互換性の期待値が変わる変更
 
-通常、changeset が不要なのは次です。
+通常、user-facing の release note が不要なのは次です。
 
 - docs のみの変更
 - test のみの変更
 - 公開 package の挙動に影響しない CI / repo 運用のみの変更
 
-changeset の作成:
+user-facing の PR では、PR summary に短い release note draft を入れてください。
 
-```bash
-npm run changeset
-```
-
-対象 package は `rmtcdx` を選び、bump level を選んで、end user 向けの要約を書きます。
+- 利用者から見て何が変わるか
+- upgrade / rollback 上の注意点があるか
+- additive か、挙動変更か、breaking か
 
 ## merge と release
 
 - `main` を読みやすく保つため、merge は squash merge を推奨します。
 - 通常の PR を `main` に merge した時点では publish しません。
-- `Release` workflow が pending changeset から release PR を作成または更新します。
-- publish したいタイミングでその release PR を merge します。
-- release PR を merge すると、npm `latest` に `rmtcdx` を publish します。
+- version bump、changelog、npm publish は、代替の自動化が入るまで手動で行います。
+- publish 前に、前回 release 以降に merge された PR と release impact を見て、最終的な release note をまとめます。
 
 入れた自動化:
 
 - `CI`: typecheck、lint、test、packaged CLI smoke test
-- `Changeset Required`: release 対象の変更で changeset 入れ忘れを block
-- `Release`: version bump、changelog 更新、npm publish
+- local git hook: lint と pre-push の最低限の gate
 
 ## hotfix フロー
 
 - `main` から `hotfix/<topic>` を切ります。
-- patch changeset を追加します。
 - review と green check の後に PR を merge します。
-- 生成された release PR を merge して hotfix を publish します。
+- fix の準備ができたら package version を手動で上げて publish します。
 
 ## ユーザー向け upgrade / rollback
 
@@ -119,7 +114,7 @@ npm run release:verify
 
 - `main` の branch protection
 - PR 必須
-- `CI` と `Changeset Required` を required status checks に設定
+- `CI` を required status checks に設定
 - `main` への直 push 制限
 - squash merge の許可
 

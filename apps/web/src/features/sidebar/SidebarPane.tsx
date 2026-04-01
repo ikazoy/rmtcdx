@@ -6,7 +6,7 @@ import type { SidebarViewState } from "../../app/view-state";
 import { formatRelativeTime } from "../../components/formatters";
 import { useAnchoredMenu } from "../../hooks/use-anchored-menu";
 import {
-  buildRepoLabelFormatter,
+  buildRepoNameFormatter,
   buildSessionRepoNameFormatter,
   buildSessionRepoVariantLabelFormatter,
   sortReposForDisplay
@@ -144,7 +144,7 @@ export function SidebarPane({
   });
 
   const orderedRepos = sortReposForDisplay(repos);
-  const formatRepoLabel = buildRepoLabelFormatter(orderedRepos);
+  const formatRepoName = buildRepoNameFormatter(orderedRepos);
   const formatSessionRepoName = buildSessionRepoNameFormatter(orderedRepos);
   const formatSessionRepoVariantLabel = buildSessionRepoVariantLabelFormatter(orderedRepos);
 
@@ -168,7 +168,7 @@ export function SidebarPane({
   const canToggleAllRepos = !selectedRepoId && repoGroupKeys.length > 0;
   const collapsedGroupCount = repoGroupKeys.filter((repoKey) => collapsedRepoKeys.has(repoKey)).length;
   const allReposCollapsed = canToggleAllRepos && collapsedGroupCount === repoGroupKeys.length;
-  const selectedRepoLabel = selectedRepo ? formatRepoLabel(selectedRepo) : "All projects";
+  const selectedRepoLabel = selectedRepo ? formatRepoName(selectedRepo) : "All projects";
   const searchSummary = search.trim() ? `Search: ${search.trim()}` : null;
 
   useEffect(() => {
@@ -365,7 +365,7 @@ export function SidebarPane({
                       <WorkspaceCombobox
                         repos={orderedRepos}
                         selectedRepoId={selectedRepoId}
-                        formatRepoLabel={formatRepoLabel}
+                        formatRepoLabel={formatRepoName}
                         emptyOptionLabel="All projects"
                         onSelectRepo={(repoId) => {
                           onSelectRepo(repoId);

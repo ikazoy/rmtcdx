@@ -6,12 +6,10 @@
     "packages/*"
   ],
   "scripts": {
-    "changeset": "changeset",
     "dev": "concurrently -k -n bridge,web -c blue,magenta \"PORT=3000 npm run dev -w rmtcdx\" \"npm run dev -w @codex-remote/web\"",
     "build": "npm run build -w rmtcdx",
     "compat:canary": "npm run compat:canary -w rmtcdx",
     "compat:fixtures": "npm run compat:fixtures -w rmtcdx",
-    "changeset:check": "node ./scripts/check-changeset.mjs",
     "typecheck": "npm run typecheck -w rmtcdx && npm run typecheck -w @codex-remote/web",
     "lint": "eslint apps packages --ext .ts,.tsx,.mjs",
     "lint:staged": "node ./scripts/run-staged-eslint.mjs",
@@ -19,14 +17,10 @@
     "prepush:check": "npm run release:verify",
     "smoke:package": "node ./apps/bridge/scripts/verify-packaged-cli.mjs",
     "release:verify": "npm run typecheck && npm run lint && npm test && npm run smoke:package",
-    "release:publish": "changeset publish",
     "start": "npm run start -w rmtcdx",
-    "test": "npm run test -ws --if-present",
-    "version-packages": "changeset version && npm install --package-lock-only"
+    "test": "npm run test -ws --if-present"
   },
   "devDependencies": {
-    "@changesets/changelog-git": "^0.2.1",
-    "@changesets/cli": "^2.30.0",
     "@eslint/js": "^9.39.4",
     "concurrently": "^9.2.1",
     "eslint": "^9.39.4",
