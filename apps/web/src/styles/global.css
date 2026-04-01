@@ -2355,6 +2355,11 @@ button {
   color: #c8c5bc;
 }
 
+.message-markdown--streaming-plain {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .workspace-shell__chat .message-markdown {
   color: inherit;
 }

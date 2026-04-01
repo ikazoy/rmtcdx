@@ -8,7 +8,6 @@ import type {
   CodexRunSettings,
   CodexPendingRequestResponse,
   ImageAttachmentInput,
-  LiveActivity,
   Message,
   MessageAttachment,
   Repository,
@@ -38,7 +37,7 @@ import { groupByLogicalRepoLabel, logicalRepoIdSetForSelection } from "../featur
 import { buildRepoLabelFormatter, buildRepoNameFormatter, sortReposForDisplay } from "../features/repos/repo-presentation";
 import { SidebarPane } from "../features/sidebar/SidebarPane";
 import { useRealtime } from "../hooks/use-realtime";
-import { useUiStore } from "../store/ui-store";
+import { hasActivitiesForSessionIds, hasStreamingTextForSessionIds, useUiStore } from "../store/ui-store";
 
 const SIDEBAR_WIDTH_KEY = "codex-remote-sidebar-width";
 const LAST_DRAFT_REPO_ID_KEY = "codex-remote-last-draft-repo-id";
@@ -49,7 +48,6 @@ const SIDEBAR_MIN_WIDTH_PX = 280;
 const SIDEBAR_DEFAULT_WIDTH_PX = 320;
 const SIDEBAR_MAX_WIDTH_PX = 640;
 const SIDEBAR_CHAT_GUTTER_PX = 420;
-const EMPTY_ACTIVITY_MAP: Record<string, LiveActivity> = {};
 const EMPTY_REPOS: Repository[] = [];
 const EMPTY_SESSIONS: SessionSummary[] = [];
 const EMPTY_MESSAGES: Message[] = [];
@@ -326,33 +324,15 @@ export function App() {
     () => sessionIdsForSelection(selectedSessionId, sessionTransition),
     [selectedSessionId, sessionTransition]
   );
+  const selectedSessionIdList = useMemo(() => [...selectedSessionIds], [selectedSessionIds]);
   const mobilePane = selectedSessionId ? "chat" : "sidebar";
   const sidebarVisible = useUiStore((state) => state.sidebarVisible);
   const toggleSidebarVisible = useUiStore((state) => state.toggleSidebarVisible);
   const wsState = useUiStore((state) => state.wsState);
   const backendBanner = useUiStore((state) => state.backendBanner);
   const setSelectedRepoId = useUiStore((state) => state.setSelectedRepoId);
-  const streamingText = useUiStore((state) => {
-    for (const sessionId of selectedSessionIds) {
-      const text = state.streaming[sessionId];
-      if (text) {
-        return text;
-      }
-    }
-
-    return "";
-  });
-  const liveActivityMap = useUiStore((state) => {
-    for (const sessionId of selectedSessionIds) {
-      const activityMap = state.activities[sessionId];
-      if (activityMap && Object.keys(activityMap).length > 0) {
-        return activityMap;
-      }
-    }
-
-    return EMPTY_ACTIVITY_MAP;
-  });
-  const liveActivities = useMemo(() => Object.values(liveActivityMap), [liveActivityMap]);
+  const hasStreamingText = useUiStore((state) => hasStreamingTextForSessionIds(state.streaming, selectedSessionIdList));
+  const hasLiveActivities = useUiStore((state) => hasActivitiesForSessionIds(state.activities, selectedSessionIdList));
 
   const healthQuery = useQuery({
     queryKey: queryKeys.health,
@@ -862,14 +842,15 @@ export function App() {
       pendingResponseSessionId,
       optimisticSessionId: optimisticMessageForSession?.sessionId ?? null,
       messageCount: messages.length,
-      streamingTextLength: streamingText.length,
-      liveActivityCount: liveActivities.length,
+      hasStreamingText,
+      hasLiveActivities,
       activeRunStatus: readyChatView?.detail.activeRun?.status ?? null,
       latestRunStatus: readyChatView?.detail.latestRun?.status ?? null
     });
   }, [
     chatViewState.kind,
-    liveActivities.length,
+    hasLiveActivities,
+    hasStreamingText,
     messages.length,
     optimisticMessageForSession?.sessionId,
     pendingResponseSessionId,
@@ -878,8 +859,7 @@ export function App() {
     readyChatView?.detail.latestRun?.status,
     selectedSessionId,
     sessionTransition,
-    sidebarViewState.kind,
-    streamingText.length
+    sidebarViewState.kind
   ]);
   const interruptibleRunId =
     actionableDetail?.activeRun?.id ??
@@ -941,8 +921,8 @@ export function App() {
     const latestRunStatus = readyChatView?.detail.latestRun?.status ?? null;
     const hasAssistantMessage = messages.some((message) => message.role === "assistant");
     const hasStartedResponding =
-      Boolean(streamingText) ||
-      liveActivities.length > 0 ||
+      hasStreamingText ||
+      hasLiveActivities ||
       activeRunStatus === "queued" ||
       activeRunStatus === "running" ||
       hasAssistantMessage;
@@ -954,7 +934,7 @@ export function App() {
     if (hasStartedResponding || runFinished) {
       setPendingResponseSessionId(null);
     }
-  }, [liveActivities.length, messages, pendingResponseSessionId, readyChatView, selectedSessionIds, streamingText]);
+  }, [hasLiveActivities, hasStreamingText, messages, pendingResponseSessionId, readyChatView, selectedSessionIds]);
 
   useEffect(() => {
     if (!pendingInterruptRun || pendingInterruptRun.sessionId !== selectedSessionId) {
@@ -1132,8 +1112,7 @@ export function App() {
         <section className="workspace-shell__chat" data-mobile-visible={mobilePane === "chat"}>
           <ChatPane
             viewState={chatViewState}
-            streamingText={streamingText}
-            liveActivities={liveActivities}
+            sessionIds={selectedSessionIdList}
             isMobileViewport={isMobileViewport}
             optimisticMessage={optimisticMessageForSession}
             pendingCodexRequestCount={pendingCodexRequests.length}

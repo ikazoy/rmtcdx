@@ -1,5 +1,5 @@
 import { FloatingPortal } from "@floating-ui/react";
-import { Children, isValidElement, memo, useCallback, useEffect, useId, useRef, useState } from "react";
+import { Children, isValidElement, memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type {
   CSSProperties,
   ChangeEvent,
@@ -46,12 +46,14 @@ import { MermaidBlock } from "./MermaidBlock";
 import { inferSyntaxLanguageFromPath, SyntaxCodeBlock, syntaxLanguageFromMarkdownClassName } from "./SyntaxCodeBlock";
 import { WorkspaceCombobox } from "../repos/WorkspaceCombobox";
 import { sessionIndicatorTone } from "../sessions/session-state";
+import { activityMapForSessionIds, streamingTextForSessionIds, useUiStore } from "../../store/ui-store";
 
 const MAX_IMAGE_ATTACHMENTS = 5;
 const TIMELINE_PIN_THRESHOLD_MIN_PX = 120;
 const TIMELINE_PIN_THRESHOLD_MAX_PX = 220;
 const TIMELINE_PIN_THRESHOLD_VIEWPORT_RATIO = 0.18;
 const EMPTY_MESSAGES: Message[] = [];
+const EMPTY_ACTIVITY_MAP: Record<string, LiveActivity> = {};
 
 function debugChatState(label: string, payload: Record<string, unknown>) {
   if (import.meta.env.DEV) {
@@ -187,8 +189,7 @@ type ImageViewerState =
 
 type Props = {
   viewState: ChatScreenViewState;
-  streamingText: string;
-  liveActivities: LiveActivity[];
+  sessionIds: readonly string[];
   isMobileViewport: boolean;
   optimisticMessage?: OptimisticUserMessage | null;
   pendingCodexRequestCount: number;
@@ -836,6 +837,10 @@ const MessageBody = memo(function MessageBody({
       </ReactMarkdown>
     </div>
   );
+});
+
+const StreamingTextBody = memo(function StreamingTextBody({ text }: { text: string }) {
+  return <div className="message-markdown message-markdown--streaming-plain">{text}</div>;
 });
 
 const MessageAttachments = memo(function MessageAttachments({
@@ -1977,12 +1982,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
           {streamingText ? (
             <article className="message-row message-row--assistant">
               <div className="message-card message-card--assistant message-card--thinking message-card--streaming">
-                <MessageBody
-                  text={streamingText}
-                  repairIncompleteMarkdown
-                  allowMermaid={false}
-                  onOpenFileLink={onOpenFileLink}
-                />
+                <StreamingTextBody text={streamingText} />
               </div>
             </article>
           ) : null}
@@ -2066,8 +2066,7 @@ function ChatSkeletonContent() {
 
 export function ChatPane({
   viewState,
-  streamingText,
-  liveActivities,
+  sessionIds,
   isMobileViewport,
   optimisticMessage,
   pendingCodexRequestCount,
@@ -2129,6 +2128,9 @@ export function ChatPane({
     onOpenChange: setIsActionsMenuOpen
   });
   const readyView = viewState.kind === "ready" ? viewState : null;
+  const streamingText = useUiStore((state) => streamingTextForSessionIds(state.streaming, sessionIds));
+  const liveActivityMap = useUiStore((state) => activityMapForSessionIds(state.activities, sessionIds) ?? EMPTY_ACTIVITY_MAP);
+  const liveActivities = useMemo(() => Object.values(liveActivityMap), [liveActivityMap]);
   const detail = readyView?.detail ?? null;
   const messages = readyView?.messages ?? EMPTY_MESSAGES;
   const messagesError = readyView?.messagesError ?? null;

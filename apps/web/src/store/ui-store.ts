@@ -13,6 +13,7 @@ export type RepoSelectionSource = "restored" | "user" | "system";
 const SELECTED_REPO_STORAGE_KEY = "codex-remote-selected-repo-id";
 const COLLAPSED_REPOS_STORAGE_KEY = "codex-remote-collapsed-repos";
 const USER_DEFAULT_RUN_SETTINGS_STORAGE_KEY = "codex-remote-user-default-run-settings";
+const EMPTY_STREAMING_TEXT = "";
 
 function readStoredSelectedRepoId() {
   if (typeof window === "undefined") {
@@ -103,6 +104,58 @@ function persistLastRunSettings(runSettings: CodexRunSettings | null) {
   window.localStorage.setItem(USER_DEFAULT_RUN_SETTINGS_STORAGE_KEY, JSON.stringify(runSettings));
 }
 
+function scheduleNextUiFlush(callback: () => void) {
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    const frameId = window.requestAnimationFrame(() => {
+      callback();
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }
+
+  const timeoutId = globalThis.setTimeout(() => {
+    callback();
+  }, 0);
+
+  return () => globalThis.clearTimeout(timeoutId);
+}
+
+export function streamingTextForSessionIds(streaming: Record<string, string>, sessionIds: Iterable<string>) {
+  for (const sessionId of sessionIds) {
+    const text = streaming[sessionId];
+    if (text) {
+      return text;
+    }
+  }
+
+  return EMPTY_STREAMING_TEXT;
+}
+
+export function hasStreamingTextForSessionIds(streaming: Record<string, string>, sessionIds: Iterable<string>) {
+  return streamingTextForSessionIds(streaming, sessionIds).length > 0;
+}
+
+export function activityMapForSessionIds(
+  activities: Record<string, Record<string, LiveActivity>>,
+  sessionIds: Iterable<string>
+) {
+  for (const sessionId of sessionIds) {
+    const activityMap = activities[sessionId];
+    if (activityMap && Object.keys(activityMap).length > 0) {
+      return activityMap;
+    }
+  }
+
+  return null;
+}
+
+export function hasActivitiesForSessionIds(
+  activities: Record<string, Record<string, LiveActivity>>,
+  sessionIds: Iterable<string>
+) {
+  return activityMapForSessionIds(activities, sessionIds) !== null;
+}
+
 type UiState = {
   selectedRepoId: string | null;
   selectedRepoSource: RepoSelectionSource;
@@ -138,38 +191,98 @@ type UiState = {
   ) => void;
 };
 
-export const useUiStore = create<UiState>((set) => ({
-  selectedRepoId: readStoredSelectedRepoId(),
-  selectedRepoSource: readStoredSelectedRepoId() ? "restored" : "system",
-  sidebarVisible: true,
-  wsState: "connecting",
-  backendBanner: null,
-  streaming: {},
-  activities: {},
-  collapsedRepoKeys: readStoredCollapsedRepoKeys(),
-  runSettingsOverridesBySession: {},
-  userDefaultRunSettings: readStoredLastRunSettings(),
-  setSelectedRepoId: (selectedRepoId, source = "user") => {
-    persistSelectedRepoId(selectedRepoId);
-    set({ selectedRepoId, selectedRepoSource: source });
-  },
-  setSidebarVisible: (sidebarVisible) => set({ sidebarVisible }),
-  toggleSidebarVisible: () => set((state) => ({ sidebarVisible: !state.sidebarVisible })),
-  setWsState: (wsState) => set({ wsState }),
-  setBackendBanner: (backendBanner) => set({ backendBanner }),
-  appendStreaming: (sessionId, text) =>
-    set((state) => ({
-      streaming: {
-        ...state.streaming,
-        [sessionId]: `${state.streaming[sessionId] ?? ""}${text}`
-      }
-    })),
-  clearStreaming: (sessionId) =>
+export const useUiStore = create<UiState>((set) => {
+  const queuedStreamingBySession = new Map<string, string[]>();
+  let cancelStreamingFlush: (() => void) | null = null;
+
+  const flushQueuedStreaming = () => {
+    cancelStreamingFlush = null;
+
+    if (queuedStreamingBySession.size === 0) {
+      return;
+    }
+
+    const queuedEntries = [...queuedStreamingBySession.entries()].map(([sessionId, chunks]) => [sessionId, chunks.join("")] as const);
+    queuedStreamingBySession.clear();
+
     set((state) => {
-      const next = { ...state.streaming };
-      delete next[sessionId];
-      return { streaming: next };
-    }),
+      const nextStreaming = { ...state.streaming };
+      let changed = false;
+
+      for (const [sessionId, text] of queuedEntries) {
+        if (!text) {
+          continue;
+        }
+
+        nextStreaming[sessionId] = `${nextStreaming[sessionId] ?? ""}${text}`;
+        changed = true;
+      }
+
+      return changed ? { streaming: nextStreaming } : state;
+    });
+  };
+
+  const scheduleStreamingFlush = () => {
+    if (cancelStreamingFlush) {
+      return;
+    }
+
+    cancelStreamingFlush = scheduleNextUiFlush(flushQueuedStreaming);
+  };
+
+  const discardQueuedStreaming = (sessionId: string) => {
+    queuedStreamingBySession.delete(sessionId);
+
+    if (cancelStreamingFlush && queuedStreamingBySession.size === 0) {
+      cancelStreamingFlush();
+      cancelStreamingFlush = null;
+    }
+  };
+
+  return ({
+    selectedRepoId: readStoredSelectedRepoId(),
+    selectedRepoSource: readStoredSelectedRepoId() ? "restored" : "system",
+    sidebarVisible: true,
+    wsState: "connecting",
+    backendBanner: null,
+    streaming: {},
+    activities: {},
+    collapsedRepoKeys: readStoredCollapsedRepoKeys(),
+    runSettingsOverridesBySession: {},
+    userDefaultRunSettings: readStoredLastRunSettings(),
+    setSelectedRepoId: (selectedRepoId, source = "user") => {
+      persistSelectedRepoId(selectedRepoId);
+      set({ selectedRepoId, selectedRepoSource: source });
+    },
+    setSidebarVisible: (sidebarVisible) => set({ sidebarVisible }),
+    toggleSidebarVisible: () => set((state) => ({ sidebarVisible: !state.sidebarVisible })),
+    setWsState: (wsState) => set({ wsState }),
+    setBackendBanner: (backendBanner) => set({ backendBanner }),
+    appendStreaming: (sessionId, text) => {
+      if (!sessionId || !text) {
+        return;
+      }
+
+      const queuedChunks = queuedStreamingBySession.get(sessionId);
+      if (queuedChunks) {
+        queuedChunks.push(text);
+      } else {
+        queuedStreamingBySession.set(sessionId, [text]);
+      }
+
+      scheduleStreamingFlush();
+    },
+    clearStreaming: (sessionId) =>
+      set((state) => {
+        discardQueuedStreaming(sessionId);
+        if (!(sessionId in state.streaming)) {
+          return state;
+        }
+
+        const next = { ...state.streaming };
+        delete next[sessionId];
+        return { streaming: next };
+      }),
   upsertActivity: (activity) =>
     set((state) => ({
       activities: {
@@ -335,4 +448,5 @@ export const useUiStore = create<UiState>((set) => ({
         runSettingsOverridesBySession
       };
     })
-}));
+  });
+});
