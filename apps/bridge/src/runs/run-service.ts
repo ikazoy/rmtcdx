@@ -17,6 +17,7 @@ import type { CodexBackend, CodexBridgeEvent } from "../codex/types";
 import { LiveCatalogService } from "../catalog/live-catalog-service";
 import { PushNotificationService } from "../notifications/push-notification-service";
 import { RealtimeGateway } from "../realtime/realtime-gateway";
+import { SessionUnreadService } from "../sessions/session-unread-service";
 import { ImageUploadService } from "../uploads/image-upload-service";
 import type { CodexDebugLog } from "../observability/codex-debug-log";
 import { resolveEffectiveCodexRunSettings, SessionRunSettingsStore } from "./session-run-settings-store";
@@ -59,6 +60,7 @@ export class RunService {
     private readonly codex: CodexBackend,
     private readonly uploads: ImageUploadService,
     private readonly pushNotifications: PushNotificationService,
+    private readonly sessionUnread: SessionUnreadService,
     private readonly logger: FastifyBaseLogger,
     private readonly debugLog?: CodexDebugLog,
     private readonly sessionRunSettings = new SessionRunSettingsStore(`${config.dataDir}/run-settings.json`)
@@ -375,6 +377,14 @@ export class RunService {
         text: event.text,
         createdAt: nowIso()
       };
+      if (event.countsUnread) {
+        this.sessionUnread.stageCompletion({
+          sessionId: event.sessionId,
+          runId: event.runId,
+          turnId: event.turnId,
+          createdAt: message.createdAt
+        });
+      }
       this.realtime.broadcastMessageFinal(event.sessionId, event.runId, message as Message & { role: "assistant" });
       return;
     }
@@ -450,6 +460,14 @@ export class RunService {
       errorMessage: event.type === "run.error" ? event.message : undefined
     };
     const shouldNotifyTerminalTransition = isRunInProgress(current.status) && isTerminalRunStatus(next.status);
+
+    if (event.type === "run.completed") {
+      this.sessionUnread.recordCompletion(event.sessionId, event.runId, event.turnId);
+    } else if (event.type === "run.error") {
+      this.sessionUnread.recordError(event.sessionId, event.runId, event.turnId, finishedAt);
+    } else {
+      this.sessionUnread.clearPendingTurn(event.sessionId, event.turnId);
+    }
 
     this.runsById.set(event.runId, next);
     this.activeRunBySession.delete(event.sessionId);

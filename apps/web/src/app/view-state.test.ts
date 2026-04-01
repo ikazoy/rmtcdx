@@ -131,3 +131,14 @@ test("sessionDetailSyncKey changes when a polled summary gets ahead of detail st
 
   assert.notEqual(sessionDetailSyncKey(summary), sessionDetailSyncKey(polledSummary));
 });
+
+test("sessionDetailSyncKey changes when unread state changes without a status transition", () => {
+  const unreadSummary: SessionSummary = {
+    ...summary,
+    unreadCount: 1,
+    lastEventSeq: 1,
+    hasUnreadCompletion: true
+  };
+
+  assert.notEqual(sessionDetailSyncKey(summary), sessionDetailSyncKey(unreadSummary));
+});

@@ -12,6 +12,7 @@ import type { AppConfig } from "../../src/config/env";
 import { RealtimeGateway } from "../../src/realtime/realtime-gateway";
 import { RunService } from "../../src/runs/run-service";
 import { SessionRunSettingsStore } from "../../src/runs/session-run-settings-store";
+import { SessionUnreadService } from "../../src/sessions/session-unread-service";
 
 const logger = {
   warn() {}
@@ -78,12 +79,68 @@ test("run service exposes the last effective run settings for the thread", async
   });
 });
 
+test("run service records completion unread only after a counted final assistant message completes the turn", async () => {
+  const harness = createHarness();
+  const run = await harness.service.start({
+    repoId: "repo-1",
+    prompt: "Ship it"
+  });
+
+  harness.backend.emitMessageFinal(run.id, run.turnId ?? "turn-1", true);
+  await flushAsyncWork();
+  harness.backend.emitTerminalEvent("run.completed", run.id, run.turnId ?? "turn-1");
+  await flushAsyncWork();
+
+  const presented = harness.unread.presentSessionDetail(harness.service.presentSessionDetail(harness.detail));
+  assert.equal(presented.session.unreadCount, 1);
+  assert.equal(presented.session.lastEventSeq, 1);
+  assert.equal(presented.session.hasUnreadCompletion, true);
+  assert.equal(presented.session.hasUnreadError, false);
+});
+
+test("run service ignores completion unread for commentary-only assistant output", async () => {
+  const harness = createHarness();
+  const run = await harness.service.start({
+    repoId: "repo-1",
+    prompt: "Talk me through it"
+  });
+
+  harness.backend.emitMessageFinal(run.id, run.turnId ?? "turn-1", false);
+  await flushAsyncWork();
+  harness.backend.emitTerminalEvent("run.completed", run.id, run.turnId ?? "turn-1");
+  await flushAsyncWork();
+
+  const presented = harness.unread.presentSessionDetail(harness.service.presentSessionDetail(harness.detail));
+  assert.equal(presented.session.unreadCount, 0);
+  assert.equal(presented.session.lastEventSeq, 0);
+});
+
+test("run service records error unread on failed runs", async () => {
+  const harness = createHarness();
+  const run = await harness.service.start({
+    repoId: "repo-1",
+    prompt: "Break it"
+  });
+
+  harness.backend.emitTerminalEvent("run.error", run.id, run.turnId ?? "turn-1");
+  await flushAsyncWork();
+
+  const presented = harness.unread.presentSessionDetail(harness.service.presentSessionDetail(harness.detail));
+  assert.equal(presented.session.unreadCount, 1);
+  assert.equal(presented.session.lastEventSeq, 1);
+  assert.equal(presented.session.hasUnreadCompletion, false);
+  assert.equal(presented.session.hasUnreadError, true);
+});
+
 function createHarness() {
   const backend = new FakeCodexBackend();
   const detail = createSessionDetail("Deploy preview");
   const notifications: Array<{ detail: SessionDetail; run: Run }> = [];
   const runSettingsStore = new SessionRunSettingsStore(
     path.join(os.tmpdir(), `rmtcdx-run-settings-${Date.now()}-${Math.random().toString(16).slice(2)}.json`)
+  );
+  const unread = new SessionUnreadService(
+    path.join(os.tmpdir(), `rmtcdx-session-unread-${Date.now()}-${Math.random().toString(16).slice(2)}.json`)
   );
 
   const service = new RunService(
@@ -114,6 +171,7 @@ function createHarness() {
         notifications.push({ detail: sessionDetail, run });
       }
     } as never,
+    unread,
     logger,
     undefined,
     runSettingsStore
@@ -123,6 +181,7 @@ function createHarness() {
     backend,
     detail,
     notifications,
+    unread,
     service
   };
 }
@@ -205,6 +264,19 @@ class FakeCodexBackend extends EventEmitter {
   }
 
   async interruptRun() {}
+
+  emitMessageFinal(runId: string, turnId: string, countsUnread: boolean) {
+    const event: CodexBridgeEvent = {
+      type: "message.final",
+      sessionId: "thread-1",
+      runId,
+      turnId,
+      text: countsUnread ? "Final answer" : "Thinking aloud",
+      countsUnread
+    };
+
+    this.emit("event", event);
+  }
 
   emitTerminalEvent(
     eventType: Extract<CodexBridgeEvent["type"], "run.completed" | "run.interrupted" | "run.error">,

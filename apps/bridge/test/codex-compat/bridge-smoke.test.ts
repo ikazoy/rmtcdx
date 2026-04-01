@@ -16,6 +16,7 @@ import { buildApp } from "../../src/app";
 import type {
   CodexAccountRateLimits,
   CodexBackend,
+  CodexBridgeEvent,
   CodexRuntimeState,
   CodexThread,
   EnsureThreadParams,
@@ -207,6 +208,190 @@ test("fixture backend smoke test covers sessions, messages, and pending request 
   }
 });
 
+test("bridge smoke test tracks unread from live completion events and clears it on read", async () => {
+  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-unread-"));
+  const repoPath = path.join(rootDir, "repo");
+  const dataDir = path.join(rootDir, "data");
+  const uploadsDir = path.join(dataDir, "uploads");
+  await fs.mkdir(repoPath, { recursive: true });
+  await fs.mkdir(uploadsDir, { recursive: true });
+
+  const thread: CodexThread = {
+    id: "fixture_thread_unread",
+    preview: "Unread fixture",
+    createdAt: 1711756800,
+    updatedAt: 1711756860,
+    status: { type: "idle" },
+    cwd: repoPath,
+    path: null,
+    name: null,
+    modelProvider: "openai",
+    source: "appServer",
+    gitInfo: {
+      sha: "abc123",
+      branch: "main",
+      originUrl: "https://example.test/repo.git"
+    },
+    turns: [
+      {
+        id: "fixture_turn_unread_1",
+        status: "completed",
+        error: null,
+        items: [
+          {
+            type: "userMessage",
+            id: "fixture_user_unread_1",
+            content: [
+              {
+                type: "text",
+                text: "Unread fixture",
+                text_elements: []
+              }
+            ]
+          },
+          {
+            type: "agentMessage",
+            id: "fixture_assistant_unread_1",
+            text: "Already completed before app start.",
+            phase: "final"
+          }
+        ]
+      }
+    ]
+  };
+
+  const backend = new FixtureBridgeBackend([thread]);
+  const config: AppConfig = {
+    port: 0,
+    host: "127.0.0.1",
+    reposFile: path.join(rootDir, "repos.json"),
+    dataDir,
+    stateFile: path.join(dataDir, "state.json"),
+    runtimeFile: path.join(dataDir, "runtime.json"),
+    codexDebugLogFile: path.join(dataDir, "codex-app-server.jsonl"),
+    uploadsDir,
+    webDistDir: path.join(rootDir, "missing-web-dist"),
+    codexMode: "mock",
+    maxPromptLength: 12_000,
+    maxImageAttachments: 5,
+    maxImageAttachmentBytes: 10_485_760,
+    devSimulatorEnabled: true
+  };
+
+  const { app, realtime } = await buildApp({
+    config,
+    codex: backend,
+    repoConfig: [
+      {
+        id: "fixture_repo",
+        name: "Fixture Repo",
+        path: repoPath,
+        pinned: false
+      }
+    ]
+  });
+
+  const wsEvents = createWebSocketCollector();
+  try {
+    realtime.register(wsEvents.socket, backend.getState().mode);
+    await wsEvents.waitFor((event) => event.type === "hello");
+
+    const initialSessions = await app.inject({
+      method: "GET",
+      url: "/api/sessions"
+    });
+    assert.equal(initialSessions.statusCode, 200);
+    const initialPayload = initialSessions.json() as {
+      sessions: Array<{ id: string; unreadCount: number; hasUnreadCompletion: boolean }>;
+    };
+    assert.equal(initialPayload.sessions[0]?.id, "fixture_thread_unread");
+    assert.equal(initialPayload.sessions[0]?.unreadCount, 0);
+    assert.equal(initialPayload.sessions[0]?.hasUnreadCompletion, false);
+
+    const startRunResponse = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        sessionId: "fixture_thread_unread",
+        prompt: "Generate a fresh unread completion"
+      }
+    });
+    assert.equal(startRunResponse.statusCode, 200);
+    const startRunPayload = startRunResponse.json() as {
+      run: { id: string; turnId?: string };
+    };
+
+    backend.emit("event", {
+      type: "message.final",
+      sessionId: "fixture_thread_unread",
+      runId: startRunPayload.run.id,
+      turnId: startRunPayload.run.turnId ?? "fixture_turn_unread_2",
+      text: "Fresh unread completion",
+      countsUnread: true
+    } satisfies CodexBridgeEvent);
+    backend.emit("event", {
+      type: "run.completed",
+      sessionId: "fixture_thread_unread",
+      runId: startRunPayload.run.id,
+      turnId: startRunPayload.run.turnId ?? "fixture_turn_unread_2"
+    } satisfies CodexBridgeEvent);
+    await flushAsyncWork();
+
+    const unreadSessions = await app.inject({
+      method: "GET",
+      url: "/api/sessions"
+    });
+    assert.equal(unreadSessions.statusCode, 200);
+    const unreadPayload = unreadSessions.json() as {
+      sessions: Array<{
+        id: string;
+        unreadCount: number;
+        lastEventSeq: number;
+        lastReadEventSeq: number;
+        hasUnreadCompletion: boolean;
+        hasUnreadError: boolean;
+      }>;
+    };
+    assert.equal(unreadPayload.sessions[0]?.id, "fixture_thread_unread");
+    assert.equal(unreadPayload.sessions[0]?.unreadCount, 1);
+    assert.equal(unreadPayload.sessions[0]?.lastEventSeq, 1);
+    assert.equal(unreadPayload.sessions[0]?.lastReadEventSeq, 0);
+    assert.equal(unreadPayload.sessions[0]?.hasUnreadCompletion, true);
+    assert.equal(unreadPayload.sessions[0]?.hasUnreadError, false);
+
+    const readResponse = await app.inject({
+      method: "POST",
+      url: "/api/sessions/fixture_thread_unread/read"
+    });
+    assert.equal(readResponse.statusCode, 200);
+
+    const sessionUpdated = await wsEvents.waitFor(
+      (event): event is Extract<ServerWsEvent, { type: "sessions.updated" }> =>
+        event.type === "sessions.updated" && event.session.id === "fixture_thread_unread"
+    );
+    assert.equal(sessionUpdated.session.unreadCount, 0);
+    assert.equal(sessionUpdated.session.lastEventSeq, 1);
+    assert.equal(sessionUpdated.session.lastReadEventSeq, 1);
+
+    const readSessions = await app.inject({
+      method: "GET",
+      url: "/api/sessions"
+    });
+    assert.equal(readSessions.statusCode, 200);
+    const readPayload = readSessions.json() as {
+      sessions: Array<{ id: string; unreadCount: number; lastEventSeq: number; lastReadEventSeq: number }>;
+    };
+    assert.equal(readPayload.sessions[0]?.id, "fixture_thread_unread");
+    assert.equal(readPayload.sessions[0]?.unreadCount, 0);
+    assert.equal(readPayload.sessions[0]?.lastEventSeq, 1);
+    assert.equal(readPayload.sessions[0]?.lastReadEventSeq, 1);
+  } finally {
+    wsEvents.socket.emit("close");
+    await app.close();
+    await fs.rm(rootDir, { recursive: true, force: true });
+  }
+});
+
 class FixtureBridgeBackend extends EventEmitter implements CodexBackend {
   private readonly threads = new Map<string, CodexThread>();
   private readonly pendingRequests = new Map<string, CodexPendingRequest>();
@@ -264,7 +449,10 @@ class FixtureBridgeBackend extends EventEmitter implements CodexBackend {
   }
 
   async startRun(_params: StartRunParams): Promise<StartRunResult> {
-    throw new Error("Not implemented in fixture backend");
+    return {
+      threadId: _params.sessionId ?? _params.threadId ?? [...this.threads.keys()][0] ?? "fixture_thread",
+      turnId: `fixture_turn_${randomUUID()}`
+    };
   }
 
   async interruptRun(_runId: string, _threadId: string, _turnId: string) {
@@ -387,4 +575,8 @@ function createWebSocketCollector() {
       });
     }
   };
+}
+
+async function flushAsyncWork() {
+  await new Promise((resolve) => setImmediate(resolve));
 }
