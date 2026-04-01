@@ -52,3 +52,5 @@ npm run start
 ```
 
 この経路は内部の `serve` command を使い、daemon 化しません。
+
+関連設計: [CLI update command design](./cli-update-design.ja.md)

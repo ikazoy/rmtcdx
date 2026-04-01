@@ -1,5 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 import type { Repository } from "@codex-remote/shared-types";
+import { moveActiveItemKey, resolveActiveItemKey } from "../../components/listbox-navigation";
+
+const EMPTY_OPTION_KEY = "__workspace-combobox-empty__";
 
 type Props = {
   repos: Repository[];
@@ -26,18 +30,54 @@ export function WorkspaceCombobox({
 }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [activeOptionKey, setActiveOptionKey] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const optionRefs = useRef(new Map<string, HTMLButtonElement>());
+  const listboxId = useId();
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
   const selectedLabel = selectedRepo ? formatRepoLabel(selectedRepo) : (emptyOptionLabel ?? "Select workspace");
   const selectedSecondaryLabel =
     selectedRepo && formatRepoSecondaryLabel ? formatRepoSecondaryLabel(selectedRepo) : null;
-  const filteredRepos = query
-    ? repos.filter((repo) => {
-        const primary = formatRepoLabel(repo).toLowerCase();
-        const secondary = formatRepoSecondaryLabel?.(repo)?.toLowerCase() ?? "";
-        return `${primary} ${secondary}`.includes(query.toLowerCase());
+  const { filteredOptions, options } = useMemo(() => {
+    const normalizedQuery = query.toLowerCase();
+    const visibleRepoOptions = repos
+      .map((repo) => {
+        const label = formatRepoLabel(repo);
+        const secondaryLabel = formatRepoSecondaryLabel?.(repo) ?? null;
+        return {
+          key: repo.id,
+          repoId: repo.id,
+          label,
+          secondaryLabel,
+          isSelected: selectedRepoId === repo.id,
+          searchText: `${label.toLowerCase()} ${secondaryLabel?.toLowerCase() ?? ""}`
+        };
       })
-    : repos;
+      .filter((option) => (normalizedQuery ? option.searchText.includes(normalizedQuery) : true));
+
+    return {
+      filteredOptions: visibleRepoOptions,
+      options: [
+        ...(emptyOptionLabel && !query
+          ? [
+              {
+                key: EMPTY_OPTION_KEY,
+                repoId: null,
+                label: emptyOptionLabel,
+                secondaryLabel: null,
+                isSelected: selectedRepoId === null,
+                searchText: ""
+              }
+            ]
+          : []),
+        ...visibleRepoOptions
+      ]
+    };
+  }, [emptyOptionLabel, formatRepoLabel, formatRepoSecondaryLabel, query, repos, selectedRepoId]);
+  const selectedOptionKey = options.find((option) => option.isSelected)?.key ?? null;
+  const activeOption = options.find((option) => option.key === activeOptionKey) ?? null;
   const rootClassName = [
     "combobox",
     "combobox--inline",
@@ -53,16 +93,126 @@ export function WorkspaceCombobox({
     }
 
     setQuery("");
-    window.setTimeout(() => searchRef.current?.focus(), 50);
+    const timeoutId = window.setTimeout(() => searchRef.current?.focus(), 50);
+    return () => window.clearTimeout(timeoutId);
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      setActiveOptionKey(null);
+      return;
+    }
+
+    setActiveOptionKey((current) =>
+      resolveActiveItemKey({
+        items: options,
+        currentKey: current,
+        preferredKey: selectedOptionKey
+      })
+    );
+  }, [isOpen, options, selectedOptionKey]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !activeOptionKey) {
+      return;
+    }
+
+    optionRefs.current.get(activeOptionKey)?.scrollIntoView({
+      block: "nearest"
+    });
+  }, [activeOptionKey, isOpen]);
+
+  function closeCombobox(restoreFocus = false) {
+    setIsOpen(false);
+    if (restoreFocus) {
+      window.setTimeout(() => triggerRef.current?.focus(), 0);
+    }
+  }
+
+  function selectOption(repoId: string | null) {
+    onSelectRepo(repoId);
+    closeCombobox(true);
+  }
+
+  function moveActive(delta: -1 | 1) {
+    setActiveOptionKey((current) =>
+      moveActiveItemKey({
+        items: options,
+        currentKey: current ?? selectedOptionKey,
+        delta
+      })
+    );
+  }
+
+  function handleTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!isOpen) {
+        setIsOpen(true);
+        return;
+      }
+
+      moveActive(event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+
+    if (event.key === "Escape" && isOpen) {
+      event.preventDefault();
+      closeCombobox();
+    }
+  }
+
+  function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        moveActive(1);
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        moveActive(-1);
+        break;
+      case "Enter":
+        if (activeOption) {
+          event.preventDefault();
+          selectOption(activeOption.repoId);
+        }
+        break;
+      case "Escape":
+        event.preventDefault();
+        closeCombobox(true);
+        break;
+      default:
+        break;
+    }
+  }
+
   return (
-    <div className={rootClassName}>
+    <div className={rootClassName} ref={containerRef}>
       <button
+        ref={triggerRef}
         className="combobox__trigger"
         type="button"
         aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        aria-controls={listboxId}
         onClick={() => setIsOpen((current) => !current)}
+        onKeyDown={handleTriggerKeyDown}
       >
         {layout === "stacked" ? (
           <span className="combobox__trigger-copy">
@@ -86,44 +236,32 @@ export function WorkspaceCombobox({
               type="text"
               placeholder={searchPlaceholder}
               value={query}
+              aria-controls={listboxId}
               onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={handleSearchKeyDown}
               autoComplete="off"
             />
           </div>
 
-          <div className="combobox__list" role="listbox">
-            {emptyOptionLabel && !query ? (
+          <div className="combobox__list" id={listboxId} role="listbox">
+            {options.map((option) => (
               <button
-                className={`combobox__option ${selectedRepoId === null ? "is-active" : ""}`}
-                role="option"
-                aria-selected={selectedRepoId === null}
-                onClick={() => {
-                  onSelectRepo(null);
-                  setIsOpen(false);
+                key={option.key}
+                ref={(node) => {
+                  if (node) {
+                    optionRefs.current.set(option.key, node);
+                    return;
+                  }
+
+                  optionRefs.current.delete(option.key);
                 }}
-                type="button"
-              >
-                <span className="combobox__option-check">
-                  <svg viewBox="0 0 16 16" fill="none" width="16" height="16">
-                    <path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </span>
-                <span className="combobox__option-label">{emptyOptionLabel}</span>
-              </button>
-            ) : null}
-
-            {filteredRepos.map((repo) => {
-              const secondaryLabel = formatRepoSecondaryLabel?.(repo) ?? null;
-
-              return (
-              <button
-                key={repo.id}
-                className={`combobox__option ${selectedRepoId === repo.id ? "is-active" : ""}`}
+                className={`combobox__option ${option.isSelected ? "is-active" : ""} ${activeOptionKey === option.key ? "is-highlighted" : ""}`.trim()}
                 role="option"
-                aria-selected={selectedRepoId === repo.id}
+                aria-selected={option.isSelected}
+                tabIndex={-1}
+                onMouseEnter={() => setActiveOptionKey(option.key)}
                 onClick={() => {
-                  onSelectRepo(repo.id);
-                  setIsOpen(false);
+                  selectOption(option.repoId);
                 }}
                 type="button"
               >
@@ -134,17 +272,16 @@ export function WorkspaceCombobox({
                 </span>
                 {layout === "stacked" ? (
                   <span className="combobox__option-copy">
-                    <span className="combobox__option-label">{formatRepoLabel(repo)}</span>
-                    {secondaryLabel ? <span className="combobox__option-meta">{secondaryLabel}</span> : null}
+                    <span className="combobox__option-label">{option.label}</span>
+                    {option.secondaryLabel ? <span className="combobox__option-meta">{option.secondaryLabel}</span> : null}
                   </span>
                 ) : (
-                  <span className="combobox__option-label">{formatRepoLabel(repo)}</span>
+                  <span className="combobox__option-label">{option.label}</span>
                 )}
               </button>
-              );
-            })}
+            ))}
 
-            {query && filteredRepos.length === 0 ? <div className="combobox__empty">No matching workspaces</div> : null}
+            {query && filteredOptions.length === 0 ? <div className="combobox__empty">No matching workspaces</div> : null}
           </div>
         </div>
       ) : null}

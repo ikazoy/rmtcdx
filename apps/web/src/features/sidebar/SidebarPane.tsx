@@ -1,5 +1,5 @@
 import { FloatingPortal } from "@floating-ui/react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Repository, SessionFilter, SessionSummary } from "@codex-remote/shared-types";
 import { SESSION_FILTERS } from "@codex-remote/shared-types";
 import type { SidebarViewState } from "../../app/view-state";
@@ -11,6 +11,13 @@ import {
   buildSessionRepoVariantLabelFormatter,
   sortReposForDisplay
 } from "../repos/repo-presentation";
+import {
+  DEFAULT_REPO_GROUP_VISIBLE_SESSION_LIMIT,
+  getVisibleRepoGroupSessions,
+  repoGroupToggleLabel,
+  shouldAutoExpandRepoGroup,
+  shouldLimitRepoGroupSessions
+} from "./repo-group-display";
 import { WorkspaceCombobox } from "../repos/WorkspaceCombobox";
 import { StatusMenu } from "../status/StatusMenu";
 import { sessionDisplayStatus, sessionIndicatorTone } from "../sessions/session-state";
@@ -46,6 +53,7 @@ type RepoGroup = {
 };
 
 const REFRESH_INDICATOR_DELAY_MS = 300;
+const EMPTY_SESSIONS: SessionSummary[] = [];
 
 function getPreviewText(session: SessionSummary) {
   return session.latestAssistantExcerpt ?? session.latestUserPrompt ?? session.summary;
@@ -125,6 +133,7 @@ export function SidebarPane({
 }: Props) {
   const [isListMenuOpen, setIsListMenuOpen] = useState(false);
   const [showRefreshIndicator, setShowRefreshIndicator] = useState(false);
+  const [expandedRepoKeys, setExpandedRepoKeys] = useState<Set<string>>(() => new Set());
   const collapsedRepoKeys = useUiStore((state) => state.collapsedRepoKeys);
   const toggleRepoCollapsed = useUiStore((state) => state.toggleRepoCollapsed);
   const collapseRepos = useUiStore((state) => state.collapseRepos);
@@ -139,13 +148,21 @@ export function SidebarPane({
   const formatSessionRepoName = buildSessionRepoNameFormatter(orderedRepos);
   const formatSessionRepoVariantLabel = buildSessionRepoVariantLabelFormatter(orderedRepos);
 
-  const sessions = sessionsState.kind === "ready" ? sessionsState.sessions : [];
+  const sessions = sessionsState.kind === "ready" ? sessionsState.sessions : EMPTY_SESSIONS;
   const isLoadingSessions = sessionsState.kind === "loading";
   const isRefreshingSessions = sessionsState.kind === "ready" && sessionsState.isRefreshing;
   const hasEmptyState = sessionsState.kind === "empty";
   const errorMessage = sessionsState.kind === "error" ? sessionsState.message : null;
   const selectedRepo = orderedRepos.find((repo) => repo.id === selectedRepoId) ?? null;
-  const repoGroups = selectedRepoId ? [] : groupByRepo(sessions, formatSessionRepoName);
+  const repoGroups = useMemo(
+    () => (selectedRepoId ? [] : groupByRepo(sessions, formatSessionRepoName)),
+    [formatSessionRepoName, selectedRepoId, sessions]
+  );
+  const shouldLimitGroupedSessions = shouldLimitRepoGroupSessions({
+    selectedRepoId,
+    search,
+    filter
+  });
   const singleRepoSessions = selectedRepoId ? sessions : [];
   const repoGroupKeys = repoGroups.map((group) => group.repoKey);
   const canToggleAllRepos = !selectedRepoId && repoGroupKeys.length > 0;
@@ -166,6 +183,31 @@ export function SidebarPane({
 
     return () => window.clearTimeout(timeoutId);
   }, [isRefreshingSessions]);
+
+  useEffect(() => {
+    setExpandedRepoKeys((current) => {
+      const validRepoKeys = new Set(repoGroups.map((group) => group.repoKey));
+      const next = new Set<string>();
+      let changed = false;
+
+      for (const repoKey of current) {
+        if (validRepoKeys.has(repoKey)) {
+          next.add(repoKey);
+        } else {
+          changed = true;
+        }
+      }
+
+      for (const group of repoGroups) {
+        if (shouldAutoExpandRepoGroup(group.sessions, selectedSessionId) && !next.has(group.repoKey)) {
+          next.add(group.repoKey);
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [repoGroups, selectedSessionId]);
 
   function closeListMenu() {
     setIsListMenuOpen(false);
@@ -188,6 +230,18 @@ export function SidebarPane({
     }
 
     closeListMenu();
+  }
+
+  function toggleRepoGroupExpansion(repoKey: string) {
+    setExpandedRepoKeys((current) => {
+      const next = new Set(current);
+      if (next.has(repoKey)) {
+        next.delete(repoKey);
+      } else {
+        next.add(repoKey);
+      }
+      return next;
+    });
   }
 
   return (
@@ -389,6 +443,15 @@ export function SidebarPane({
             <>
               {repoGroups.map((group) => {
                 const isCollapsed = collapsedRepoKeys.has(group.repoKey);
+                const isExpanded = expandedRepoKeys.has(group.repoKey);
+                const visibleSessions = shouldLimitGroupedSessions
+                  ? getVisibleRepoGroupSessions(group.sessions, { isExpanded })
+                  : group.sessions;
+                const showGroupToggle = shouldLimitGroupedSessions && group.sessions.length > visibleSessions.length;
+                const showCollapseToggle =
+                  shouldLimitGroupedSessions
+                  && group.sessions.length > DEFAULT_REPO_GROUP_VISIBLE_SESSION_LIMIT
+                  && isExpanded;
                 return (
                   <section key={group.repoKey} className="repo-group">
                     <button
@@ -401,22 +464,38 @@ export function SidebarPane({
                       <span className="repo-group__count">{group.sessions.length}</span>
                     </button>
                     {!isCollapsed ? (
-                      <div className="repo-group__list">
-                        {group.sessions.map((session) => (
-                          <SessionRow
-                            key={session.id}
-                            session={session}
-                            isActive={selectedSessionId === session.id}
-                            pendingRequestCount={Math.max(
-                              session.pendingRequestCount,
-                              selectedSessionId === session.id ? selectedSessionPendingRequestCount : 0
-                            )}
-                            onSelect={onSelectSession}
-                            onHover={onHoverSession}
-                            repoVariantLabel={formatSessionRepoVariantLabel(session)}
-                          />
-                        ))}
-                      </div>
+                      <>
+                        <div className="repo-group__list">
+                          {visibleSessions.map((session) => (
+                            <SessionRow
+                              key={session.id}
+                              session={session}
+                              isActive={selectedSessionId === session.id}
+                              pendingRequestCount={Math.max(
+                                session.pendingRequestCount,
+                                selectedSessionId === session.id ? selectedSessionPendingRequestCount : 0
+                              )}
+                              onSelect={onSelectSession}
+                              onHover={onHoverSession}
+                              repoVariantLabel={formatSessionRepoVariantLabel(session)}
+                            />
+                          ))}
+                        </div>
+                        {showGroupToggle || showCollapseToggle ? (
+                          <div className="repo-group__footer">
+                            <button
+                              className="repo-group__toggle"
+                              onClick={() => toggleRepoGroupExpansion(group.repoKey)}
+                              type="button"
+                            >
+                              {repoGroupToggleLabel({
+                                totalCount: group.sessions.length,
+                                visibleCount: visibleSessions.length
+                              })}
+                            </button>
+                          </div>
+                        ) : null}
+                      </>
                     ) : null}
                   </section>
                 );

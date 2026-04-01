@@ -3,6 +3,10 @@ import type { Repository, SessionSummary } from "@codex-remote/shared-types";
 const UNKNOWN_WORKSPACE_LABEL = "Unknown workspace";
 const UNKNOWN_BRANCH_LABEL = "no branch";
 
+function compareIsoDesc(leftIso: string, rightIso: string) {
+  return new Date(rightIso).getTime() - new Date(leftIso).getTime();
+}
+
 function lastPathSegment(pathname: string) {
   return pathname.split("/").filter(Boolean).at(-1) ?? pathname;
 }
@@ -27,8 +31,18 @@ export function formatRepoName(repo: Pick<Repository, "name">) {
 
 export function sortReposForDisplay(repos: Repository[]) {
   return [...repos].sort((left, right) => {
+    const updatedAtDiff = compareIsoDesc(left.updatedAt, right.updatedAt);
+    if (updatedAtDiff !== 0) {
+      return updatedAtDiff;
+    }
+
     if (left.pinned !== right.pinned) {
       return left.pinned ? -1 : 1;
+    }
+
+    const createdAtDiff = compareIsoDesc(left.createdAt, right.createdAt);
+    if (createdAtDiff !== 0) {
+      return createdAtDiff;
     }
 
     return left.name.localeCompare(right.name);

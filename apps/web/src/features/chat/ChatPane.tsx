@@ -1,5 +1,5 @@
 import { FloatingPortal } from "@floating-ui/react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { Children, isValidElement, memo, useCallback, useEffect, useId, useRef, useState } from "react";
 import type {
   CSSProperties,
   ChangeEvent,
@@ -19,7 +19,6 @@ import type {
   CodexDevRequestScenario,
   CodexRunSettings,
   CodexSandboxPreset,
-  CodexServiceTier,
   FileChangeEntry,
   LiveActivity,
   Message,
@@ -29,12 +28,19 @@ import type {
 } from "@codex-remote/shared-types";
 import type { ChatViewState as ChatScreenViewState } from "../../app/view-state";
 import { formatRelativeTime } from "../../components/formatters";
+import { moveActiveItemKey, resolveActiveItemKey } from "../../components/listbox-navigation";
 import { useAnchoredMenu } from "../../hooks/use-anchored-menu";
 import {
   buildRepoNameFormatter,
   buildRepoVariantLabelFormatter,
   sortReposForDisplay
 } from "../repos/repo-presentation";
+import {
+  buildModelSelectionState,
+  CUSTOM_MODEL_OPTION,
+  DEFAULT_MODEL_OPTION
+} from "./model-selection";
+import { MermaidBlock } from "./MermaidBlock";
 import { WorkspaceCombobox } from "../repos/WorkspaceCombobox";
 import { sessionDisplayStatus } from "../sessions/session-state";
 
@@ -203,22 +209,6 @@ type Props = {
   canArchive: boolean;
   canRestore: boolean;
 };
-
-const DEFAULT_MODEL_OPTION = "__default";
-const CUSTOM_MODEL_OPTION = "__custom";
-const FAST_TIER_MODEL = "gpt-5.4";
-
-type ModelSelectionOption = {
-  value: string;
-  label: string;
-  model: string | null;
-  serviceTier: CodexServiceTier | null;
-  note: string;
-};
-
-function modelSelectionOptionValue(model: string, serviceTier: CodexServiceTier | null) {
-  return serviceTier ? `${model}::${serviceTier}` : model;
-}
 
 const APPROVAL_POLICY_OPTIONS: Array<{
   value: CodexApprovalPolicyPreset;
@@ -583,18 +573,67 @@ function fileChangeVerb(change: FileChangeEntry) {
   }
 }
 
+function flattenNodeText(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") {
+    return String(node);
+  }
+
+  if (Array.isArray(node)) {
+    return node.map((child) => flattenNodeText(child)).join("");
+  }
+
+  return "";
+}
+
+function mermaidCodeFromMarkdownPre(children: ReactNode) {
+  const [child] = Children.toArray(children);
+  if (!child || !isValidElement(child)) {
+    return null;
+  }
+
+  const props = child.props as {
+    className?: string;
+    children?: ReactNode;
+  };
+  const className = typeof props.className === "string" ? props.className : "";
+
+  if (!className.split(/\s+/).includes("language-mermaid")) {
+    return null;
+  }
+
+  const code = flattenNodeText(props.children ?? "").replace(/\n$/, "");
+  return code || null;
+}
+
 const MessageBody = memo(function MessageBody({
   text,
-  repairIncompleteMarkdown = false
+  repairIncompleteMarkdown = false,
+  allowMermaid = true
 }: {
   text: string;
   repairIncompleteMarkdown?: boolean;
+  allowMermaid?: boolean;
 }) {
   const markdown = repairIncompleteMarkdown ? remend(text, { linkMode: "text-only" }) : text;
 
   return (
     <div className="message-markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          pre({ children, node: _node, ...props }) {
+            const mermaidCode = allowMermaid ? mermaidCodeFromMarkdownPre(children) : null;
+
+            if (mermaidCode !== null) {
+              return <MermaidBlock code={mermaidCode} />;
+            }
+
+            return <pre {...props}>{children}</pre>;
+          }
+        }}
+      >
+        {markdown}
+      </ReactMarkdown>
     </div>
   );
 });
@@ -687,8 +726,20 @@ function CustomSelect({
   onChange: (value: string) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [activeOptionValue, setActiveOptionValue] = useState<string | null>(value);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const activeOption = options.find((opt) => opt.value === value) ?? options[0];
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const optionRefs = useRef(new Map<string, HTMLButtonElement>());
+  const listboxId = useId();
+  const selectableOptions = options.map((option) => ({
+    key: option.value,
+    label: option.label,
+    description: option.description,
+    isSelected: option.value === value
+  }));
+  const activeOption = selectableOptions.find((opt) => opt.isSelected) ?? selectableOptions[0] ?? null;
+  const highlightedOption =
+    selectableOptions.find((opt) => opt.key === activeOptionValue) ?? activeOption;
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -702,15 +753,123 @@ function CustomSelect({
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      setActiveOptionValue(value);
+      return;
+    }
+
+    setActiveOptionValue((current) =>
+      resolveActiveItemKey({
+        items: selectableOptions,
+        currentKey: current,
+        preferredKey: activeOption?.key ?? null
+      })
+    );
+  }, [activeOption?.key, isOpen, selectableOptions, value]);
+
+  useEffect(() => {
+    if (!isOpen || !highlightedOption) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const node = optionRefs.current.get(highlightedOption.key);
+      node?.focus();
+      node?.scrollIntoView({
+        block: "nearest"
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [highlightedOption, isOpen]);
+
+  function closeMenu(restoreFocus = false) {
+    setIsOpen(false);
+    if (restoreFocus) {
+      window.setTimeout(() => triggerRef.current?.focus(), 0);
+    }
+  }
+
+  function selectOption(nextValue: string) {
+    onChange(nextValue);
+    closeMenu(true);
+  }
+
+  function moveActive(delta: -1 | 1) {
+    setActiveOptionValue((current) =>
+      moveActiveItemKey({
+        items: selectableOptions,
+        currentKey: current ?? activeOption?.key ?? null,
+        delta
+      })
+    );
+  }
+
+  function handleTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!isOpen) {
+        setIsOpen(true);
+        return;
+      }
+
+      moveActive(event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+
+    if (event.key === "Escape" && isOpen) {
+      event.preventDefault();
+      closeMenu();
+    }
+  }
+
+  function handleOptionKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        moveActive(1);
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        moveActive(-1);
+        break;
+      case "Home":
+        event.preventDefault();
+        setActiveOptionValue(selectableOptions[0]?.key ?? null);
+        break;
+      case "End":
+        event.preventDefault();
+        setActiveOptionValue(selectableOptions.at(-1)?.key ?? null);
+        break;
+      case "Enter":
+      case " ":
+        if (highlightedOption) {
+          event.preventDefault();
+          selectOption(highlightedOption.key);
+        }
+        break;
+      case "Escape":
+        event.preventDefault();
+        closeMenu(true);
+        break;
+      default:
+        break;
+    }
+  }
+
   return (
     <div className="custom-select" ref={containerRef}>
       <span className="custom-select__label">{label}</span>
       <button
+        ref={triggerRef}
         className="custom-select__trigger"
         type="button"
         aria-expanded={isOpen}
         aria-haspopup="listbox"
+        aria-controls={listboxId}
         onClick={() => setIsOpen(!isOpen)}
+        onKeyDown={handleTriggerKeyDown}
       >
         <span className="custom-select__trigger-value">{activeOption?.label ?? value}</span>
         <svg className="custom-select__chevron" viewBox="0 0 16 16" fill="none">
@@ -718,16 +877,27 @@ function CustomSelect({
         </svg>
       </button>
       {isOpen ? (
-        <div className="custom-select__menu" role="listbox">
-          {options.map((opt) => (
+        <div className="custom-select__menu" id={listboxId} role="listbox">
+          {selectableOptions.map((opt) => (
             <button
-              key={opt.value}
-              className={`custom-select__option ${opt.value === value ? "is-active" : ""}`}
+              key={opt.key}
+              ref={(node) => {
+                if (node) {
+                  optionRefs.current.set(opt.key, node);
+                  return;
+                }
+
+                optionRefs.current.delete(opt.key);
+              }}
+              className={`custom-select__option ${opt.isSelected ? "is-active" : ""} ${highlightedOption?.key === opt.key ? "is-highlighted" : ""}`.trim()}
               role="option"
-              aria-selected={opt.value === value}
+              aria-selected={opt.isSelected}
+              tabIndex={highlightedOption?.key === opt.key ? 0 : -1}
+              onFocus={() => setActiveOptionValue(opt.key)}
+              onMouseEnter={() => setActiveOptionValue(opt.key)}
+              onKeyDown={handleOptionKeyDown}
               onClick={() => {
-                onChange(opt.value);
-                setIsOpen(false);
+                selectOption(opt.key);
               }}
               type="button"
             >
@@ -1407,7 +1577,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
           {streamingText ? (
             <article className="message-row message-row--assistant">
               <div className="message-card message-card--assistant message-card--thinking message-card--streaming">
-                <MessageBody text={streamingText} repairIncompleteMarkdown />
+                <MessageBody text={streamingText} repairIncompleteMarkdown allowMermaid={false} />
               </div>
             </article>
           ) : null}
@@ -1600,34 +1770,8 @@ export function ChatPane({
     !messagesError && !isLoadingMessages && messages.length === 0 && !streamingText && !effectiveOptimisticMessage && !showPendingAssistant;
   const selectedModel = runSettings.model.trim();
   const selectedServiceTier = runSettings.serviceTier ?? null;
-  const defaultModel = availableModels.find((model) => model.isDefault) ?? null;
-  const modelSelectionOptions: ModelSelectionOption[] = availableModels.flatMap((model) => {
-    const isDefaultModel = defaultModel?.id === model.id;
-    const note = `${model.description} Default reasoning: ${model.defaultReasoningEffort}.`;
-    const options: ModelSelectionOption[] = [
-      {
-        value: modelSelectionOptionValue(model.model, null),
-        label: isDefaultModel ? `${model.displayName} (Fixed)` : model.displayName,
-        model: model.model,
-        serviceTier: null,
-        note: isDefaultModel
-          ? `${model.description} Pins the next run to this exact model instead of following the backend default. Default reasoning: ${model.defaultReasoningEffort}.`
-          : note
-      }
-    ];
-
-    if (model.model === FAST_TIER_MODEL) {
-      options.push({
-        value: modelSelectionOptionValue(model.model, "fast"),
-        label: `${model.displayName} Fast`,
-        model: model.model,
-        serviceTier: "fast",
-        note: `${model.description} Uses the fast service tier. Default reasoning: ${model.defaultReasoningEffort}.`
-      });
-    }
-
-    return options;
-  });
+  const { defaultModelLabel, defaultModelDescription, defaultModelNote, modelSelectionOptions } =
+    buildModelSelectionState(availableModels);
   const matchedModelSelectionOption =
     modelSelectionOptions.find(
       (option) => option.model === selectedModel && option.serviceTier === selectedServiceTier
@@ -1642,14 +1786,10 @@ export function ChatPane({
       ? CUSTOM_MODEL_OPTION
       : matchedModelSelectionOption?.value ?? DEFAULT_MODEL_OPTION
     : CUSTOM_MODEL_OPTION;
-  const defaultModelLabel = defaultModel ? `Default (${defaultModel.displayName})` : "Default";
-  const defaultModelNote = defaultModel
-    ? `${defaultModel.description} Uses the backend default model selection for the next run.`
-    : "Use the backend default model selection for the next run.";
   const modelFieldNote = !showModelPicker
     ? "Model discovery is unavailable right now. Enter a model id directly."
     : showCustomModelInput
-      ? "Use a custom model id when the model is not listed. Fast tier is only exposed for GPT-5.4."
+      ? "Use a custom model id when the model is not listed."
       : matchedModelSelectionOption
         ? matchedModelSelectionOption.note
         : defaultModelNote;
@@ -2352,10 +2492,11 @@ export function ChatPane({
                               label="Model"
                               value={modelSelectionValue}
                               options={[
-                                { value: DEFAULT_MODEL_OPTION, label: defaultModelLabel, description: "Use the backend default model" },
+                                { value: DEFAULT_MODEL_OPTION, label: defaultModelLabel, description: defaultModelDescription },
                                 ...modelSelectionOptions.map((opt) => ({
                                   value: opt.value,
-                                  label: opt.label
+                                  label: opt.label,
+                                  description: opt.description
                                 })),
                                 { value: CUSTOM_MODEL_OPTION, label: "Custom model ID" }
                               ]}

@@ -1,5 +1,5 @@
 import { FloatingPortal } from "@floating-ui/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import type {
@@ -93,6 +93,8 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
   const [localError, setLocalError] = useState<string | null>(null);
   const [draftAnswers, setDraftAnswers] = useState<Record<string, string>>({});
   const [mcpContent, setMcpContent] = useState("{}");
+  const titleId = useId();
+  const subtitleId = useId();
 
   useEffect(() => {
     setLocalError(null);
@@ -562,12 +564,17 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
   return (
     <FloatingPortal>
       <div className="bottom-sheet-backdrop codex-request-backdrop" role="presentation">
-        <div aria-modal="true" className="bottom-sheet codex-request-sheet" role="dialog">
+        <div
+          aria-describedby={subtitleId}
+          aria-labelledby={titleId}
+          className="bottom-sheet codex-request-sheet"
+          role="dialog"
+        >
           <header className="bottom-sheet__header codex-request-sheet__header">
             <div className="bottom-sheet__side" />
             <div className="bottom-sheet__headline">
-              <strong>{requestTitle(request)}</strong>
-              <span>{requestSubtitle(request)}</span>
+              <strong id={titleId}>{requestTitle(request)}</strong>
+              <span id={subtitleId}>{requestSubtitle(request)}</span>
             </div>
             <div className="bottom-sheet__side bottom-sheet__side--end">
               <span className="codex-request-badge">Pending</span>

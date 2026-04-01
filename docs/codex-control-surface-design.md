@@ -17,6 +17,8 @@ Codex app-server が本来持つ制御面を
   - `docs/execution-permissions-design.md`
 - plan-first workflow
   - `docs/plan-first-workflow-design.md`
+- message-based fork / edit
+  - `docs/message-fork-edit-design.md`
 
 ## 2. 前提
 
@@ -60,6 +62,8 @@ remote web client が将来的に使いたい主要 surface がほぼ揃って�
   - MCP elicitation
 - discovery / control API
   - `model/list`
+  - `thread/fork`
+  - `thread/rollback`
   - `turn/steer`
   - `review/start`
   - `skills/list`
@@ -204,6 +208,8 @@ active turn への介入手段として扱うべきである。
 protocol 上は以下も確認できる。
 
 - `model/list`
+- `thread/fork`
+- `thread/rollback`
 - `review/start`
 - `skills/list`
 - `plugin/list`
@@ -214,6 +220,7 @@ protocol 上は以下も確認できる。
 将来的には以下も remote client に取り込める。
 
 - 利用可能 model 一覧の取得
+- 過去 message 起点の branch UI
 - repo / task に対する review 専用起動
 - skill / plugin の存在可視化
 - feature / config requirement の診断

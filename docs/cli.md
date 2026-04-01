@@ -52,3 +52,5 @@ npm run start
 ```
 
 That path uses the internal `serve` command and does not daemonize the process.
+
+Related design: [CLI update command design](./cli-update-design.md)
