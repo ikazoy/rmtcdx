@@ -14,7 +14,7 @@ import type {
   SessionSummary
 } from "@codex-remote/shared-types";
 import type { RepoConfig } from "../config/repos";
-import { mapThreadToMessages } from "../codex/parsers/thread-items";
+import { findLatestUserMessagePreview, mapThreadToMessages } from "../codex/parsers/thread-items";
 import type { CodexBackend, CodexThread, CodexThreadTurn } from "../codex/types";
 import { ImageUploadService } from "../uploads/image-upload-service";
 import { excerpt } from "../utils/text";
@@ -347,6 +347,8 @@ export class LiveCatalogService {
     const summary = context.thread.preview.trim()
       ? excerpt(context.thread.preview, 140)
       : `Start a conversation in ${context.repo.name}`;
+    const latestUserPrompt = findLatestUserMessagePreview(context.thread, this.uploads)
+      ?? (context.thread.preview.trim() || undefined);
     const sessionState = this.deriveThreadSessionState(context.thread);
     const latestTurn = context.thread.turns.at(-1);
     const updatedAt = this.toIso(context.thread.updatedAt);
@@ -370,7 +372,7 @@ export class LiveCatalogService {
       statusConfidence: sessionState.confidence,
       latestTurnStatus: latestTurn?.status ?? null,
       threadStatusType: context.thread.status.type,
-      latestUserPrompt: context.thread.preview.trim() || undefined,
+      latestUserPrompt,
       latestAssistantExcerpt: undefined,
       pendingRequestCount: 0,
       hasUnreadCompletion: false,

@@ -137,6 +137,79 @@ test("catalog marks an in-progress turn on an inactive thread as suspicious inte
   assert.equal(detail.activeRun, null);
 });
 
+test("catalog keeps the original thread title while previewing the latest user message", async () => {
+  const thread: CodexThread = {
+    id: "thread_latest_user_preview",
+    preview: "Initial request title",
+    createdAt: 1_774_899_488,
+    updatedAt: 1_774_899_499,
+    status: { type: "idle" },
+    cwd: "/fixtures/repo",
+    path: "/fixtures/codex/sessions/latest-user-preview.jsonl",
+    name: null,
+    modelProvider: "openai",
+    source: "cli",
+    gitInfo: null,
+    turns: [
+      {
+        id: "turn_latest_user_preview_1",
+        items: [
+          {
+            type: "userMessage",
+            id: "user_latest_user_preview_1",
+            content: [{ type: "text", text: "Initial request title", text_elements: [] }]
+          },
+          {
+            type: "agentMessage",
+            id: "assistant_latest_user_preview_1",
+            text: "First answer",
+            phase: "final"
+          }
+        ],
+        status: "completed",
+        error: null
+      },
+      {
+        id: "turn_latest_user_preview_2",
+        items: [
+          {
+            type: "userMessage",
+            id: "user_latest_user_preview_2",
+            content: [{ type: "text", text: "Latest follow-up request", text_elements: [] }]
+          },
+          {
+            type: "agentMessage",
+            id: "assistant_latest_user_preview_2",
+            text: "Second answer",
+            phase: "final"
+          }
+        ],
+        status: "completed",
+        error: null
+      }
+    ]
+  };
+
+  const backend = new FixtureCodexBackend([thread]);
+  const catalog = new LiveCatalogService(
+    backend,
+    [
+      {
+        id: "fixture_repo",
+        path: "/fixtures/repo",
+        name: "Fixture Repo",
+        pinned: false
+      }
+    ],
+    uploads
+  );
+
+  const sessions = await catalog.listSessions();
+
+  assert.equal(sessions[0]?.title, "Initial request title");
+  assert.equal(sessions[0]?.latestUserPrompt, "Latest follow-up request");
+});
+
 test("worktree sessions inherit the configured repo name while keeping a worktree-specific branch", async (t) => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-worktree-fixture-"));
   const repoPath = path.join(tempDir, "fixture-repo");

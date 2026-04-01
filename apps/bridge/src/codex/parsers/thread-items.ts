@@ -63,6 +63,34 @@ export function mapThreadToMessages(thread: CodexThread, options: ThreadItemMapO
   return messages;
 }
 
+export function findLatestUserMessagePreview(thread: CodexThread, uploads: ThreadItemUploadResolver) {
+  for (let turnIndex = thread.turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+    const turn = thread.turns[turnIndex];
+    if (!turn) {
+      continue;
+    }
+
+    for (let itemIndex = turn.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const item = turn.items[itemIndex];
+      if (!item || item.type !== "userMessage" || !("content" in item)) {
+        continue;
+      }
+
+      const content = formatUserMessage(item.content, uploads);
+      const text = content.text.trim();
+      if (text) {
+        return text;
+      }
+
+      if (content.attachments.length > 0) {
+        return `Sent ${content.attachments.length} image${content.attachments.length === 1 ? "" : "s"}`;
+      }
+    }
+  }
+
+  return null;
+}
+
 export function mapThreadItemToMessage(
   sessionId: string,
   item: CodexThreadItem,
