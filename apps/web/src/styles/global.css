@@ -1108,6 +1108,18 @@ button {
   font-weight: 500;
 }
 
+.repo-group__indicators {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+
+.repo-group__indicator {
+  inline-size: 0.48rem;
+  block-size: 0.48rem;
+}
+
 .repo-group__list {
   display: grid;
   gap: 0;

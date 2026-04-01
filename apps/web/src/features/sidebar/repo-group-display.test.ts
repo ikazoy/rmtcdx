@@ -4,12 +4,14 @@ import type { SessionSummary } from "@codex-remote/shared-types";
 import {
   DEFAULT_REPO_GROUP_VISIBLE_SESSION_LIMIT,
   getVisibleRepoGroupSessions,
+  getRepoGroupIndicators,
   repoGroupToggleLabel,
+  repoGroupIndicatorsLabel,
   shouldAutoExpandRepoGroup,
   shouldLimitRepoGroupSessions
 } from "./repo-group-display";
 
-function createSession(index: number): SessionSummary {
+function createSession(index: number, overrides: Partial<SessionSummary> = {}): SessionSummary {
   const iso = `2026-03-${String(30 - Math.min(index, 29)).padStart(2, "0")}T12:00:00.000Z`;
 
   return {
@@ -28,7 +30,8 @@ function createSession(index: number): SessionSummary {
     hasUnreadCompletion: false,
     hasUnreadError: false,
     createdAt: iso,
-    updatedAt: iso
+    updatedAt: iso,
+    ...overrides
   };
 }
 
@@ -102,4 +105,55 @@ test("repoGroupToggleLabel switches between show more and show less", () => {
     }),
     "Show less"
   );
+});
+
+test("getRepoGroupIndicators returns attention states in fixed priority order", () => {
+  const sessions = [
+    createSession(1, {
+      status: "running"
+    }),
+    createSession(2, {
+      pendingRequestCount: 1
+    }),
+    createSession(3, {
+      hasUnreadCompletion: true,
+      unreadCount: 1
+    }),
+    createSession(4, {
+      hasUnreadError: true,
+      unreadCount: 1
+    })
+  ];
+
+  assert.deepEqual(getRepoGroupIndicators(sessions), ["error", "pending", "unread"]);
+});
+
+test("getRepoGroupIndicators shows running only when there is no attention state", () => {
+  assert.deepEqual(getRepoGroupIndicators([createSession(1, { status: "running" })]), ["running"]);
+  assert.deepEqual(
+    getRepoGroupIndicators([
+      createSession(1, { status: "running" }),
+      createSession(2, { hasUnreadCompletion: true, unreadCount: 1 })
+    ]),
+    ["unread"]
+  );
+});
+
+test("getRepoGroupIndicators applies the selected session pending override", () => {
+  assert.deepEqual(
+    getRepoGroupIndicators([createSession(1)], {
+      selectedSessionId: "session-1",
+      selectedSessionPendingRequestCount: 2
+    }),
+    ["pending"]
+  );
+});
+
+test("repoGroupIndicatorsLabel summarizes the visible states", () => {
+  assert.equal(repoGroupIndicatorsLabel(["running"]), "Has running threads");
+  assert.equal(
+    repoGroupIndicatorsLabel(["error", "pending", "unread"]),
+    "Needs attention: errors, pending requests, unread threads"
+  );
+  assert.equal(repoGroupIndicatorsLabel([]), null);
 });

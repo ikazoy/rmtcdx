@@ -15,7 +15,9 @@ import { groupByLogicalRepoLabel } from "../repos/logical-repo-groups";
 import {
   DEFAULT_REPO_GROUP_VISIBLE_SESSION_LIMIT,
   getVisibleRepoGroupSessions,
+  getRepoGroupIndicators,
   repoGroupToggleLabel,
+  repoGroupIndicatorsLabel,
   shouldAutoExpandRepoGroup,
   shouldLimitRepoGroupSessions
 } from "./repo-group-display";
@@ -435,6 +437,12 @@ export function SidebarPane({
                     >
                       <span className={`repo-group__chevron ${isCollapsed ? "is-collapsed" : ""}`}>▾</span>
                       <span className="repo-group__name">{group.repoLabel}</span>
+                      <RepoGroupIndicators
+                        indicators={getRepoGroupIndicators(group.sessions, {
+                          selectedSessionId,
+                          selectedSessionPendingRequestCount
+                        })}
+                      />
                       <span className="repo-group__count">{group.sessions.length}</span>
                     </button>
                     {!isCollapsed ? (
@@ -583,6 +591,44 @@ function RepoGroupToggleIcon({ collapsed }: { collapsed: boolean }) {
       )}
     </svg>
   );
+}
+
+function RepoGroupIndicators({
+  indicators
+}: {
+  indicators: ReturnType<typeof getRepoGroupIndicators>;
+}) {
+  const label = repoGroupIndicatorsLabel(indicators);
+
+  if (indicators.length === 0) {
+    return null;
+  }
+
+  return (
+    <span className="repo-group__indicators">
+      {label ? <span className="sr-only">{label}</span> : null}
+      {indicators.map((indicator) => (
+        <span
+          key={indicator}
+          className={`session-dot session-dot--${repoGroupIndicatorTone(indicator)} repo-group__indicator`}
+          aria-hidden="true"
+        />
+      ))}
+    </span>
+  );
+}
+
+function repoGroupIndicatorTone(indicator: ReturnType<typeof getRepoGroupIndicators>[number]) {
+  switch (indicator) {
+    case "unread":
+      return "completed";
+    case "error":
+      return "error";
+    case "pending":
+      return "pending";
+    case "running":
+      return "running";
+  }
 }
 
 function SessionRow({
