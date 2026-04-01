@@ -464,16 +464,17 @@ export function App() {
 
   useEffect(() => {
     const sessions = sessionsQuery.data?.sessions ?? [];
-    const unread = sessions.filter((session) => session.hasUnreadCompletion || session.hasUnreadError).length;
-    document.title = unread > 0 ? `(${unread}) Rmtcdx` : "Rmtcdx";
+    const hasUnread = sessions.some((session) => session.hasUnreadCompletion || session.hasUnreadError);
+    document.title = hasUnread ? "(•) Rmtcdx" : "Rmtcdx";
   }, [sessionsQuery.data?.sessions]);
 
   useEffect(() => {
     const selected = sessionsQuery.data?.sessions.find((session) => session.id === selectedSessionId);
+    const selectedHasUnread = Boolean(selected?.hasUnreadCompletion || selected?.hasUnreadError);
     if (
       !selectedSessionId
       || isDraftSession
-      || !selected?.unreadCount
+      || !selectedHasUnread
       || (!sessionDetailQuery.data || sessionDetailQuery.data.session.id !== selectedSessionId)
       || !sessionDetailQuery.isSuccess
       || !messagesQuery.isSuccess

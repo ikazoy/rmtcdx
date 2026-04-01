@@ -42,7 +42,7 @@ import {
 } from "./model-selection";
 import { MermaidBlock } from "./MermaidBlock";
 import { WorkspaceCombobox } from "../repos/WorkspaceCombobox";
-import { sessionDisplayStatus } from "../sessions/session-state";
+import { sessionIndicatorTone } from "../sessions/session-state";
 
 const MAX_IMAGE_ATTACHMENTS = 5;
 const TIMELINE_PIN_THRESHOLD_MIN_PX = 120;
@@ -1763,7 +1763,13 @@ export function ChatPane({
     (sessionIsRunning ? "running" : null) ??
     (latestRunState === "error" || latestRunState === "interrupted" ? latestRunState : null);
   const statusLooksSuspicious = detail?.session.statusConfidence === "suspicious";
-  const sessionBadgeState = detail ? sessionDisplayStatus(detail.session) : "idle";
+  const headerSignalTone = detail
+    ? sessionIndicatorTone({
+        ...detail.session,
+        pendingRequestCount: Math.max(detail.session.pendingRequestCount, pendingCodexRequestCount)
+      })
+    : "none";
+  const headerStatusDotTone = bannerRunState ?? (headerSignalTone !== "none" ? headerSignalTone : null);
   const showPendingAssistant =
     !streamingText && (Boolean(effectiveOptimisticMessage) || sessionIsRunning || isSubmitting || hasPendingResponse);
   const showComposerEmptyState =
@@ -2416,9 +2422,14 @@ export function ChatPane({
                 <div className="chat-head__copy">
                   <div className="chat-head__title">
                     <h2>
-                      <span
-                        className={["status-dot", `status-dot--${bannerRunState ?? sessionBadgeState}`].join(" ")}
-                      />
+                      {headerStatusDotTone ? (
+                        <span
+                          className={[
+                            "status-dot",
+                            `status-dot--${headerStatusDotTone}`
+                          ].join(" ")}
+                        />
+                      ) : null}
                       {detail.session.title}
                     </h2>
                     {pendingCodexRequestCount > 0 ? (

@@ -4,12 +4,33 @@ export function sessionDisplayStatus(session: Pick<SessionSummary, "isArchived" 
   return session.isArchived ? "archived" : session.status;
 }
 
+export type SessionIndicatorTone = "none" | "running" | "completed" | "error" | "pending";
+
 export function sessionIndicatorTone(
-  session: Pick<SessionSummary, "isArchived" | "status" | "pendingRequestCount">
-) {
-  if (!session.isArchived && session.pendingRequestCount > 0) {
+  session: Pick<
+    SessionSummary,
+    "isArchived" | "status" | "pendingRequestCount" | "hasUnreadCompletion" | "hasUnreadError"
+  >
+): SessionIndicatorTone {
+  if (session.isArchived) {
+    return "none";
+  }
+
+  if (session.pendingRequestCount > 0) {
     return "pending";
   }
 
-  return sessionDisplayStatus(session);
+  if (session.hasUnreadError || session.status === "error") {
+    return "error";
+  }
+
+  if (session.status === "running") {
+    return "running";
+  }
+
+  if (session.hasUnreadCompletion) {
+    return "completed";
+  }
+
+  return "none";
 }

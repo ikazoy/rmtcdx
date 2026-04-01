@@ -69,28 +69,32 @@ export function SessionsPane({
             <p>Create a session or loosen the current search filter.</p>
           </div>
         ) : null}
-        {sessions.map((session) => (
-          <button
-            key={session.id}
-            className={`session-row ${selectedSessionId === session.id ? "is-active" : ""}`}
-            onClick={() => onSelect(session.id)}
-            type="button"
-          >
-            <div className="session-row__titleline">
-              <span className={`session-dot session-dot--${sessionIndicatorTone(session)}`} />
-              <strong>{session.title}</strong>
-              {session.pendingRequestCount > 0 ? (
-                <span className="badge badge--pending">{session.pendingRequestCount} pending</span>
-              ) : null}
-              {session.unreadCount > 0 ? <span className="badge">{session.unreadCount}</span> : null}
-            </div>
-            <p>{session.summary}</p>
-            <div className="session-row__meta">
-              <span>{sessionDisplayStatus(session)}</span>
-              <span>{formatRelativeTime(sessionSortAt(session))}</span>
-            </div>
-          </button>
-        ))}
+        {sessions.map((session) => {
+          const indicatorTone = sessionIndicatorTone(session);
+
+          return (
+            <button
+              key={session.id}
+              className={`session-row ${selectedSessionId === session.id ? "is-active" : ""}`}
+              onClick={() => onSelect(session.id)}
+              type="button"
+            >
+              <div className="session-row__titleline">
+                {indicatorTone !== "none" ? <span className={`session-dot session-dot--${indicatorTone}`} /> : null}
+                <strong>{session.title}</strong>
+                {session.pendingRequestCount > 0 ? (
+                  <span className="badge badge--pending">{session.pendingRequestCount} pending</span>
+                ) : null}
+                {session.hasUnreadError ? <span className="badge badge--error">Attention</span> : null}
+              </div>
+              <p>{session.summary}</p>
+              <div className="session-row__meta">
+                <span>{sessionDisplayStatus(session)}</span>
+                <span>{formatRelativeTime(sessionSortAt(session))}</span>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

@@ -641,7 +641,7 @@ function SessionRow({
     >
       <div className="session-row__head">
         <div className="session-row__titleline">
-          <span className={`session-dot session-dot--${indicatorTone}`} />
+          {indicatorTone !== "none" ? <span className={`session-dot session-dot--${indicatorTone}`} /> : null}
           <strong>{session.title}</strong>
         </div>
         <span className="session-row__time">{formatRelativeTime(sessionSortAt(session))}</span>
@@ -652,11 +652,12 @@ function SessionRow({
         {displayStatus === "interrupted" ? (
           <span className="badge badge--interrupted">interrupted</span>
         ) : null}
-        {displayStatus === "error" || session.hasUnreadError ? (
+        {session.hasUnreadError ? (
+          <span className="badge badge--error">Attention</span>
+        ) : displayStatus === "error" ? (
           <span className="badge badge--error">error</span>
         ) : null}
         {pendingRequestCount > 0 ? <span className="badge badge--pending">{pendingRequestCount} pending</span> : null}
-        {session.unreadCount > 0 ? <span className="badge">{session.unreadCount}</span> : null}
       </div>
     </button>
   );
