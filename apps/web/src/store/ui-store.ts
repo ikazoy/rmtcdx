@@ -194,6 +194,13 @@ type UiState = {
 export const useUiStore = create<UiState>((set) => {
   const queuedStreamingBySession = new Map<string, string[]>();
   let cancelStreamingFlush: (() => void) | null = null;
+  const queuedActivityOutputByKey = new Map<string, {
+    sessionId: string;
+    itemId: string;
+    deltas: string[];
+    updatedAt: string;
+  }>();
+  let cancelActivityFlush: (() => void) | null = null;
 
   const flushQueuedStreaming = () => {
     cancelStreamingFlush = null;
@@ -236,6 +243,81 @@ export const useUiStore = create<UiState>((set) => {
     if (cancelStreamingFlush && queuedStreamingBySession.size === 0) {
       cancelStreamingFlush();
       cancelStreamingFlush = null;
+    }
+  };
+
+  const flushQueuedActivityOutput = () => {
+    cancelActivityFlush = null;
+
+    if (queuedActivityOutputByKey.size === 0) {
+      return;
+    }
+
+    const queuedEntries = [...queuedActivityOutputByKey.values()].map((entry) => ({
+      sessionId: entry.sessionId,
+      itemId: entry.itemId,
+      delta: entry.deltas.join(""),
+      updatedAt: entry.updatedAt
+    }));
+    queuedActivityOutputByKey.clear();
+
+    set((state) => {
+      let nextActivities = state.activities;
+      let changed = false;
+      const clonedSessionIds = new Set<string>();
+
+      for (const entry of queuedEntries) {
+        const sessionActivities = nextActivities[entry.sessionId] ?? state.activities[entry.sessionId];
+        const activity = sessionActivities?.[entry.itemId];
+        if (!activity || !entry.delta) {
+          continue;
+        }
+
+        if (!changed) {
+          nextActivities = { ...nextActivities };
+          changed = true;
+        }
+
+        if (!clonedSessionIds.has(entry.sessionId)) {
+          nextActivities[entry.sessionId] = { ...sessionActivities };
+          clonedSessionIds.add(entry.sessionId);
+        }
+
+        nextActivities[entry.sessionId]![entry.itemId] = {
+          ...activity,
+          output: `${activity.output}${entry.delta}`.slice(-4000),
+          updatedAt: entry.updatedAt
+        };
+      }
+
+      return changed ? { activities: nextActivities } : state;
+    });
+  };
+
+  const scheduleActivityFlush = () => {
+    if (cancelActivityFlush) {
+      return;
+    }
+
+    cancelActivityFlush = scheduleNextUiFlush(flushQueuedActivityOutput);
+  };
+
+  const activityOutputQueueKey = (sessionId: string, itemId: string) => `${sessionId}:${itemId}`;
+
+  const discardQueuedActivityOutput = (sessionId: string, itemId?: string) => {
+    if (itemId) {
+      queuedActivityOutputByKey.delete(activityOutputQueueKey(sessionId, itemId));
+    } else {
+      for (const key of [...queuedActivityOutputByKey.keys()]) {
+        if (key.startsWith(`${sessionId}:`)) {
+          queuedActivityOutputByKey.delete(key);
+        }
+      }
+    }
+
+    if (cancelActivityFlush && queuedActivityOutputByKey.size === 0) {
+      cancelActivityFlush();
+      cancelActivityFlush = null;
     }
   };
 
@@ -283,66 +365,67 @@ export const useUiStore = create<UiState>((set) => {
         delete next[sessionId];
         return { streaming: next };
       }),
-  upsertActivity: (activity) =>
-    set((state) => ({
-      activities: {
-        ...state.activities,
-        [activity.sessionId]: {
-          ...(state.activities[activity.sessionId] ?? {}),
-          [activity.itemId]: activity
-        }
-      }
-    })),
-  appendActivityOutput: (sessionId, itemId, delta, updatedAt) =>
-    set((state) => {
-      const sessionActivities = state.activities[sessionId];
-      const activity = sessionActivities?.[itemId];
-      if (!activity) {
-        return state;
-      }
-
-      return {
+    upsertActivity: (activity) =>
+      set((state) => ({
         activities: {
           ...state.activities,
-          [sessionId]: {
-            ...sessionActivities,
-            [itemId]: {
-              ...activity,
-              output: `${activity.output}${delta}`.slice(-4000),
-              updatedAt
-            }
+          [activity.sessionId]: {
+            ...(state.activities[activity.sessionId] ?? {}),
+            [activity.itemId]: activity
           }
         }
-      };
-    }),
-  removeActivity: (sessionId, itemId) =>
-    set((state) => {
-      const sessionActivities = state.activities[sessionId];
-      if (!sessionActivities?.[itemId]) {
-        return state;
+      })),
+    appendActivityOutput: (sessionId, itemId, delta, updatedAt) => {
+      if (!sessionId || !itemId || !delta) {
+        return;
       }
 
-      const nextSessionActivities = { ...sessionActivities };
-      delete nextSessionActivities[itemId];
-
-      const nextActivities = { ...state.activities };
-      if (Object.keys(nextSessionActivities).length === 0) {
-        delete nextActivities[sessionId];
+      const key = activityOutputQueueKey(sessionId, itemId);
+      const queuedEntry = queuedActivityOutputByKey.get(key);
+      if (queuedEntry) {
+        queuedEntry.deltas.push(delta);
+        queuedEntry.updatedAt = updatedAt;
       } else {
-        nextActivities[sessionId] = nextSessionActivities;
+        queuedActivityOutputByKey.set(key, {
+          sessionId,
+          itemId,
+          deltas: [delta],
+          updatedAt
+        });
       }
 
-      return { activities: nextActivities };
-    }),
-  clearActivities: (sessionId) =>
-    set((state) => {
-      if (!state.activities[sessionId]) {
-        return state;
-      }
-      const nextActivities = { ...state.activities };
-      delete nextActivities[sessionId];
-      return { activities: nextActivities };
-    }),
+      scheduleActivityFlush();
+    },
+    removeActivity: (sessionId, itemId) =>
+      set((state) => {
+        discardQueuedActivityOutput(sessionId, itemId);
+        const sessionActivities = state.activities[sessionId];
+        if (!sessionActivities?.[itemId]) {
+          return state;
+        }
+
+        const nextSessionActivities = { ...sessionActivities };
+        delete nextSessionActivities[itemId];
+
+        const nextActivities = { ...state.activities };
+        if (Object.keys(nextSessionActivities).length === 0) {
+          delete nextActivities[sessionId];
+        } else {
+          nextActivities[sessionId] = nextSessionActivities;
+        }
+
+        return { activities: nextActivities };
+      }),
+    clearActivities: (sessionId) =>
+      set((state) => {
+        discardQueuedActivityOutput(sessionId);
+        if (!state.activities[sessionId]) {
+          return state;
+        }
+        const nextActivities = { ...state.activities };
+        delete nextActivities[sessionId];
+        return { activities: nextActivities };
+      }),
   toggleRepoCollapsed: (repoKey) =>
     set((state) => {
       const next = new Set(state.collapsedRepoKeys);

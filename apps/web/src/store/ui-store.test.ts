@@ -100,3 +100,55 @@ test("clearStreaming discards queued deltas for a session before they flush", as
 
   assert.equal(useUiStore.getState().streaming["session-1"], undefined);
 });
+
+test("appendActivityOutput batches command output deltas until the scheduled flush", async () => {
+  const activity: LiveActivity = {
+    sessionId: "session-1",
+    runId: "run-1",
+    turnId: "turn-1",
+    itemId: "activity-1",
+    kind: "command",
+    label: "npm test",
+    output: "",
+    startedAt: "2026-04-01T09:59:00.000Z",
+    updatedAt: "2026-04-01T10:00:00.000Z"
+  };
+  const { upsertActivity, appendActivityOutput } = useUiStore.getState();
+
+  upsertActivity(activity);
+  appendActivityOutput("session-1", "activity-1", "hel", "2026-04-01T10:00:01.000Z");
+  appendActivityOutput("session-1", "activity-1", "lo", "2026-04-01T10:00:02.000Z");
+
+  assert.equal(useUiStore.getState().activities["session-1"]?.["activity-1"]?.output, "");
+
+  await waitForQueuedUiFlush();
+
+  assert.equal(useUiStore.getState().activities["session-1"]?.["activity-1"]?.output, "hello");
+  assert.equal(
+    useUiStore.getState().activities["session-1"]?.["activity-1"]?.updatedAt,
+    "2026-04-01T10:00:02.000Z"
+  );
+});
+
+test("removeActivity discards queued output before it flushes", async () => {
+  const activity: LiveActivity = {
+    sessionId: "session-1",
+    runId: "run-1",
+    turnId: "turn-1",
+    itemId: "activity-1",
+    kind: "command",
+    label: "npm test",
+    output: "",
+    startedAt: "2026-04-01T09:59:00.000Z",
+    updatedAt: "2026-04-01T10:00:00.000Z"
+  };
+  const { upsertActivity, appendActivityOutput, removeActivity } = useUiStore.getState();
+
+  upsertActivity(activity);
+  appendActivityOutput("session-1", "activity-1", "hello", "2026-04-01T10:00:01.000Z");
+  removeActivity("session-1", "activity-1");
+
+  await waitForQueuedUiFlush();
+
+  assert.equal(useUiStore.getState().activities["session-1"]?.["activity-1"], undefined);
+});
