@@ -98,17 +98,18 @@ export function buildDraftSessionDetail(sessionId: string, repo: Repository, cre
 
 export function buildVisibleSessions(
   sessions: SessionSummary[],
-  selectedRepoId: string | null,
+  selectedRepoIds: ReadonlySet<string> | null,
   pendingThread: PendingThread | null
 ) {
+  const filteredSessions = selectedRepoIds ? sessions.filter((session) => selectedRepoIds.has(session.repoId)) : sessions;
   const pendingSessionSummary =
     pendingThread &&
-    (!selectedRepoId || selectedRepoId === pendingThread.repoId) &&
-    !sessions.some((session) => session.id === pendingThread.sessionId)
+    (!selectedRepoIds || selectedRepoIds.has(pendingThread.repoId)) &&
+    !filteredSessions.some((session) => session.id === pendingThread.sessionId)
       ? buildPendingSessionSummary(pendingThread)
       : null;
 
-  return pendingSessionSummary ? [pendingSessionSummary, ...sessions] : sessions;
+  return pendingSessionSummary ? [pendingSessionSummary, ...filteredSessions] : filteredSessions;
 }
 
 export function mergeSessionSummaryIntoDetail(

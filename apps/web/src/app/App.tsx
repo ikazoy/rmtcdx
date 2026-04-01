@@ -34,7 +34,8 @@ import { ChatPane } from "../features/chat/ChatPane";
 import { DEFAULT_RUN_SETTINGS, pickRunSettings, runSettingsForRequest } from "../features/chat/run-settings";
 import { CodexRequestDialog } from "../features/codex-requests/CodexRequestDialog";
 import { resolveDraftRepoId } from "../features/repos/repo-defaults";
-import { buildRepoLabelFormatter } from "../features/repos/repo-presentation";
+import { groupByLogicalRepoLabel, logicalRepoIdSetForSelection } from "../features/repos/logical-repo-groups";
+import { buildRepoLabelFormatter, buildRepoNameFormatter, sortReposForDisplay } from "../features/repos/repo-presentation";
 import { SidebarPane } from "../features/sidebar/SidebarPane";
 import { useRealtime } from "../hooks/use-realtime";
 import { useUiStore } from "../store/ui-store";
@@ -369,12 +370,32 @@ export function App() {
     queryKey: queryKeys.repos,
     queryFn: api.repos
   });
+  const repos = useMemo(() => reposQuery.data?.repos ?? EMPTY_REPOS, [reposQuery.data?.repos]);
+  const orderedRepos = useMemo(() => sortReposForDisplay(repos), [repos]);
+  const formatRepoName = useMemo(() => buildRepoNameFormatter(orderedRepos), [orderedRepos]);
+  const logicalRepoGroups = useMemo(
+    () => groupByLogicalRepoLabel(orderedRepos, formatRepoName),
+    [formatRepoName, orderedRepos]
+  );
+  const selectedLogicalRepoIds = useMemo(
+    () => logicalRepoIdSetForSelection(logicalRepoGroups, selectedRepoId),
+    [logicalRepoGroups, selectedRepoId]
+  );
+  const backendFilteredRepoId = useMemo(() => {
+    if (!selectedLogicalRepoIds || selectedLogicalRepoIds.size !== 1) {
+      return null;
+    }
+
+    return [...selectedLogicalRepoIds][0] ?? null;
+  }, [selectedLogicalRepoIds]);
 
   const sessionsQuery = useQuery({
     queryKey: queryKeys.sessions(selectedRepoId, deferredSearch, filter),
-    queryFn: () => api.sessions(selectedRepoId, deferredSearch, filter),
+    queryFn: () => api.sessions(backendFilteredRepoId, deferredSearch, filter),
     refetchInterval: 10000
   });
+  const sessions = useMemo(() => sessionsQuery.data?.sessions ?? EMPTY_SESSIONS, [sessionsQuery.data?.sessions]);
+  const visibleSessions = buildVisibleSessions(sessions, selectedLogicalRepoIds, pendingThread);
 
   const sessionDetailQuery = useQuery({
     queryKey: queryKeys.session(selectedSessionId),
@@ -450,17 +471,13 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const firstSession = sessionsQuery.data?.sessions[0];
+    const firstSession = visibleSessions[0];
     if (isMobileViewport || routeSessionId || !firstSession) {
       return;
     }
 
-    if (selectedRepoId && firstSession.repoId !== selectedRepoId) {
-      return;
-    }
-
     navigate(buildSessionPath(firstSession.id), { replace: true });
-  }, [isMobileViewport, navigate, routeSessionId, selectedRepoId, sessionsQuery.data?.sessions]);
+  }, [isMobileViewport, navigate, routeSessionId, visibleSessions]);
 
   useEffect(() => {
     const sessions = sessionsQuery.data?.sessions ?? [];
@@ -617,7 +634,8 @@ export function App() {
         const nextSessions = queryClient.getQueryData<SessionsResponse>(
           queryKeys.sessions(selectedRepoId, deferredSearch, filter)
         );
-        const nextSessionId = nextSessions?.sessions[0]?.id ?? null;
+        const nextSessionId =
+          buildVisibleSessions(nextSessions?.sessions ?? EMPTY_SESSIONS, selectedLogicalRepoIds, null)[0]?.id ?? null;
         navigate(nextSessionId ? buildSessionPath(nextSessionId) : "/", { replace: true });
       }
 
@@ -670,10 +688,7 @@ export function App() {
     }
   });
 
-  const repos = useMemo(() => reposQuery.data?.repos ?? EMPTY_REPOS, [reposQuery.data?.repos]);
-  const sessions = useMemo(() => sessionsQuery.data?.sessions ?? EMPTY_SESSIONS, [sessionsQuery.data?.sessions]);
-  const visibleSessions = buildVisibleSessions(sessions, selectedRepoId, pendingThread);
-  const formatRepoLabel = useMemo(() => buildRepoLabelFormatter(repos), [repos]);
+  const formatRepoLabel = useMemo(() => buildRepoLabelFormatter(orderedRepos), [orderedRepos]);
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
   const selectedPolledSessionSummary =
     sessions.find((session) => selectedSessionIds.has(session.id)) ?? null;

@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import type { Repository } from "@codex-remote/shared-types";
 import { moveActiveItemKey, resolveActiveItemKey } from "../../components/listbox-navigation";
+import { findLogicalRepoGroupByRepoId, groupByLogicalRepoLabel } from "./logical-repo-groups";
 
 const EMPTY_OPTION_KEY = "__workspace-combobox-empty__";
 
@@ -36,23 +37,28 @@ export function WorkspaceCombobox({
   const searchRef = useRef<HTMLInputElement | null>(null);
   const optionRefs = useRef(new Map<string, HTMLButtonElement>());
   const listboxId = useId();
-  const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
-  const selectedLabel = selectedRepo ? formatRepoLabel(selectedRepo) : (emptyOptionLabel ?? "Select workspace");
-  const selectedSecondaryLabel =
-    selectedRepo && formatRepoSecondaryLabel ? formatRepoSecondaryLabel(selectedRepo) : null;
+  const repoGroups = useMemo(() => groupByLogicalRepoLabel(repos, formatRepoLabel), [formatRepoLabel, repos]);
+  const selectedRepoGroup = useMemo(
+    () => findLogicalRepoGroupByRepoId(repoGroups, selectedRepoId),
+    [repoGroups, selectedRepoId]
+  );
+  const selectedRepo = selectedRepoGroup?.items[0] ?? null;
+  const selectedLabel = selectedRepoGroup?.repoLabel ?? (emptyOptionLabel ?? "Select workspace");
+  const selectedSecondaryLabel = selectedRepo && formatRepoSecondaryLabel ? formatRepoSecondaryLabel(selectedRepo) : null;
   const { filteredOptions, options } = useMemo(() => {
     const normalizedQuery = query.toLowerCase();
-    const visibleRepoOptions = repos
-      .map((repo) => {
-        const label = formatRepoLabel(repo);
-        const secondaryLabel = formatRepoSecondaryLabel?.(repo) ?? null;
+    const visibleRepoOptions = repoGroups
+      .map((group) => {
+        const representativeRepo = group.items[0];
+        const secondaryLabel =
+          representativeRepo && formatRepoSecondaryLabel ? formatRepoSecondaryLabel(representativeRepo) : null;
         return {
-          key: repo.id,
-          repoId: repo.id,
-          label,
+          key: group.repoKey,
+          repoId: representativeRepo?.id ?? null,
+          label: group.repoLabel,
           secondaryLabel,
-          isSelected: selectedRepoId === repo.id,
-          searchText: `${label.toLowerCase()} ${secondaryLabel?.toLowerCase() ?? ""}`
+          isSelected: Boolean(selectedRepoId && group.items.some((repo) => repo.id === selectedRepoId)),
+          searchText: `${group.repoLabel.toLowerCase()} ${secondaryLabel?.toLowerCase() ?? ""}`
         };
       })
       .filter((option) => (normalizedQuery ? option.searchText.includes(normalizedQuery) : true));
@@ -75,7 +81,7 @@ export function WorkspaceCombobox({
         ...visibleRepoOptions
       ]
     };
-  }, [emptyOptionLabel, formatRepoLabel, formatRepoSecondaryLabel, query, repos, selectedRepoId]);
+  }, [emptyOptionLabel, formatRepoSecondaryLabel, query, repoGroups, selectedRepoId]);
   const selectedOptionKey = options.find((option) => option.isSelected)?.key ?? null;
   const activeOption = options.find((option) => option.key === activeOptionKey) ?? null;
   const rootClassName = [

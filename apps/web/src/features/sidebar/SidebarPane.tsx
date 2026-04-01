@@ -11,6 +11,7 @@ import {
   buildSessionRepoVariantLabelFormatter,
   sortReposForDisplay
 } from "../repos/repo-presentation";
+import { groupByLogicalRepoLabel } from "../repos/logical-repo-groups";
 import {
   DEFAULT_REPO_GROUP_VISIBLE_SESSION_LIMIT,
   getVisibleRepoGroupSessions,
@@ -45,13 +46,6 @@ type Props = {
   onCreateSession: () => void;
 };
 
-type RepoGroup = {
-  repoKey: string;
-  repoLabel: string;
-  sessions: SessionSummary[];
-  latestSortAt: string;
-};
-
 const REFRESH_INDICATOR_DELAY_MS = 300;
 const EMPTY_SESSIONS: SessionSummary[] = [];
 
@@ -80,36 +74,6 @@ function filterLabel(filter: SessionFilter) {
     case "archived":
       return "Archived";
   }
-}
-
-function groupByRepo(
-  sessions: SessionSummary[],
-  formatSessionRepoName: (session: Pick<SessionSummary, "repoId" | "repoName">) => string
-): RepoGroup[] {
-  const map = new Map<string, RepoGroup>();
-
-  for (const session of sessions) {
-    const repoKey = formatSessionRepoName(session);
-    const group = map.get(repoKey);
-    if (group) {
-      group.sessions.push(session);
-      continue;
-    }
-
-    map.set(repoKey, {
-      repoKey,
-      repoLabel: repoKey,
-      sessions: [session],
-      latestSortAt: sessionSortAt(session)
-    });
-  }
-
-  const groups = [...map.values()].map((group) => ({
-    ...group,
-    latestSortAt: group.sessions[0] ? sessionSortAt(group.sessions[0]) : ""
-  }));
-  groups.sort((a, b) => b.latestSortAt.localeCompare(a.latestSortAt));
-  return groups;
 }
 
 export function SidebarPane({
@@ -155,7 +119,17 @@ export function SidebarPane({
   const errorMessage = sessionsState.kind === "error" ? sessionsState.message : null;
   const selectedRepo = orderedRepos.find((repo) => repo.id === selectedRepoId) ?? null;
   const repoGroups = useMemo(
-    () => (selectedRepoId ? [] : groupByRepo(sessions, formatSessionRepoName)),
+    () =>
+      selectedRepoId
+        ? []
+        : groupByLogicalRepoLabel(sessions, formatSessionRepoName)
+            .map((group) => ({
+              repoKey: group.repoKey,
+              repoLabel: group.repoLabel,
+              sessions: group.items,
+              latestSortAt: group.items[0] ? sessionSortAt(group.items[0]) : ""
+            }))
+            .sort((left, right) => right.latestSortAt.localeCompare(left.latestSortAt)),
     [formatSessionRepoName, selectedRepoId, sessions]
   );
   const shouldLimitGroupedSessions = shouldLimitRepoGroupSessions({

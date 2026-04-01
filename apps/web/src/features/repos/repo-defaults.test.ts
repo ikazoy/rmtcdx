@@ -106,3 +106,28 @@ test("resolveDraftRepoId returns null when no repos are available", () => {
 
   assert.equal(resolved, null);
 });
+
+test("resolveDraftRepoId normalizes duplicate logical repos to the representative repo id", () => {
+  const repos = [
+    createRepo({
+      id: "repo-a-main",
+      name: "Repo A",
+      updatedAt: "2026-03-31T12:00:00.000Z"
+    }),
+    createRepo({
+      id: "repo-a-worktree",
+      name: "Repo A",
+      updatedAt: "2026-03-20T12:00:00.000Z"
+    })
+  ];
+
+  const resolved = resolveDraftRepoId({
+    repos,
+    currentSessionRepoId: "repo-a-worktree",
+    lastDraftRepoId: null,
+    selectedRepoId: null,
+    selectedRepoSource: "system"
+  });
+
+  assert.equal(resolved, "repo-a-main");
+});
