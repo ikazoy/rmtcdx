@@ -1,15 +1,36 @@
 import Prism from "prismjs";
 import "prismjs/components/prism-bash";
 import "prismjs/components/prism-clike";
+import "prismjs/components/prism-c";
+import "prismjs/components/prism-cpp";
+import "prismjs/components/prism-csharp";
 import "prismjs/components/prism-css";
 import "prismjs/components/prism-diff";
+import "prismjs/components/prism-cmake";
+import "prismjs/components/prism-docker";
+import "prismjs/components/prism-git";
+import "prismjs/components/prism-go";
+import "prismjs/components/prism-graphql";
+import "prismjs/components/prism-groovy";
+import "prismjs/components/prism-ini";
 import "prismjs/components/prism-javascript";
+import "prismjs/components/prism-java";
 import "prismjs/components/prism-jsx";
 import "prismjs/components/prism-json";
+import "prismjs/components/prism-markup-templating";
+import "prismjs/components/prism-kotlin";
+import "prismjs/components/prism-lua";
+import "prismjs/components/prism-makefile";
 import "prismjs/components/prism-markdown";
 import "prismjs/components/prism-markup";
+import "prismjs/components/prism-perl";
+import "prismjs/components/prism-php";
+import "prismjs/components/prism-powershell";
 import "prismjs/components/prism-python";
+import "prismjs/components/prism-ruby";
+import "prismjs/components/prism-rust";
 import "prismjs/components/prism-sql";
+import "prismjs/components/prism-swift";
 import "prismjs/components/prism-toml";
 import "prismjs/components/prism-tsx";
 import "prismjs/components/prism-typescript";
@@ -23,32 +44,91 @@ type SyntaxCodeBlockProps = {
 
 const syntaxAliasMap: Record<string, string> = {
   bash: "bash",
+  c: "c",
   cjs: "javascript",
+  cc: "cpp",
+  cpp: "cpp",
+  cs: "csharp",
+  csharp: "csharp",
+  cxx: "cpp",
   css: "css",
+  docker: "docker",
+  dockerfile: "docker",
   diff: "diff",
+  git: "git",
+  go: "go",
+  groovy: "groovy",
   html: "markup",
   htm: "markup",
+  h: "c",
+  hh: "cpp",
+  hpp: "cpp",
+  hxx: "cpp",
+  ini: "ini",
   javascript: "javascript",
   js: "javascript",
+  java: "java",
+  kotlin: "kotlin",
+  kt: "kotlin",
+  kts: "kotlin",
+  lua: "lua",
+  makefile: "makefile",
   json: "json",
+  jsonc: "json",
+  json5: "json",
   jsx: "jsx",
   markdown: "markdown",
   md: "markdown",
   mermaid: "mermaid",
   mjs: "javascript",
+  perl: "perl",
+  php: "php",
+  powershell: "powershell",
+  ps1: "powershell",
   py: "python",
+  pyw: "python",
   python: "python",
+  rb: "ruby",
+  ruby: "ruby",
+  rust: "rust",
+  rs: "rust",
   sh: "bash",
   shell: "bash",
+  swift: "swift",
   sql: "sql",
   toml: "toml",
   ts: "typescript",
   tsx: "tsx",
   typescript: "typescript",
-  xml: "markup",
   yaml: "yaml",
+  xml: "markup",
   yml: "yaml",
   zsh: "bash"
+};
+
+const syntaxPathAliasMap: Record<string, string> = {
+  ".gitattributes": "git",
+  ".gitconfig": "git",
+  ".gitignore": "git",
+  ".gitmodules": "git",
+  ".npmrc": "ini",
+  ".yarnrc": "ini",
+  "brewfile": "ruby",
+  "cargo.lock": "toml",
+  "cmakelists.txt": "cmake",
+  "dockerfile": "docker",
+  "gnumakefile": "makefile",
+  "gemfile": "ruby",
+  "go.mod": "go",
+  "go.sum": "go",
+  "gradle.properties": "ini",
+  "jenkinsfile": "groovy",
+  "justfile": "makefile",
+  "makefile": "makefile",
+  "podfile": "ruby",
+  "procfile": "bash",
+  "rakefile": "ruby",
+  "vagrantfile": "ruby"
 };
 
 function normalizeSyntaxLanguage(language?: string | null) {
@@ -90,10 +170,39 @@ export function syntaxLanguageFromMarkdownClassName(className?: string | null) {
 export function inferSyntaxLanguageFromPath(filePath: string) {
   const normalized = filePath.split(/[?#]/, 1)[0]?.toLowerCase() ?? "";
   const basename = normalized.split(/[\\/]/).pop() ?? normalized;
+  const exactMatch = syntaxPathAliasMap[basename];
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  if (basename.startsWith(".env")) {
+    return "ini";
+  }
+
+  if (basename.startsWith("dockerfile")) {
+    return "docker";
+  }
+
+  if (basename.endsWith(".gradle.kts")) {
+    return "kotlin";
+  }
+
+  if (basename.endsWith(".gradle")) {
+    return "groovy";
+  }
+
+  if (basename.endsWith(".cmake")) {
+    return "cmake";
+  }
+
+  if (basename.endsWith(".conf") || basename.endsWith(".cfg") || basename.endsWith(".properties")) {
+    return "ini";
+  }
+
   const extension = normalized.split(".").pop() ?? "";
 
   if (basename === "dockerfile") {
-    return "bash";
+    return "docker";
   }
 
   return normalizeSyntaxLanguage(extension);
