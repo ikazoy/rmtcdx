@@ -509,6 +509,32 @@ export function App() {
   }, [filter, search]);
 
   useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    document.body.dataset.mobilePane = isMobileViewport ? mobilePane : "desktop";
+
+    return () => {
+      delete document.body.dataset.mobilePane;
+    };
+  }, [isMobileViewport, mobilePane]);
+
+  useEffect(() => {
+    if (!isMobileViewport || mobilePane !== "chat" || typeof window === "undefined") {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [isMobileViewport, mobilePane, selectedSessionId]);
+
+  useEffect(() => {
     persistLastDraftRepoId(lastDraftRepoId);
   }, [lastDraftRepoId]);
 

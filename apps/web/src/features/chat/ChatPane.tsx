@@ -180,6 +180,7 @@ type FilePreviewSheetState = {
   type: "file_preview";
   request: SessionFilePreviewRequest;
   sourceList: FileChangeListContent | null;
+  selectedIndex: number | null;
 };
 
 type BottomSheetState =
@@ -426,6 +427,24 @@ function formatFileChangeSheetSubtitle(source: ThreadFileChangeSummary) {
   return `${formatCountLabel(source.rawCount, "change")} across ${formatCountLabel(source.count, "file")} · tap a file for diff / source`;
 }
 
+function filePreviewRequestFromChange(change: ThreadFileChangeEntry): SessionFilePreviewRequest {
+  return {
+    path: change.path,
+    diff: change.diff ?? null,
+    changeKind: change.kind,
+    movePath: change.movePath ?? null
+  };
+}
+
+function findThreadFileChangeIndex(content: FileChangeListContent, href: string) {
+  const normalizedHref = href.replace(/^\.\//, "");
+
+  return content.source.changes.findIndex((change) => {
+    const displayPath = displayPathForPreview(change);
+    return normalizedHref === change.path || normalizedHref === displayPath || normalizedHref === change.movePath;
+  });
+}
+
 function buildTimelineEntries(messages: Message[]): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
 
@@ -657,53 +676,6 @@ function defaultFilePreviewTab(request: Pick<SessionFilePreviewRequest, "path" |
   return "source" as const;
 }
 
-function filePreviewStatusLabel(preview: SessionFilePreviewResponse) {
-  switch (preview.contentStatus) {
-    case "ok":
-      return "Current file";
-    case "missing":
-      return "Missing";
-    case "directory":
-      return "Directory";
-    case "binary":
-      return "Binary";
-    case "too_large":
-      return "Too large";
-    default:
-      return "File";
-  }
-}
-
-function filePreviewKindLabel(preview: SessionFilePreviewResponse) {
-  if (preview.contentStatus === "directory") {
-    return "Directory";
-  }
-  if (preview.contentStatus === "binary") {
-    return "Binary file";
-  }
-  if (preview.mediaType?.startsWith("image/")) {
-    return "Image file";
-  }
-  if (preview.isMarkdown) {
-    return "Markdown";
-  }
-  return "Text file";
-}
-
-function formatFileSize(sizeBytes: number | null) {
-  if (sizeBytes === null || Number.isNaN(sizeBytes)) {
-    return null;
-  }
-
-  if (sizeBytes < 1024) {
-    return `${sizeBytes} B`;
-  }
-  if (sizeBytes < 1024 * 1024) {
-    return `${(sizeBytes / 1024).toFixed(sizeBytes >= 10 * 1024 ? 0 : 1)} KB`;
-  }
-  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function filePreviewEmptyMessage(preview: SessionFilePreviewResponse) {
   switch (preview.contentStatus) {
     case "missing":
@@ -869,6 +841,24 @@ function SheetBackIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M15.5 5.5 9 12l6.5 6.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function SheetUpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 17.5V6.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M7.5 11 12 6.5 16.5 11" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function SheetDownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 6.5v11" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M7.5 13 12 17.5 16.5 13" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
     </svg>
   );
 }
@@ -1414,12 +1404,18 @@ function BottomSheet({
   subtitle,
   onClose,
   onBack,
+  backAriaLabel,
+  headerActions,
+  showCloseButton = true,
   children
 }: {
   title: string;
   subtitle?: string | null;
   onClose: () => void;
   onBack?: () => void;
+  backAriaLabel?: string;
+  headerActions?: ReactNode;
+  showCloseButton?: boolean;
   children: ReactNode;
 }) {
   const [dragOffset, setDragOffset] = useState(0);
@@ -1535,7 +1531,7 @@ function BottomSheet({
           <header className="bottom-sheet__header">
             <div className="bottom-sheet__side">
               {onBack ? (
-                <button className="bottom-sheet__icon-button" type="button" aria-label="Back" onClick={onBack}>
+                <button className="bottom-sheet__icon-button" type="button" aria-label={backAriaLabel ?? "Back"} onClick={onBack}>
                   <SheetBackIcon />
                 </button>
               ) : null}
@@ -1545,9 +1541,12 @@ function BottomSheet({
               {subtitle ? <span>{subtitle}</span> : null}
             </div>
             <div className="bottom-sheet__side bottom-sheet__side--end">
-              <button className="bottom-sheet__icon-button" type="button" aria-label="Close" onClick={onClose}>
-                <SheetCloseIcon />
-              </button>
+              {headerActions ? <div className="bottom-sheet__actions">{headerActions}</div> : null}
+              {showCloseButton ? (
+                <button className="bottom-sheet__icon-button" type="button" aria-label="Close" onClick={onClose}>
+                  <SheetCloseIcon />
+                </button>
+              ) : null}
             </div>
           </header>
         </div>
@@ -1714,14 +1713,14 @@ function FileChangeSheet({
   content: FileChangeListContent;
   title?: string;
   onClose: () => void;
-  onSelect: (change: ThreadFileChangeEntry) => void;
+  onSelect: (change: ThreadFileChangeEntry, index: number) => void;
 }) {
   const { source } = content;
   return (
     <BottomSheet title={title ?? formatFileGroupTitle(source.count)} subtitle={formatFileChangeSheetSubtitle(source)} onClose={onClose}>
       <div className="sheet-list">
         {source.changes.length > 0 ? (
-          source.changes.map((change) => {
+          source.changes.map((change, index) => {
             const detail = fileChangeSummaryDetail(change);
 
             return (
@@ -1729,7 +1728,7 @@ function FileChangeSheet({
                 key={change.movePath ?? change.path}
                 className="sheet-row sheet-row--button"
                 type="button"
-                onClick={() => onSelect(change)}
+                onClick={() => onSelect(change, index)}
               >
                 <span className="sheet-row__icon sheet-row__icon--file">
                   <FileIcon />
@@ -1755,14 +1754,22 @@ function FileChangeSheet({
 function FilePreviewSheet({
   sessionId,
   request,
+  sourceList,
+  selectedIndex,
+  isMobileViewport,
   onClose,
   onBack,
+  onNavigateFile,
   onOpenFileLink
 }: {
   sessionId: string;
   request: SessionFilePreviewRequest;
+  sourceList: FileChangeListContent | null;
+  selectedIndex: number | null;
+  isMobileViewport: boolean;
   onClose: () => void;
   onBack?: () => void;
+  onNavigateFile: (delta: number) => void;
   onOpenFileLink: (href: string) => void;
 }) {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -1805,11 +1812,16 @@ function FilePreviewSheet({
   const preview = response ?? null;
   const displayPath = displayPathForPreview(preview ?? request);
   const title = fileLeafName(displayPath) || "File";
-  const subtitle = displayPath !== title ? displayPath : undefined;
+  const fullPath = preview?.resolvedPath ?? displayPath;
   const hasPreviewTab = preview?.contentStatus === "ok" && preview.isMarkdown;
   const hasImageSource = filePreviewHasImage(preview);
   const hasSourceTab = preview?.contentStatus === "ok" && (preview.text !== null || hasImageSource);
   const hasDiffTab = Boolean(preview?.diff?.trim());
+  const sourceCount = sourceList?.source.count ?? 0;
+  const currentIndex = selectedIndex ?? -1;
+  const hasThreadNavigation = currentIndex >= 0 && sourceCount > 1;
+  const canGoPrev = hasThreadNavigation && currentIndex > 0;
+  const canGoNext = hasThreadNavigation && currentIndex < sourceCount - 1;
   const sourceLanguage = inferSyntaxLanguageFromPath(displayPath);
   const availableTabs = [
     ...(hasDiffTab ? (["diff"] as const) : []),
@@ -1817,26 +1829,48 @@ function FilePreviewSheet({
     ...(hasSourceTab ? (["source"] as const) : [])
   ];
   const selectedTab = availableTabs.includes(activeTab) ? activeTab : (availableTabs[0] ?? null);
-  const sizeLabel = preview ? formatFileSize(preview.sizeBytes) : null;
+  const headerActions = hasThreadNavigation ? (
+    <>
+      <button
+        className="bottom-sheet__icon-button bottom-sheet__icon-button--nav bottom-sheet__icon-button--prev"
+        type="button"
+        aria-label="Previous file"
+        disabled={!canGoPrev}
+        onClick={() => onNavigateFile(-1)}
+      >
+        <SheetUpIcon />
+      </button>
+      <button
+        className="bottom-sheet__icon-button bottom-sheet__icon-button--nav bottom-sheet__icon-button--next"
+        type="button"
+        aria-label="Next file"
+        disabled={!canGoNext}
+        onClick={() => onNavigateFile(1)}
+      >
+        <SheetDownIcon />
+      </button>
+    </>
+  ) : null;
 
   return (
-    <BottomSheet title={title} subtitle={subtitle} onClose={onClose} onBack={onBack}>
+    <BottomSheet
+      title={title}
+      subtitle={null}
+      onClose={onClose}
+      onBack={onBack}
+      backAriaLabel="Back to list"
+      headerActions={headerActions}
+      showCloseButton={!isMobileViewport}
+    >
       {status === "loading" ? <p className="sheet-empty">Loading file preview…</p> : null}
       {status === "error" ? <p className="sheet-empty">{error ?? "Unable to load file preview."}</p> : null}
 
+      <p className="file-preview__path" title={fullPath}>
+        {fullPath}
+      </p>
+
       {preview ? (
         <>
-          <div className="sheet-meta">
-            <span className="sheet-meta__badge">{filePreviewStatusLabel(preview)}</span>
-            <span className="sheet-meta__badge">{filePreviewKindLabel(preview)}</span>
-            {sizeLabel ? <span className="sheet-meta__badge">{sizeLabel}</span> : null}
-            {preview.movePath ? <span className="sheet-meta__badge">From {preview.path}</span> : null}
-          </div>
-
-          {preview.resolvedPath && preview.resolvedPath !== displayPath ? (
-            <p className="file-preview__resolved">{preview.resolvedPath}</p>
-          ) : null}
-
           {availableTabs.length > 0 ? (
             <div className="file-preview__tabs" role="tablist" aria-label="File preview tabs">
               {hasDiffTab ? (
@@ -2292,13 +2326,27 @@ export function ChatPane({
     !streamingText && (Boolean(effectiveOptimisticMessage) || sessionIsRunning || isSubmitting || hasPendingResponse);
   const showComposerEmptyState =
     !messagesError && !isLoadingMessages && messages.length === 0 && !streamingText && !effectiveOptimisticMessage && !showPendingAssistant;
-  const openFilePreview = useCallback((request: SessionFilePreviewRequest, sourceList: FileChangeListContent | null = null) => {
-    setSheetState({
-      type: "file_preview",
-      request,
-      sourceList
-    });
-  }, []);
+  const openFilePreview = useCallback(
+    (
+      request: SessionFilePreviewRequest,
+      sourceList: FileChangeListContent | null = null,
+      selectedIndex: number | null = null
+    ) => {
+      setSheetState({
+        type: "file_preview",
+        request,
+        sourceList,
+        selectedIndex
+      });
+    },
+    []
+  );
+  const openFilePreviewFromChange = useCallback(
+    (change: ThreadFileChangeEntry, sourceList: FileChangeListContent, selectedIndex: number) => {
+      openFilePreview(filePreviewRequestFromChange(change), sourceList, selectedIndex);
+    },
+    [openFilePreview]
+  );
   const openThreadDiff = useCallback(() => {
     if (!threadDiffSourceList) {
       return;
@@ -2314,10 +2362,48 @@ export function ChatPane({
   }, [threadDiffSourceList]);
   const openFilePreviewFromLink = useCallback(
     (href: string, sourceList: FileChangeListContent | null = null) => {
+      if (sourceList) {
+        const selectedIndex = findThreadFileChangeIndex(sourceList, href);
+        if (selectedIndex >= 0) {
+          const change = sourceList.source.changes[selectedIndex];
+          if (change) {
+            openFilePreviewFromChange(change, sourceList, selectedIndex);
+            return;
+          }
+        }
+      }
+
       openFilePreview({ path: href }, sourceList);
     },
-    [openFilePreview]
+    [openFilePreview, openFilePreviewFromChange]
   );
+  const navigateFilePreview = useCallback((delta: number) => {
+    setSheetState((current) => {
+      if (current?.type !== "file_preview" || !current.sourceList || current.selectedIndex === null) {
+        return current;
+      }
+
+      const nextIndex = Math.min(
+        current.sourceList.source.changes.length - 1,
+        Math.max(0, current.selectedIndex + delta)
+      );
+
+      if (nextIndex === current.selectedIndex) {
+        return current;
+      }
+
+      const change = current.sourceList.source.changes[nextIndex];
+      if (!change) {
+        return current;
+      }
+
+      return {
+        ...current,
+        request: filePreviewRequestFromChange(change),
+        selectedIndex: nextIndex
+      };
+    });
+  }, []);
 
   useEffect(() => {
     debugChatState("render-state", {
@@ -2527,10 +2613,18 @@ export function ChatPane({
       }
 
       if (!imageViewerState) {
-        return;
+        if (sheetState?.type !== "file_preview" || !sheetState.sourceList || sheetState.selectedIndex === null) {
+          return;
+        }
       }
 
-      if (event.key === "ArrowLeft") {
+      if (event.key === "ArrowUp") {
+        if (!imageViewerState) {
+          event.preventDefault();
+          navigateFilePreview(-1);
+          return;
+        }
+
         event.preventDefault();
         setImageViewerState((current) =>
           current
@@ -2542,7 +2636,13 @@ export function ChatPane({
         );
       }
 
-      if (event.key === "ArrowRight") {
+      if (event.key === "ArrowDown") {
+        if (!imageViewerState) {
+          event.preventDefault();
+          navigateFilePreview(1);
+          return;
+        }
+
         event.preventDefault();
         setImageViewerState((current) =>
           current
@@ -2559,10 +2659,10 @@ export function ChatPane({
     window.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [imageViewerState, sheetState]);
+    document.body.style.overflow = previousOverflow;
+    window.removeEventListener("keydown", handleKeyDown);
+  };
+  }, [imageViewerState, navigateFilePreview, sheetState]);
 
   const clearSelectedImages = ({ preservePreviewUrls = false }: { preservePreviewUrls?: boolean } = {}) => {
     setSelectedImages((current) => {
@@ -3317,17 +3417,7 @@ export function ChatPane({
           content={sheetState.content}
           title={sheetState.content.title}
           onClose={() => setSheetState(null)}
-          onSelect={(change) =>
-            openFilePreview(
-              {
-                path: change.path,
-                diff: change.diff ?? null,
-                changeKind: change.kind,
-                movePath: change.movePath ?? null
-              },
-              sheetState.content
-            )
-          }
+          onSelect={(change, index) => openFilePreviewFromChange(change, sheetState.content, index)}
         />
       ) : null}
 
@@ -3335,6 +3425,9 @@ export function ChatPane({
         <FilePreviewSheet
           sessionId={detail.session.id}
           request={sheetState.request}
+          sourceList={sheetState.sourceList}
+          selectedIndex={sheetState.selectedIndex}
+          isMobileViewport={isMobileViewport}
           onClose={() => setSheetState(null)}
           onBack={
             sheetState.sourceList
@@ -3345,6 +3438,7 @@ export function ChatPane({
                   })
               : undefined
           }
+          onNavigateFile={navigateFilePreview}
           onOpenFileLink={(href) => openFilePreviewFromLink(href, sheetState.sourceList)}
         />
       ) : null}

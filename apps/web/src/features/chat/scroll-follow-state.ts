@@ -3,7 +3,7 @@ export type TimelineFollowMode = "following" | "detached";
 export function nextTimelineFollowMode({
   currentMode,
   pinnedToBottom,
-  scrollDelta,
+  scrollDelta: _scrollDelta,
   isProgrammaticScroll
 }: {
   currentMode: TimelineFollowMode;
@@ -11,16 +11,12 @@ export function nextTimelineFollowMode({
   scrollDelta: number;
   isProgrammaticScroll: boolean;
 }): TimelineFollowMode {
+  if (pinnedToBottom) {
+    return "following";
+  }
+
   if (isProgrammaticScroll) {
     return currentMode;
-  }
-
-  if (scrollDelta < -1) {
-    return "detached";
-  }
-
-  if (pinnedToBottom && scrollDelta > 1) {
-    return "following";
   }
 
   return currentMode;
@@ -28,14 +24,20 @@ export function nextTimelineFollowMode({
 
 export function shouldAutoScrollTimelineUpdate({
   followMode,
+  pinnedToBottom,
   pendingScrollToBottom,
   contentExpanded
 }: {
   followMode: TimelineFollowMode;
+  pinnedToBottom: boolean;
   pendingScrollToBottom: boolean;
   contentExpanded: boolean;
 }) {
   if (pendingScrollToBottom) {
+    return true;
+  }
+
+  if (pinnedToBottom) {
     return true;
   }
 

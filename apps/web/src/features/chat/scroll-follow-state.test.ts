@@ -7,7 +7,7 @@ import {
   timelineContentExpanded
 } from "./scroll-follow-state";
 
-test("nextTimelineFollowMode detaches on user upward scroll", () => {
+test("nextTimelineFollowMode does not detach on non-programmatic upward movement alone", () => {
   assert.equal(
     nextTimelineFollowMode({
       currentMode: "following",
@@ -15,7 +15,19 @@ test("nextTimelineFollowMode detaches on user upward scroll", () => {
       scrollDelta: -12,
       isProgrammaticScroll: false
     }),
-    "detached"
+    "following"
+  );
+});
+
+test("nextTimelineFollowMode resumes following whenever the timeline is still pinned", () => {
+  assert.equal(
+    nextTimelineFollowMode({
+      currentMode: "detached",
+      pinnedToBottom: true,
+      scrollDelta: -6,
+      isProgrammaticScroll: false
+    }),
+    "following"
   );
 });
 
@@ -31,11 +43,11 @@ test("nextTimelineFollowMode resumes following when the user scrolls back to the
   );
 });
 
-test("nextTimelineFollowMode ignores programmatic scroll movement", () => {
+test("nextTimelineFollowMode keeps detached mode on programmatic movement while still away from bottom", () => {
   assert.equal(
     nextTimelineFollowMode({
       currentMode: "detached",
-      pinnedToBottom: true,
+      pinnedToBottom: false,
       scrollDelta: 40,
       isProgrammaticScroll: true
     }),
@@ -47,6 +59,7 @@ test("shouldAutoScrollTimelineUpdate requires follow mode unless a jump is pendi
   assert.equal(
     shouldAutoScrollTimelineUpdate({
       followMode: "following",
+      pinnedToBottom: false,
       pendingScrollToBottom: false,
       contentExpanded: true
     }),
@@ -56,6 +69,7 @@ test("shouldAutoScrollTimelineUpdate requires follow mode unless a jump is pendi
   assert.equal(
     shouldAutoScrollTimelineUpdate({
       followMode: "following",
+      pinnedToBottom: false,
       pendingScrollToBottom: false,
       contentExpanded: false
     }),
@@ -65,6 +79,7 @@ test("shouldAutoScrollTimelineUpdate requires follow mode unless a jump is pendi
   assert.equal(
     shouldAutoScrollTimelineUpdate({
       followMode: "detached",
+      pinnedToBottom: false,
       pendingScrollToBottom: false,
       contentExpanded: true
     }),
@@ -74,7 +89,18 @@ test("shouldAutoScrollTimelineUpdate requires follow mode unless a jump is pendi
   assert.equal(
     shouldAutoScrollTimelineUpdate({
       followMode: "detached",
+      pinnedToBottom: false,
       pendingScrollToBottom: true,
+      contentExpanded: false
+    }),
+    true
+  );
+
+  assert.equal(
+    shouldAutoScrollTimelineUpdate({
+      followMode: "detached",
+      pinnedToBottom: true,
+      pendingScrollToBottom: false,
       contentExpanded: false
     }),
     true
