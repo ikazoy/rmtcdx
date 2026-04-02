@@ -180,3 +180,29 @@ test("mobile summary cards keep long rows clipped without widening the timeline"
     await page.close();
   }
 });
+
+test("mobile chat topbar spans the full chat width", { timeout: 30_000 }, async () => {
+  const page = await openFixturePage("");
+
+  try {
+    const measurement = await page.evaluate(() => {
+      const chatCard = document.querySelector<HTMLElement>(".chat-card");
+      const topbar = document.querySelector<HTMLElement>(".chat-topbar");
+      if (!chatCard || !topbar) {
+        throw new Error("Missing topbar fixture");
+      }
+
+      return {
+        chatCardWidth: chatCard.clientWidth,
+        topbarWidth: topbar.clientWidth
+      };
+    });
+
+    assert.ok(
+      Math.abs(measurement.topbarWidth - measurement.chatCardWidth) <= 1,
+      `.chat-topbar width ${measurement.topbarWidth} did not match .chat-card width ${measurement.chatCardWidth}`
+    );
+  } finally {
+    await page.close();
+  }
+});

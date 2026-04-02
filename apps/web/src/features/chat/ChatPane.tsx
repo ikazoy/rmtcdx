@@ -64,6 +64,7 @@ const MAX_IMAGE_ATTACHMENTS = 5;
 const TIMELINE_PIN_THRESHOLD_MIN_PX = 120;
 const TIMELINE_PIN_THRESHOLD_MAX_PX = 220;
 const TIMELINE_PIN_THRESHOLD_VIEWPORT_RATIO = 0.18;
+const ACTIVE_COMPOSER_PLACEHOLDER = "Ask Codex...";
 const EMPTY_MESSAGES: Message[] = [];
 const EMPTY_ACTIVITY_MAP: Record<string, LiveActivity> = {};
 
@@ -3323,7 +3324,7 @@ export function ChatPane({
                 <div className="composer-field">
                   <textarea
                     ref={composerRef}
-                    placeholder={sessionIsArchived ? "Restore this thread to continue..." : "Describe a task or ask a question..."}
+                    placeholder={sessionIsArchived ? "Restore this thread to continue..." : ACTIVE_COMPOSER_PLACEHOLDER}
                     disabled={sessionIsArchived}
                     onKeyDown={handleComposerKeyDown}
                     onPaste={handleComposerPaste}

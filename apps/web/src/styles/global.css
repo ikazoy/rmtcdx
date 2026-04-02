@@ -3864,12 +3864,13 @@ button {
     position: sticky;
     top: 0;
     z-index: 5;
-    width: auto;
-    margin-inline: -0.85rem;
+    width: calc(100% + var(--chat-mobile-inline-padding) + var(--chat-mobile-inline-padding));
+    max-width: none;
+    margin-inline: calc(0px - var(--chat-mobile-inline-padding));
     isolation: isolate;
     padding:
       calc(env(safe-area-inset-top) + 0.55rem)
-      0.85rem
+      var(--chat-mobile-inline-padding)
       0.6rem;
   }
 
@@ -3897,7 +3898,7 @@ button {
   .chat-head__menu {
     position: absolute;
     top: 0;
-    right: -0.85rem;
+    right: calc(0px - var(--chat-mobile-inline-padding));
     align-self: auto;
   }
 
@@ -3939,12 +3940,13 @@ button {
   }
 
   .chat-card {
+    --chat-mobile-inline-padding: 0.85rem;
     height: 100%;
     min-height: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    padding: 0.9rem 0.85rem calc(0.4rem + env(safe-area-inset-bottom));
+    padding: 0.9rem var(--chat-mobile-inline-padding) calc(0.4rem + env(safe-area-inset-bottom));
   }
 
   .timeline-shell {
@@ -3968,7 +3970,7 @@ button {
   .timeline-jump {
     left: 0;
     right: 0;
-    bottom: calc(var(--viewport-bottom-inset) + 0.85rem);
+    bottom: calc(var(--viewport-bottom-inset) + var(--chat-mobile-inline-padding));
   }
 
   .timeline-jump__button {
