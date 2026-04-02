@@ -792,6 +792,107 @@ test("bridge smoke test previews png files as images", async () => {
   }
 });
 
+test("bridge smoke test previews utf-8 markdown when multibyte characters cross the old sample boundary", async () => {
+  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-preview-ja-"));
+  const repoPath = path.join(rootDir, "repo");
+  const dataDir = path.join(rootDir, "data");
+  const uploadsDir = path.join(dataDir, "uploads");
+  const previewFilePath = path.join(repoPath, "README.ja.md");
+  let prefix = "# UTF-8 boundary regression\n\n";
+  while (Buffer.byteLength(prefix, "utf8") % 3 !== 0) {
+    prefix += "x";
+  }
+  const body = "あ".repeat(4_000);
+  const previewContent = `${prefix}${body}\n`;
+  await fs.mkdir(repoPath, { recursive: true });
+  await fs.mkdir(uploadsDir, { recursive: true });
+  await fs.writeFile(previewFilePath, previewContent, "utf8");
+  const expectedResolvedPath = await fs.realpath(previewFilePath).catch(() => previewFilePath);
+
+  assert.ok(Buffer.byteLength(previewContent, "utf8") > 8_192);
+  assert.equal(Buffer.byteLength(prefix, "utf8") % 3, 0);
+
+  const thread: CodexThread = {
+    id: "fixture_thread_preview_ja",
+    preview: "Preview multibyte markdown support",
+    createdAt: 1711756800,
+    updatedAt: 1711756860,
+    status: { type: "idle" },
+    cwd: repoPath,
+    path: null,
+    name: null,
+    modelProvider: "openai",
+    source: "appServer",
+    gitInfo: {
+      sha: "abc123",
+      branch: "main",
+      originUrl: "https://example.test/repo.git"
+    },
+    turns: []
+  };
+
+  const backend = new FixtureBridgeBackend([thread]);
+  const config: AppConfig = {
+    port: 0,
+    host: "127.0.0.1",
+    reposFile: path.join(rootDir, "repos.json"),
+    dataDir,
+    stateFile: path.join(dataDir, "state.json"),
+    runtimeFile: path.join(dataDir, "runtime.json"),
+    codexDebugLogFile: path.join(dataDir, "codex-app-server.jsonl"),
+    uploadsDir,
+    webDistDir: path.join(rootDir, "missing-web-dist"),
+    codexMode: "mock",
+    maxPromptLength: 12_000,
+    maxImageAttachments: 5,
+    maxImageAttachmentBytes: 10_485_760,
+    devSimulatorEnabled: true
+  };
+
+  const { app } = await buildApp({
+    config,
+    codex: backend,
+    repoConfig: [
+      {
+        id: "fixture_repo",
+        name: "Fixture Repo",
+        path: repoPath,
+        pinned: false
+      }
+    ]
+  });
+
+  try {
+    const previewResponse = await app.inject({
+      method: "POST",
+      url: "/api/sessions/fixture_thread_preview_ja/files/preview",
+      payload: {
+        path: "README.ja.md"
+      }
+    });
+    assert.equal(previewResponse.statusCode, 200);
+    const previewPayload = previewResponse.json() as {
+      path: string;
+      resolvedPath: string | null;
+      contentStatus: string;
+      isMarkdown: boolean;
+      text: string | null;
+      imageDataUrl: string | null;
+      sizeBytes: number | null;
+    };
+    assert.equal(previewPayload.path, "README.ja.md");
+    assert.equal(previewPayload.resolvedPath, expectedResolvedPath);
+    assert.equal(previewPayload.contentStatus, "ok");
+    assert.equal(previewPayload.isMarkdown, true);
+    assert.equal(previewPayload.imageDataUrl, null);
+    assert.equal(previewPayload.text, previewContent);
+    assert.equal(previewPayload.sizeBytes, Buffer.byteLength(previewContent, "utf8"));
+  } finally {
+    await app.close();
+    await fs.rm(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("bridge smoke test broadcasts session updates when a session is renamed", async () => {
   const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-rename-"));
   const repoPath = path.join(rootDir, "repo");

@@ -537,7 +537,8 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
       };
     }
 
-    if (looksBinaryBuffer(buffer)) {
+    const previewText = decodePreviewText(buffer);
+    if (previewText === null) {
       return {
         path: body.path,
         resolvedPath,
@@ -560,7 +561,7 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
       mediaType,
       sizeBytes,
       isMarkdown,
-      text: decodeUtf8(buffer),
+      text: previewText,
       imageDataUrl: null,
       diff: body.diff ?? null,
       changeKind: body.changeKind ?? null,
@@ -941,24 +942,18 @@ function isPreviewableImageMediaType(mediaType: string | null) {
   return mediaType === "image/png" || mediaType === "image/jpeg" || mediaType === "image/webp" || mediaType === "image/gif";
 }
 
-function looksBinaryBuffer(buffer: Buffer) {
+function decodePreviewText(buffer: Buffer) {
   if (buffer.length === 0) {
-    return false;
+    return "";
   }
 
-  const sample = buffer.subarray(0, 8192);
-  if (sample.includes(0)) {
-    return true;
+  if (buffer.includes(0)) {
+    return null;
   }
 
   try {
-    new TextDecoder("utf-8", { fatal: true }).decode(sample);
-    return false;
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
   } catch {
-    return true;
+    return null;
   }
-}
-
-function decodeUtf8(buffer: Buffer) {
-  return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
 }
