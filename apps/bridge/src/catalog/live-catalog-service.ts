@@ -125,7 +125,7 @@ export class LiveCatalogService {
     return repos.find((repo) => repo.id === repoId) ?? null;
   }
 
-  async listSessions(repoId?: string, options?: { search?: string; filter?: SessionFilter }) {
+  async listSessions(repoId?: string, options?: { search?: string; filter?: SessionFilter; hydrateAll?: boolean }) {
     const search = options?.search?.trim();
     const archived = options?.filter === "archived";
     const threads = await this.codex.listThreads({
@@ -258,7 +258,7 @@ export class LiveCatalogService {
 
   private async hydrateSessionContexts(
     contexts: ThreadContext[],
-    options?: { filter?: SessionFilter; search?: string }
+    options?: { filter?: SessionFilter; search?: string; hydrateAll?: boolean }
   ) {
     const hydratedById = new Map<string, ThreadContext>();
 
@@ -277,7 +277,10 @@ export class LiveCatalogService {
       .filter((context) => this.shouldHydrateSummary(context.thread))
       .sort((left, right) => right.thread.updatedAt - left.thread.updatedAt);
 
-    const shouldHydrateAll = Boolean(options?.search) || (options?.filter !== undefined && options.filter !== "all");
+    const shouldHydrateAll =
+      Boolean(options?.search)
+      || Boolean(options?.hydrateAll)
+      || (options?.filter !== undefined && options.filter !== "all");
     const maxHydrations = shouldHydrateAll ? unresolved.length : Math.min(unresolved.length, 24);
     const batchSize = shouldHydrateAll ? 12 : 6;
 

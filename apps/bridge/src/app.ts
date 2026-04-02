@@ -29,6 +29,7 @@ import type {
   SimulateCodexRequestRequest,
   SimulateCodexRequestResponse
 } from "@codex-remote/shared-types";
+import { matchesSessionFilter } from "@codex-remote/shared-types";
 import { presentAccountRateLimits, unavailableAccountRateLimits } from "./account/rate-limits";
 import { LiveCatalogService } from "./catalog/live-catalog-service";
 import { createCodexBackend } from "./codex/index";
@@ -237,6 +238,22 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
     const session = withPendingRequestCount(presented.session);
     return session === presented.session ? presented : { ...presented, session };
   };
+  const listPresentedSessions = async ({
+    repoId,
+    search,
+    filter
+  }: {
+    repoId?: string;
+    search?: string;
+    filter?: SessionFilter;
+  }) => {
+    const sessions = await catalog.listSessions(repoId, {
+      search,
+      filter: filter === "archived" ? filter : undefined,
+      hydrateAll: filter !== undefined && filter !== "all"
+    });
+    return presentSessions(sessions).filter((session) => matchesSessionFilter(session, filter));
+  };
 
   async function markSessionRead(sessionId: string) {
     const detail = await catalog.getSessionDetail(sessionId);
@@ -348,10 +365,11 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
       })
       .parse(request.query);
     return {
-      sessions: presentSessions(await catalog.listSessions(query.repoId, {
+      sessions: await listPresentedSessions({
+        repoId: query.repoId,
         search: query.q,
         filter: query.filter as SessionFilter | undefined
-      }))
+      })
     };
   });
 
@@ -363,9 +381,10 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
       })
       .parse(request.query);
     return {
-      sessions: presentSessions(await catalog.listSessions(query.repoId, {
+      sessions: await listPresentedSessions({
+        repoId: query.repoId,
         filter: query.filter as SessionFilter | undefined
-      }))
+      })
     };
   });
 

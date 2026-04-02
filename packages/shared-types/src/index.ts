@@ -494,3 +494,22 @@ export type ServerWsEvent =
 
 export const SESSION_FILTERS = ["all", "running", "unread", "completed", "interrupted", "error", "archived"] as const;
 export type SessionFilter = (typeof SESSION_FILTERS)[number];
+
+export function matchesSessionFilter(
+  session: Pick<SessionSummary, "status" | "isArchived" | "hasUnreadCompletion" | "hasUnreadError">,
+  filter?: SessionFilter
+) {
+  if (!filter || filter === "all") {
+    return true;
+  }
+
+  if (filter === "unread") {
+    return session.hasUnreadCompletion || session.hasUnreadError;
+  }
+
+  if (filter === "archived") {
+    return session.isArchived;
+  }
+
+  return !session.isArchived && session.status === filter;
+}

@@ -361,6 +361,19 @@ test("bridge smoke test tracks unread from live completion events and clears it 
     assert.equal(unreadPayload.sessions[0]?.hasUnreadCompletion, true);
     assert.equal(unreadPayload.sessions[0]?.hasUnreadError, false);
 
+    const unreadFilteredSessions = await app.inject({
+      method: "GET",
+      url: "/api/sessions?filter=unread"
+    });
+    assert.equal(unreadFilteredSessions.statusCode, 200);
+    const unreadFilteredPayload = unreadFilteredSessions.json() as {
+      sessions: Array<{ id: string }>;
+    };
+    assert.deepEqual(
+      unreadFilteredPayload.sessions.map((session) => session.id),
+      ["fixture_thread_unread"]
+    );
+
     const readResponse = await app.inject({
       method: "POST",
       url: "/api/sessions/fixture_thread_unread/read"
@@ -387,8 +400,180 @@ test("bridge smoke test tracks unread from live completion events and clears it 
     assert.equal(readPayload.sessions[0]?.unreadCount, 0);
     assert.equal(readPayload.sessions[0]?.lastEventSeq, 1);
     assert.equal(readPayload.sessions[0]?.lastReadEventSeq, 1);
+
+    const readFilteredSessions = await app.inject({
+      method: "GET",
+      url: "/api/sessions?filter=unread"
+    });
+    assert.equal(readFilteredSessions.statusCode, 200);
+    const readFilteredPayload = readFilteredSessions.json() as {
+      sessions: Array<{ id: string }>;
+    };
+    assert.equal(readFilteredPayload.sessions.length, 0);
   } finally {
     wsEvents.socket.emit("close");
+    await app.close();
+    await fs.rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("bridge smoke test applies filters to presented unread and run state", async () => {
+  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-filter-state-"));
+  const repoPath = path.join(rootDir, "repo");
+  const dataDir = path.join(rootDir, "data");
+  const uploadsDir = path.join(dataDir, "uploads");
+  await fs.mkdir(repoPath, { recursive: true });
+  await fs.mkdir(uploadsDir, { recursive: true });
+
+  const thread: CodexThread = {
+    id: "fixture_thread_filters",
+    preview: "",
+    createdAt: 1711756800,
+    updatedAt: 1711756860,
+    status: { type: "idle" },
+    cwd: repoPath,
+    path: null,
+    name: null,
+    modelProvider: "openai",
+    source: "appServer",
+    gitInfo: {
+      sha: "abc123",
+      branch: "main",
+      originUrl: "https://example.test/repo.git"
+    },
+    turns: []
+  };
+
+  const backend = new FixtureBridgeBackend([thread]);
+  const config: AppConfig = {
+    port: 0,
+    host: "127.0.0.1",
+    reposFile: path.join(rootDir, "repos.json"),
+    dataDir,
+    stateFile: path.join(dataDir, "state.json"),
+    runtimeFile: path.join(dataDir, "runtime.json"),
+    codexDebugLogFile: path.join(dataDir, "codex-app-server.jsonl"),
+    uploadsDir,
+    webDistDir: path.join(rootDir, "missing-web-dist"),
+    codexMode: "mock",
+    maxPromptLength: 12_000,
+    maxImageAttachments: 5,
+    maxImageAttachmentBytes: 10_485_760,
+    devSimulatorEnabled: true
+  };
+
+  const { app } = await buildApp({
+    config,
+    codex: backend,
+    repoConfig: [
+      {
+        id: "fixture_repo",
+        name: "Fixture Repo",
+        path: repoPath,
+        pinned: false
+      }
+    ]
+  });
+
+  async function filteredSessionIds(filter: "unread" | "running" | "completed" | "interrupted" | "error") {
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/sessions?filter=${filter}`
+    });
+    assert.equal(response.statusCode, 200);
+    const payload = response.json() as {
+      sessions: Array<{ id: string }>;
+    };
+    return payload.sessions.map((session) => session.id);
+  }
+
+  try {
+    assert.deepEqual(await filteredSessionIds("unread"), []);
+    assert.deepEqual(await filteredSessionIds("running"), []);
+    assert.deepEqual(await filteredSessionIds("completed"), []);
+    assert.deepEqual(await filteredSessionIds("interrupted"), []);
+    assert.deepEqual(await filteredSessionIds("error"), []);
+
+    const runningRun = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        sessionId: "fixture_thread_filters",
+        prompt: "Make this look running"
+      }
+    });
+    assert.equal(runningRun.statusCode, 200);
+    const runningPayload = runningRun.json() as {
+      run: { id: string; turnId?: string };
+    };
+    assert.deepEqual(await filteredSessionIds("running"), ["fixture_thread_filters"]);
+
+    backend.emit("event", {
+      type: "message.final",
+      sessionId: "fixture_thread_filters",
+      runId: runningPayload.run.id,
+      turnId: runningPayload.run.turnId ?? "fixture_turn_filters_1",
+      text: "Completed with unread output",
+      countsUnread: true
+    } satisfies CodexBridgeEvent);
+    backend.emit("event", {
+      type: "run.completed",
+      sessionId: "fixture_thread_filters",
+      runId: runningPayload.run.id,
+      turnId: runningPayload.run.turnId ?? "fixture_turn_filters_1"
+    } satisfies CodexBridgeEvent);
+    await flushAsyncWork();
+
+    assert.deepEqual(await filteredSessionIds("unread"), ["fixture_thread_filters"]);
+    assert.deepEqual(await filteredSessionIds("completed"), ["fixture_thread_filters"]);
+
+    const interruptedRun = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        sessionId: "fixture_thread_filters",
+        prompt: "Now interrupt it"
+      }
+    });
+    assert.equal(interruptedRun.statusCode, 200);
+    const interruptedPayload = interruptedRun.json() as {
+      run: { id: string; turnId?: string };
+    };
+
+    backend.emit("event", {
+      type: "run.interrupted",
+      sessionId: "fixture_thread_filters",
+      runId: interruptedPayload.run.id,
+      turnId: interruptedPayload.run.turnId ?? "fixture_turn_filters_2"
+    } satisfies CodexBridgeEvent);
+    await flushAsyncWork();
+
+    assert.deepEqual(await filteredSessionIds("interrupted"), ["fixture_thread_filters"]);
+
+    const errorRun = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        sessionId: "fixture_thread_filters",
+        prompt: "Now fail it"
+      }
+    });
+    assert.equal(errorRun.statusCode, 200);
+    const errorPayload = errorRun.json() as {
+      run: { id: string; turnId?: string };
+    };
+
+    backend.emit("event", {
+      type: "run.error",
+      sessionId: "fixture_thread_filters",
+      runId: errorPayload.run.id,
+      turnId: errorPayload.run.turnId ?? "fixture_turn_filters_3",
+      message: "Simulated failure"
+    } satisfies CodexBridgeEvent);
+    await flushAsyncWork();
+
+    assert.deepEqual(await filteredSessionIds("error"), ["fixture_thread_filters"]);
+  } finally {
     await app.close();
     await fs.rm(rootDir, { recursive: true, force: true });
   }
