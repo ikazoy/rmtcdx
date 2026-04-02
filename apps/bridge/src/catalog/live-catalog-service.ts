@@ -373,6 +373,7 @@ export class LiveCatalogService {
       lastRunFinishedAt: sessionState.status === "running" ? undefined : updatedAt,
       statusReasonCode: sessionState.reasonCode,
       statusConfidence: sessionState.confidence,
+      latestTurnId: latestTurn?.id ?? null,
       latestTurnStatus: latestTurn?.status ?? null,
       threadStatusType: context.thread.status.type,
       latestUserPrompt,

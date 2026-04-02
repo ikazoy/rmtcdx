@@ -2307,12 +2307,11 @@ export function ChatPane({
   const latestRunState = detail?.latestRun?.status ?? null;
   const sessionIsArchived = Boolean(detail?.session.isArchived);
   const sessionIsDraft = detail?.session.id.startsWith("draft:") === true;
-  const sessionIsRunning = activeRunState === "running" || detail?.session.status === "running";
+  const sessionIsRunning = activeRunState === "queued" || activeRunState === "running";
   const hasPendingRun = sessionIsRunning || isSubmitting || Boolean(effectiveOptimisticMessage) || hasPendingResponse;
   const interruptButtonEnabled = canInterruptRun && !isSubmitting;
   const bannerRunState =
-    activeRunState ??
-    (sessionIsRunning ? "running" : null) ??
+    (activeRunState === "queued" ? "running" : activeRunState) ??
     (latestRunState === "error" || latestRunState === "interrupted" ? latestRunState : null);
   const statusLooksSuspicious = detail?.session.statusConfidence === "suspicious";
   const headerSignalTone = detail

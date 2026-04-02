@@ -81,7 +81,9 @@ test("fixture backend smoke test covers sessions, messages, and pending request 
     ]
   };
 
-  const backend = new FixtureBridgeBackend([thread]);
+  const backend = new FixtureBridgeBackend([thread], {
+    syncThreadStateFromRunEvents: true
+  });
   const config: AppConfig = {
     port: 0,
     host: "127.0.0.1",
@@ -262,7 +264,9 @@ test("bridge smoke test tracks unread from live completion events and clears it 
     ]
   };
 
-  const backend = new FixtureBridgeBackend([thread]);
+  const backend = new FixtureBridgeBackend([thread], {
+    syncThreadStateFromRunEvents: true
+  });
   const config: AppConfig = {
     port: 0,
     host: "127.0.0.1",
@@ -444,7 +448,9 @@ test("bridge smoke test applies filters to presented unread and run state", asyn
     turns: []
   };
 
-  const backend = new FixtureBridgeBackend([thread]);
+  const backend = new FixtureBridgeBackend([thread], {
+    syncThreadStateFromRunEvents: true
+  });
   const config: AppConfig = {
     port: 0,
     host: "127.0.0.1",
@@ -911,14 +917,170 @@ test("bridge smoke test broadcasts session updates when a session is renamed", a
   }
 });
 
+test("bridge smoke test allows archiving after an immediate interrupt when the raw thread is still active", async () => {
+  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-archive-interrupt-"));
+  const repoPath = path.join(rootDir, "repo");
+  const dataDir = path.join(rootDir, "data");
+  const uploadsDir = path.join(dataDir, "uploads");
+  await fs.mkdir(repoPath, { recursive: true });
+  await fs.mkdir(uploadsDir, { recursive: true });
+
+  const thread: CodexThread = {
+    id: "fixture_thread_interrupt_archive",
+    preview: "Interrupt then archive",
+    createdAt: 1711756800,
+    updatedAt: 1711756860,
+    status: {
+      type: "active",
+      activeFlags: []
+    },
+    cwd: repoPath,
+    path: null,
+    name: null,
+    modelProvider: "openai",
+    source: "appServer",
+    gitInfo: {
+      sha: "abc123",
+      branch: "main",
+      originUrl: "https://example.test/repo.git"
+    },
+    turns: [
+      {
+        id: "fixture_turn_interrupt_archive_1",
+        status: "inProgress",
+        error: null,
+        items: [
+          {
+            type: "userMessage",
+            id: "fixture_user_interrupt_archive_1",
+            content: [
+              {
+                type: "text",
+                text: "Interrupt then archive",
+                text_elements: []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+
+  const backend = new FixtureBridgeBackend([thread], {
+    startTurnIdBySession: {
+      fixture_thread_interrupt_archive: "fixture_turn_interrupt_archive_1"
+    }
+  });
+  const config: AppConfig = {
+    port: 0,
+    host: "127.0.0.1",
+    reposFile: path.join(rootDir, "repos.json"),
+    dataDir,
+    stateFile: path.join(dataDir, "state.json"),
+    runtimeFile: path.join(dataDir, "runtime.json"),
+    codexDebugLogFile: path.join(dataDir, "codex-app-server.jsonl"),
+    uploadsDir,
+    webDistDir: path.join(rootDir, "missing-web-dist"),
+    codexMode: "mock",
+    maxPromptLength: 12_000,
+    maxImageAttachments: 5,
+    maxImageAttachmentBytes: 10_485_760,
+    devSimulatorEnabled: true
+  };
+
+  const { app } = await buildApp({
+    config,
+    codex: backend,
+    repoConfig: [
+      {
+        id: "fixture_repo",
+        name: "Fixture Repo",
+        path: repoPath,
+        pinned: false
+      }
+    ]
+  });
+
+  try {
+    const startRunResponse = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        sessionId: "fixture_thread_interrupt_archive",
+        prompt: "Stop right away"
+      }
+    });
+    assert.equal(startRunResponse.statusCode, 200);
+    const startRunPayload = startRunResponse.json() as {
+      run: { id: string; turnId?: string };
+    };
+    assert.equal(startRunPayload.run.turnId, "fixture_turn_interrupt_archive_1");
+
+    backend.emit("event", {
+      type: "run.interrupted",
+      sessionId: "fixture_thread_interrupt_archive",
+      runId: startRunPayload.run.id,
+      turnId: "fixture_turn_interrupt_archive_1"
+    } satisfies CodexBridgeEvent);
+    await flushAsyncWork();
+
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: "/api/sessions/fixture_thread_interrupt_archive"
+    });
+    assert.equal(detailResponse.statusCode, 200);
+    const detailPayload = detailResponse.json() as {
+      session: { status: string; statusReasonCode?: string };
+      activeRun: { status: string } | null;
+      latestRun: { status: string } | null;
+    };
+    assert.equal(detailPayload.session.status, "interrupted");
+    assert.equal(detailPayload.session.statusReasonCode, "local_latest_run_interrupted");
+    assert.equal(detailPayload.activeRun, null);
+    assert.equal(detailPayload.latestRun?.status, "interrupted");
+
+    const archiveResponse = await app.inject({
+      method: "POST",
+      url: "/api/sessions/fixture_thread_interrupt_archive/archive"
+    });
+    assert.equal(archiveResponse.statusCode, 200);
+    const archivePayload = archiveResponse.json() as {
+      session: { id: string; isArchived: boolean };
+      activeRun: null;
+    };
+    assert.equal(archivePayload.session.id, "fixture_thread_interrupt_archive");
+    assert.equal(archivePayload.session.isArchived, true);
+    assert.equal(archivePayload.activeRun, null);
+  } finally {
+    await app.close();
+    await fs.rm(rootDir, { recursive: true, force: true });
+  }
+});
+
 class FixtureBridgeBackend extends EventEmitter implements CodexBackend {
   private readonly threads = new Map<string, CodexThread>();
+  private readonly archivedThreadIds = new Set<string>();
   private readonly pendingRequests = new Map<string, CodexPendingRequest>();
+  private readonly startTurnIdBySession: Map<string, string>;
+  private readonly syncThreadStateFromRunEvents: boolean;
 
-  constructor(threads: CodexThread[]) {
+  constructor(
+    threads: CodexThread[],
+    options?: {
+      startTurnIdBySession?: Record<string, string>;
+      syncThreadStateFromRunEvents?: boolean;
+    }
+  ) {
     super();
     for (const thread of threads) {
       this.threads.set(thread.id, thread);
+    }
+    this.startTurnIdBySession = new Map(Object.entries(options?.startTurnIdBySession ?? {}));
+    this.syncThreadStateFromRunEvents = options?.syncThreadStateFromRunEvents === true;
+    if (this.syncThreadStateFromRunEvents) {
+      this.on("event", (event: CodexBridgeEvent) => {
+        this.applyRunEvent(event);
+      });
     }
   }
 
@@ -932,7 +1094,9 @@ class FixtureBridgeBackend extends EventEmitter implements CodexBackend {
 
   async listThreads(params?: ListThreadsParams) {
     const archived = params?.archived ?? false;
-    return archived ? [] : [...this.threads.values()];
+    return [...this.threads.values()].filter((thread) =>
+      archived ? this.archivedThreadIds.has(thread.id) : !this.archivedThreadIds.has(thread.id)
+    );
   }
 
   async readThread(threadId: string, _options?: { includeTurns?: boolean }) {
@@ -982,12 +1146,20 @@ class FixtureBridgeBackend extends EventEmitter implements CodexBackend {
     });
   }
 
-  async archiveThread(_threadId: string) {
-    throw new Error("Not implemented in fixture backend");
+  async archiveThread(threadId: string) {
+    if (!this.threads.has(threadId)) {
+      throw new Error(`Unknown fixture thread: ${threadId}`);
+    }
+
+    this.archivedThreadIds.add(threadId);
   }
 
-  async unarchiveThread(_threadId: string) {
-    throw new Error("Not implemented in fixture backend");
+  async unarchiveThread(threadId: string) {
+    if (!this.threads.has(threadId)) {
+      throw new Error(`Unknown fixture thread: ${threadId}`);
+    }
+
+    this.archivedThreadIds.delete(threadId);
   }
 
   async ensureThread(params: EnsureThreadParams) {
@@ -995,9 +1167,16 @@ class FixtureBridgeBackend extends EventEmitter implements CodexBackend {
   }
 
   async startRun(_params: StartRunParams): Promise<StartRunResult> {
+    const threadId = _params.sessionId ?? _params.threadId ?? [...this.threads.keys()][0] ?? "fixture_thread";
+    const turnId = this.startTurnIdBySession.get(threadId) ?? `fixture_turn_${randomUUID()}`;
+
+    if (this.syncThreadStateFromRunEvents) {
+      this.markThreadActive(threadId, turnId);
+    }
+
     return {
-      threadId: _params.sessionId ?? _params.threadId ?? [...this.threads.keys()][0] ?? "fixture_thread",
-      turnId: `fixture_turn_${randomUUID()}`
+      threadId,
+      turnId
     };
   }
 
@@ -1058,6 +1237,67 @@ class FixtureBridgeBackend extends EventEmitter implements CodexBackend {
       childAlive: false,
       restarts: 0
     };
+  }
+
+  private markThreadActive(threadId: string, turnId: string) {
+    const thread = this.threads.get(threadId);
+    if (!thread) {
+      return;
+    }
+
+    const nextTurn = {
+      id: turnId,
+      items: [],
+      status: "inProgress" as const,
+      error: null
+    };
+    const turns = thread.turns.some((turn) => turn.id === turnId)
+      ? thread.turns.map((turn) => (turn.id === turnId ? nextTurn : turn))
+      : [...thread.turns, nextTurn];
+
+    this.threads.set(threadId, {
+      ...thread,
+      status: {
+        type: "active",
+        activeFlags: []
+      },
+      updatedAt: thread.updatedAt + 1,
+      turns
+    });
+  }
+
+  private applyRunEvent(event: CodexBridgeEvent) {
+    if (event.type !== "run.completed" && event.type !== "run.interrupted" && event.type !== "run.error") {
+      return;
+    }
+
+    const thread = this.threads.get(event.sessionId);
+    if (!thread) {
+      return;
+    }
+
+    const nextTurnStatus: "completed" | "interrupted" | "failed" =
+      event.type === "run.completed"
+        ? "completed"
+        : event.type === "run.interrupted"
+          ? "interrupted"
+          : "failed";
+    const nextTurn = {
+      id: event.turnId,
+      items: [],
+      status: nextTurnStatus,
+      error: event.type === "run.error" ? { message: event.message } : null
+    };
+    const turns = thread.turns.some((turn) => turn.id === event.turnId)
+      ? thread.turns.map((turn) => (turn.id === event.turnId ? nextTurn : turn))
+      : [...thread.turns, nextTurn];
+
+    this.threads.set(event.sessionId, {
+      ...thread,
+      status: { type: "idle" },
+      updatedAt: thread.updatedAt + 1,
+      turns
+    });
   }
 }
 

@@ -79,6 +79,80 @@ test("run service exposes the last effective run settings for the thread", async
   });
 });
 
+test("run service clears a raw active run when the matching local run is interrupted", async () => {
+  const harness = createHarness();
+  const run = await harness.service.start({
+    sessionId: "thread-1",
+    prompt: "Interrupt immediately"
+  });
+  const turnId = run.turnId ?? "turn-1";
+
+  harness.detail.session.status = "running";
+  harness.detail.session.statusReasonCode = "thread_active";
+  harness.detail.session.statusConfidence = "authoritative";
+  harness.detail.session.latestTurnId = turnId;
+  harness.detail.session.latestTurnStatus = "inProgress";
+  harness.detail.session.threadStatusType = "active";
+  harness.detail.activeRun = {
+    id: turnId,
+    sessionId: "thread-1",
+    turnId,
+    status: "running",
+    startedAt: "2026-03-30T12:00:01.000Z"
+  };
+  harness.detail.latestRun = {
+    ...harness.detail.activeRun
+  };
+
+  harness.backend.emitTerminalEvent("run.interrupted", run.id, turnId);
+  await flushAsyncWork();
+
+  const presented = harness.service.presentSessionDetail(harness.detail);
+
+  assert.equal(presented.session.status, "interrupted");
+  assert.equal(presented.session.statusReasonCode, "local_latest_run_interrupted");
+  assert.equal(presented.activeRun, null);
+  assert.equal(presented.latestRun?.id, run.id);
+  assert.equal(presented.latestRun?.turnId, turnId);
+  assert.equal(presented.latestRun?.status, "interrupted");
+});
+
+test("run service only applies local terminal summary state when the latest turn id still matches", async () => {
+  const harness = createHarness();
+  const run = await harness.service.start({
+    sessionId: "thread-1",
+    prompt: "Interrupt and move on"
+  });
+  const turnId = run.turnId ?? "turn-1";
+
+  harness.backend.emitTerminalEvent("run.interrupted", run.id, turnId);
+  await flushAsyncWork();
+
+  const matchingSummary = harness.service.presentSessionSummary({
+    ...createSessionSummary("Deploy preview"),
+    status: "running",
+    statusReasonCode: "thread_active",
+    statusConfidence: "authoritative",
+    latestTurnId: turnId,
+    latestTurnStatus: "inProgress",
+    threadStatusType: "active"
+  });
+  assert.equal(matchingSummary.status, "interrupted");
+  assert.equal(matchingSummary.statusReasonCode, "local_latest_run_interrupted");
+
+  const movedOnSummary = harness.service.presentSessionSummary({
+    ...createSessionSummary("Deploy preview"),
+    status: "running",
+    statusReasonCode: "thread_active",
+    statusConfidence: "authoritative",
+    latestTurnId: "turn-2",
+    latestTurnStatus: "inProgress",
+    threadStatusType: "active"
+  });
+  assert.equal(movedOnSummary.status, "running");
+  assert.equal(movedOnSummary.statusReasonCode, "thread_active");
+});
+
 test("run service records completion unread only after a counted final assistant message completes the turn", async () => {
   const harness = createHarness();
   const run = await harness.service.start({

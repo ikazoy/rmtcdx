@@ -37,6 +37,12 @@ type PresentedSessionState = {
   confidence: SessionStatusConfidence | undefined;
 };
 
+type PresentedRuns = {
+  activeRun: Run | null;
+  latestRun: Run | null;
+  localState: "none" | "active" | "latest";
+};
+
 type SessionStatusSnapshot = {
   status: SessionSummary["status"];
   reasonCode: SessionStatusReasonCode | null;
@@ -172,14 +178,67 @@ export class RunService {
   }
 
   presentSessionSummary(session: SessionSummary) {
-    const runs = this.getSessionRuns(session.id, {
-      activeRun: null,
-      latestRun: null
+    return this.presentSessionSummaryWithRuns(session, this.presentedRuns(session, this.summaryFallbackRuns(session)));
+  }
+
+  presentSessionSummaries(sessions: SessionSummary[]) {
+    return [...sessions]
+      .map((session) => this.presentSessionSummary(session))
+      .sort((left, right) => {
+        const primary = this.toTime(right.lastUserMessageAt ?? right.updatedAt ?? right.createdAt)
+          - this.toTime(left.lastUserMessageAt ?? left.updatedAt ?? left.createdAt);
+        if (primary !== 0) {
+          return primary;
+        }
+
+        const secondary = this.toTime(right.updatedAt) - this.toTime(left.updatedAt);
+        if (secondary !== 0) {
+          return secondary;
+        }
+
+        return right.id.localeCompare(left.id);
+      });
+  }
+
+  presentSessionDetail(detail: SessionDetail) {
+    const runs = this.presentedRuns(detail.session, {
+      activeRun: detail.activeRun,
+      latestRun: detail.latestRun
     });
+    const session = this.presentSessionSummaryWithRuns(detail.session, runs);
+    // Only bridge-owned run settings are treated as authoritative here. In local codex-cli 0.116.0
+    // probes, `thread/resume` after a completed turn collapsed many distinct configurations back to
+    // the same default-ish values (`on-request` / `read-only` / `gpt-5.4` / `serviceTier: null`),
+    // so we intentionally avoid hydrating UI state from passive Codex thread inspection for now.
+    const runSettings = this.sessionRunSettings.get(session.id);
+    if (
+      session === detail.session &&
+      sameRun(detail.activeRun, runs.activeRun) &&
+      sameRun(detail.latestRun, runs.latestRun) &&
+      sameRunSettings(detail.runSettings, runSettings)
+    ) {
+      return detail;
+    }
+
+    return {
+      ...detail,
+      session,
+      activeRun: runs.activeRun,
+      latestRun: runs.latestRun,
+      runSettings
+    };
+  }
+
+  private presentSessionSummaryWithRuns(session: SessionSummary, runs: PresentedRuns) {
+    if (runs.localState === "none") {
+      this.logPresentedSessionSummary(session, runs);
+      return session;
+    }
+
     const presentedState = this.presentedSessionState(session, runs);
     const lastUserMessageAt = runs.latestRun?.startedAt ?? session.lastUserMessageAt;
     const lastRunFinishedAt =
-      runs.activeRun || runs.latestRun?.status === "queued" || runs.latestRun?.status === "running"
+      runs.activeRun || (runs.latestRun && isRunInProgress(runs.latestRun.status))
         ? undefined
         : runs.latestRun?.finishedAt ?? session.lastRunFinishedAt;
 
@@ -207,48 +266,111 @@ export class RunService {
     return presentedSession;
   }
 
-  presentSessionSummaries(sessions: SessionSummary[]) {
-    return [...sessions]
-      .map((session) => this.presentSessionSummary(session))
-      .sort((left, right) => {
-        const primary = this.toTime(right.lastUserMessageAt ?? right.updatedAt ?? right.createdAt)
-          - this.toTime(left.lastUserMessageAt ?? left.updatedAt ?? left.createdAt);
-        if (primary !== 0) {
-          return primary;
-        }
+  private presentedRuns(
+    session: Pick<SessionSummary, "id" | "latestTurnId" | "latestTurnStatus" | "threadStatusType" | "updatedAt" | "createdAt" | "lastUserMessageAt" | "lastRunFinishedAt">,
+    fallback: { activeRun: Run | null; latestRun: Run | null }
+  ): PresentedRuns {
+    const localRuns = this.getSessionRuns(session.id, {
+      activeRun: null,
+      latestRun: null
+    });
+    const localActiveRun = localRuns.activeRun;
+    const localLatestRun = localRuns.latestRun;
 
-        const secondary = this.toTime(right.updatedAt) - this.toTime(left.updatedAt);
-        if (secondary !== 0) {
-          return secondary;
-        }
+    if (localActiveRun) {
+      return {
+        activeRun: localActiveRun,
+        latestRun: localLatestRun ?? localActiveRun,
+        localState: "active"
+      };
+    }
 
-        return right.id.localeCompare(left.id);
-      });
-  }
+    if (localLatestRun) {
+      if (isRunInProgress(localLatestRun.status)) {
+        return {
+          activeRun: localLatestRun,
+          latestRun: localLatestRun,
+          localState: "latest"
+        };
+      }
 
-  presentSessionDetail(detail: SessionDetail) {
-    const session = this.presentSessionSummary(detail.session);
-    // Only bridge-owned run settings are treated as authoritative here. In local codex-cli 0.116.0
-    // probes, `thread/resume` after a completed turn collapsed many distinct configurations back to
-    // the same default-ish values (`on-request` / `read-only` / `gpt-5.4` / `serviceTier: null`),
-    // so we intentionally avoid hydrating UI state from passive Codex thread inspection for now.
-    const runSettings = this.sessionRunSettings.get(session.id);
-    if (session === detail.session && sameRunSettings(detail.runSettings, runSettings)) {
-      return detail;
+      if (this.matchesLatestTurn(session, fallback.latestRun, localLatestRun)) {
+        return {
+          activeRun: null,
+          latestRun: localLatestRun,
+          localState: "latest"
+        };
+      }
     }
 
     return {
-      ...detail,
-      session,
-      runSettings
+      activeRun: fallback.activeRun,
+      latestRun: fallback.latestRun,
+      localState: "none"
     };
   }
 
+  private summaryFallbackRuns(
+    session: Pick<SessionSummary, "id" | "latestTurnId" | "latestTurnStatus" | "threadStatusType" | "updatedAt" | "createdAt" | "lastUserMessageAt" | "lastRunFinishedAt">
+  ) {
+    const status = this.summaryLatestRunStatus(session);
+    if (!status || !session.latestTurnId) {
+      return {
+        activeRun: null,
+        latestRun: null
+      };
+    }
+
+    const run: Run = {
+      id: session.latestTurnId,
+      sessionId: session.id,
+      turnId: session.latestTurnId,
+      status,
+      startedAt: session.lastUserMessageAt ?? session.updatedAt ?? session.createdAt,
+      finishedAt: isRunInProgress(status) ? undefined : session.lastRunFinishedAt ?? session.updatedAt
+    };
+
+    return {
+      activeRun: isRunInProgress(run.status) ? run : null,
+      latestRun: run
+    };
+  }
+
+  private summaryLatestRunStatus(
+    session: Pick<SessionSummary, "latestTurnStatus" | "threadStatusType">
+  ): Run["status"] | null {
+    switch (session.latestTurnStatus) {
+      case "completed":
+        return "completed";
+      case "interrupted":
+        return "interrupted";
+      case "failed":
+        return "error";
+      case "inProgress":
+        return session.threadStatusType === "active" ? "running" : "interrupted";
+      default:
+        return null;
+    }
+  }
+
+  private matchesLatestTurn(
+    session: Pick<SessionSummary, "latestTurnId">,
+    fallbackLatestRun: Run | null,
+    run: Pick<Run, "id" | "turnId">
+  ) {
+    const latestTurnId = session.latestTurnId ?? fallbackLatestRun?.turnId ?? fallbackLatestRun?.id;
+    if (!latestTurnId) {
+      return false;
+    }
+
+    return run.turnId === latestTurnId || run.id === latestTurnId;
+  }
+
   private presentedSessionState(
-    session: SessionSummary,
-    runs: { activeRun: Run | null; latestRun: Run | null }
+    session: Pick<SessionSummary, "status" | "statusReasonCode" | "statusConfidence">,
+    runs: Pick<PresentedRuns, "activeRun" | "latestRun" | "localState">
   ): PresentedSessionState {
-    if (runs.activeRun) {
+    if (runs.localState === "active" && runs.activeRun) {
       return {
         status: "running",
         reasonCode: "local_active_run",
@@ -256,7 +378,7 @@ export class RunService {
       };
     }
 
-    switch (runs.latestRun?.status) {
+    switch (runs.localState === "latest" ? runs.latestRun?.status : undefined) {
       case "queued":
         return {
           status: "running",
@@ -298,7 +420,7 @@ export class RunService {
 
   private logPresentedSessionSummary(
     session: SessionSummary,
-    runs: { activeRun: Run | null; latestRun: Run | null }
+    runs: Pick<PresentedRuns, "activeRun" | "latestRun">
   ) {
     if (!this.debugLog) {
       return;
@@ -502,4 +624,14 @@ function sameRunSettings(left: SessionDetail["runSettings"], right: SessionDetai
     && left?.sandbox === right?.sandbox
     && left?.serviceTier === right?.serviceTier
     && left?.model === right?.model;
+}
+
+function sameRun(left: Run | null, right: Run | null) {
+  return left?.id === right?.id
+    && left?.sessionId === right?.sessionId
+    && left?.turnId === right?.turnId
+    && left?.status === right?.status
+    && left?.startedAt === right?.startedAt
+    && left?.finishedAt === right?.finishedAt
+    && left?.errorMessage === right?.errorMessage;
 }

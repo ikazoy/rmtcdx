@@ -394,12 +394,7 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
     if (!detail) {
       return reply.code(404).send({ message: "Session not found" });
     }
-    const sessionRuns = runs.getSessionRuns(params.sessionId, detail);
-    return {
-      ...detail,
-      activeRun: sessionRuns.activeRun,
-      latestRun: sessionRuns.latestRun
-    };
+    return detail;
   });
 
   app.get("/api/sessions/:sessionId/messages", async (request, reply) => {
@@ -601,12 +596,7 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
     if (!detail) {
       return reply.code(404).send({ message: "Session not found" });
     }
-    const sessionRuns = runs.getSessionRuns(params.sessionId, detail);
-    return {
-      ...detail,
-      activeRun: sessionRuns.activeRun,
-      latestRun: sessionRuns.latestRun
-    };
+    return detail;
   });
 
   app.post("/api/sessions/:sessionId/archive", async (request, reply) => {
@@ -616,8 +606,7 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
       return reply.code(404).send({ message: "Session not found" });
     }
 
-    const sessionRuns = runs.getSessionRuns(params.sessionId, detail);
-    if (sessionRuns.activeRun) {
+    if (detail.activeRun) {
       return reply.code(409).send({ message: "Cannot archive a session with an active run" });
     }
 

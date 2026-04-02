@@ -67,6 +67,7 @@ export type SessionSummary = {
   lastRunFinishedAt?: string;
   statusReasonCode?: SessionStatusReasonCode;
   statusConfidence?: SessionStatusConfidence;
+  latestTurnId?: string | null;
   latestTurnStatus?: CodexTurnStatus | null;
   threadStatusType?: CodexThreadStatusType;
   latestUserPrompt?: string;
