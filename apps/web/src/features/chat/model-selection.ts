@@ -28,6 +28,14 @@ export function modelSelectionOptionValue(model: string, serviceTier: CodexServi
   return serviceTier ? `${model}::${serviceTier}` : model;
 }
 
+export function findModelSelectionOption(
+  options: ModelSelectionOption[],
+  model: string,
+  serviceTier: CodexServiceTier | null
+) {
+  return options.find((option) => option.model === model && option.serviceTier === serviceTier) ?? null;
+}
+
 export function buildModelSelectionState(availableModels: CodexAvailableModel[]): BuiltModelSelectionState {
   const defaultModel = availableModels.find((model) => model.isDefault) ?? null;
   const modelSelectionOptions = availableModels.flatMap((model) => {
@@ -76,4 +84,16 @@ export function buildModelSelectionState(availableModels: CodexAvailableModel[])
     defaultModelNote,
     modelSelectionOptions
   };
+}
+
+export function shouldShowCustomModelInput(params: {
+  showModelPicker: boolean;
+  selectedModel: string;
+  selectedServiceTier: CodexServiceTier | null;
+  matchedModelSelectionOption: ModelSelectionOption | null;
+  isManualCustomModelSelection: boolean;
+}) {
+  return !params.showModelPicker
+    || params.isManualCustomModelSelection
+    || Boolean((params.selectedModel || params.selectedServiceTier) && !params.matchedModelSelectionOption);
 }

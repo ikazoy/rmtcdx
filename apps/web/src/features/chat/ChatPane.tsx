@@ -38,10 +38,15 @@ import {
   sortReposForDisplay
 } from "../repos/repo-presentation";
 import {
-  buildModelSelectionState,
   CUSTOM_MODEL_OPTION,
-  DEFAULT_MODEL_OPTION
+  DEFAULT_MODEL_OPTION,
 } from "./model-selection";
+import { useModelSelectionControl } from "./use-model-selection-control";
+import {
+  collectThreadFileChanges,
+  type ThreadFileChangeEntry,
+  type ThreadFileChangeSummary
+} from "./thread-file-changes";
 import { MermaidBlock } from "./MermaidBlock";
 import {
   nextTimelineFollowMode,
@@ -52,6 +57,7 @@ import {
 import { inferSyntaxLanguageFromPath, SyntaxCodeBlock, syntaxLanguageFromMarkdownClassName } from "./SyntaxCodeBlock";
 import { WorkspaceCombobox } from "../repos/WorkspaceCombobox";
 import { sessionIndicatorTone } from "../sessions/session-state";
+import type { ResolvedRunSettings } from "./run-settings";
 import { activityMapForSessionIds, streamingTextForSessionIds, useUiStore } from "../../store/ui-store";
 
 const MAX_IMAGE_ATTACHMENTS = 5;
@@ -157,25 +163,23 @@ type SearchQueryEntry = {
 type TimelineEntry =
   | { type: "message"; id: string; message: Message }
   | { type: "command_group"; id: string; commands: CommandExecutionEntry[]; createdAt: string }
-  | { type: "file_group"; id: string; changes: FileChangeEntry[]; count: number; createdAt: string }
+  | { type: "file_group"; id: string; source: ThreadFileChangeSummary; createdAt: string }
   | { type: "search_group"; id: string; searches: SearchQueryEntry[]; createdAt: string };
 
-type FileChangeSheetState = {
-  type: "file_list";
-  changes: FileChangeEntry[];
-  count: number;
+type FileChangeListContent = {
+  source: ThreadFileChangeSummary;
   title?: string;
 };
 
-type FilePreviewSourceList = {
-  changes: FileChangeEntry[];
-  count: number;
+type FileChangeSheetState = {
+  type: "file_list";
+  content: FileChangeListContent;
 };
 
 type FilePreviewSheetState = {
   type: "file_preview";
   request: SessionFilePreviewRequest;
-  sourceList: FilePreviewSourceList | null;
+  sourceList: FileChangeListContent | null;
 };
 
 type BottomSheetState =
@@ -199,12 +203,7 @@ type Props = {
   isMobileViewport: boolean;
   optimisticMessage?: OptimisticUserMessage | null;
   pendingCodexRequestCount: number;
-  runSettings: {
-    approvalPolicy: CodexApprovalPolicyPreset;
-    sandbox: CodexSandboxPreset;
-    serviceTier: CodexRunSettings["serviceTier"];
-    model: string;
-  };
+  runSettings: ResolvedRunSettings;
   availableModels: CodexAvailableModel[];
   isLoadingModels: boolean;
   modelsError: string | null;
@@ -282,18 +281,6 @@ const DEV_REQUEST_OPTIONS: Array<{ value: CodexDevRequestScenario; label: string
 
 function timelineIsPinnedToBottom(timeline: HTMLDivElement) {
   return timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop <= timelinePinThresholdPx();
-}
-
-function readRootScrollTop() {
-  if (typeof document === "undefined") {
-    return 0;
-  }
-
-  return document.scrollingElement?.scrollTop ?? window.scrollY ?? 0;
-}
-
-function timelineViewportIsPinnedToBottom(timelineEnd: HTMLElement, composerHeight: number) {
-  return timelineEnd.getBoundingClientRect().bottom <= window.innerHeight - composerHeight + timelinePinThresholdPx();
 }
 
 function revokeComposerImages(images: ComposerImage[]) {
@@ -408,25 +395,35 @@ function commandExecutionFromMessage(message: Message): CommandExecutionEntry {
   };
 }
 
-function fileChangesFromMessage(message: Message) {
-  return message.metadata?.type === "file_change" ? message.metadata.changes : [];
-}
-
-function fileChangeCountFromMessage(message: Message) {
-  if (message.metadata?.type === "file_change") {
-    return message.metadata.changes.length;
-  }
-
-  const match = /Updated\s+(\d+)\s+file/.exec(message.text);
-  return match ? Number(match[1]) : 0;
-}
-
 function searchQueryFromMessage(message: Message) {
   if (message.metadata?.type === "web_search") {
     return message.metadata.query.trim();
   }
 
   return message.text.replace(/^Query:\s*/i, "").trim() || message.text.trim();
+}
+
+function fileChangeSummaryDetail(change: ThreadFileChangeEntry) {
+  const displayPath = displayPathForPreview(change);
+  const details: string[] = [];
+
+  if (change.firstPath !== displayPath) {
+    details.push(`From ${change.firstPath}`);
+  }
+
+  if (change.occurrenceCount > 1) {
+    details.push(formatCountLabel(change.occurrenceCount, "edit"));
+  }
+
+  return details.length > 0 ? details.join(" · ") : null;
+}
+
+function formatFileChangeSheetSubtitle(source: ThreadFileChangeSummary) {
+  if (source.rawCount === source.count) {
+    return "Tap a file to open diff / source.";
+  }
+
+  return `${formatCountLabel(source.rawCount, "change")} across ${formatCountLabel(source.count, "file")} · tap a file for diff / source`;
 }
 
 function buildTimelineEntries(messages: Message[]): TimelineEntry[] {
@@ -461,16 +458,16 @@ function buildTimelineEntries(messages: Message[]): TimelineEntry[] {
         index += 1;
       }
 
-      const changes = fileMessages.flatMap((item) => fileChangesFromMessage(item));
-      const count = fileMessages.reduce((sum, item) => sum + fileChangeCountFromMessage(item), 0);
+      const source = collectThreadFileChanges(fileMessages);
 
-      entries.push({
-        type: "file_group",
-        id: `file-group:${fileMessages[0]!.id}`,
-        changes,
-        count: Math.max(count, changes.length),
-        createdAt: fileMessages[fileMessages.length - 1]!.createdAt
-      });
+      if (source) {
+        entries.push({
+          type: "file_group",
+          id: `file-group:${fileMessages[0]!.id}`,
+          source,
+          createdAt: fileMessages[fileMessages.length - 1]!.createdAt
+        });
+      }
       continue;
     }
 
@@ -506,18 +503,6 @@ function buildTimelineEntries(messages: Message[]): TimelineEntry[] {
   }
 
   return entries;
-}
-
-function collectThreadFileChanges(messages: Message[]): FilePreviewSourceList | null {
-  const changes = messages.flatMap((message) => fileChangesFromMessage(message));
-  if (changes.length === 0) {
-    return null;
-  }
-
-  return {
-    changes,
-    count: changes.length
-  };
 }
 
 function formatCountLabel(count: number, singular: string, plural = `${singular}s`) {
@@ -1131,6 +1116,127 @@ function CustomSelect({
   );
 }
 
+function RunSettingsPanel({
+  availableModels,
+  isLoadingModels,
+  modelsError,
+  runSettings,
+  onRunSettingsChange,
+  onResetRunSettings
+}: {
+  availableModels: CodexAvailableModel[];
+  isLoadingModels: boolean;
+  modelsError: string | null;
+  runSettings: ResolvedRunSettings;
+  onRunSettingsChange: (settings: CodexRunSettings) => void;
+  onResetRunSettings: () => void;
+}) {
+  const {
+    defaultModelLabel,
+    defaultModelDescription,
+    modelSelectionOptions,
+    modelSelectionValue,
+    modelFieldNote,
+    showModelPicker,
+    showCustomModelInput,
+    resetModelSelectionState,
+    onModelSelectionChange,
+    onCustomModelInputChange
+  } = useModelSelectionControl({
+    availableModels,
+    runSettings,
+    onRunSettingsChange
+  });
+
+  return (
+    <section className="sidebar-menu__section">
+      <p className="sidebar-menu__section-title">Run settings</p>
+      <div className="chat-head__settings-form">
+        <CustomSelect
+          label="Approval policy"
+          value={runSettings.approvalPolicy}
+          options={APPROVAL_POLICY_OPTIONS.map((opt) => ({
+            value: opt.value,
+            label: opt.label,
+            description: opt.description
+          }))}
+          onChange={(value) =>
+            onRunSettingsChange({
+              ...runSettings,
+              approvalPolicy: value as CodexApprovalPolicyPreset
+            })
+          }
+        />
+
+        <CustomSelect
+          label="Sandbox"
+          value={runSettings.sandbox}
+          options={SANDBOX_OPTIONS.map((opt) => ({
+            value: opt.value,
+            label: opt.label
+          }))}
+          onChange={(value) =>
+            onRunSettingsChange({
+              ...runSettings,
+              sandbox: value as CodexSandboxPreset
+            })
+          }
+        />
+
+        {showModelPicker ? (
+          <CustomSelect
+            label="Model"
+            value={modelSelectionValue}
+            options={[
+              { value: DEFAULT_MODEL_OPTION, label: defaultModelLabel, description: defaultModelDescription },
+              ...modelSelectionOptions.map((opt) => ({
+                value: opt.value,
+                label: opt.label,
+                description: opt.description
+              })),
+              { value: CUSTOM_MODEL_OPTION, label: "Custom model ID" }
+            ]}
+            onChange={onModelSelectionChange}
+          />
+        ) : null}
+
+        {showCustomModelInput ? (
+          <label className="chat-head__settings-field">
+            <span>{showModelPicker ? "Custom model ID" : "Model ID"}</span>
+            <input
+              type="text"
+              value={runSettings.model}
+              onChange={(event) => onCustomModelInputChange(event.target.value)}
+              placeholder="gpt-5.4-mini"
+            />
+          </label>
+        ) : null}
+
+        <p className="chat-head__settings-hint">{modelFieldNote}</p>
+        {isLoadingModels ? <p className="chat-head__settings-hint">Loading model list…</p> : null}
+        {modelsError ? (
+          <p className="chat-head__settings-error">
+            Unable to load models. You can still enter a custom model id.
+          </p>
+        ) : null}
+
+        <button
+          className="settings-reset"
+          onClick={() => {
+            resetModelSelectionState();
+            onResetRunSettings();
+          }}
+          type="button"
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 2V6H6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M2.5 10A6 6 0 1 0 4 4.5L2 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          Reset to defaults
+        </button>
+        <p className="settings-note">Applies to the next run for this thread.</p>
+      </div>
+    </section>
+  );
+}
+
 function MoreActionsIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1600,43 +1706,44 @@ function CommandDetailSheet({
 }
 
 function FileChangeSheet({
-  changes,
-  count,
+  content,
   title,
   onClose,
   onSelect
 }: {
-  changes: FileChangeEntry[];
-  count: number;
+  content: FileChangeListContent;
   title?: string;
   onClose: () => void;
-  onSelect: (change: FileChangeEntry) => void;
+  onSelect: (change: ThreadFileChangeEntry) => void;
 }) {
+  const { source } = content;
   return (
-    <BottomSheet title={title ?? formatFileGroupTitle(count)} onClose={onClose}>
+    <BottomSheet title={title ?? formatFileGroupTitle(source.count)} subtitle={formatFileChangeSheetSubtitle(source)} onClose={onClose}>
       <div className="sheet-list">
-        {changes.length > 0 ? (
-          changes.map((change, index) => (
-            <button
-              key={`${change.path}:${index}`}
-              className="sheet-row sheet-row--button"
-              type="button"
-              onClick={() => onSelect(change)}
-            >
-              <span className="sheet-row__icon sheet-row__icon--file">
-                <FileIcon />
-              </span>
-              <div className="sheet-row__copy">
-                <span className="sheet-row__title">
-                  <span className="sheet-row__eyebrow sheet-row__eyebrow--inline">{fileChangeVerb(change)}</span>
-                  <MiddleTruncate className="sheet-row__title-text" suffixLength={18} text={change.movePath ?? change.path} />
+        {source.changes.length > 0 ? (
+          source.changes.map((change) => {
+            const detail = fileChangeSummaryDetail(change);
+
+            return (
+              <button
+                key={change.movePath ?? change.path}
+                className="sheet-row sheet-row--button"
+                type="button"
+                onClick={() => onSelect(change)}
+              >
+                <span className="sheet-row__icon sheet-row__icon--file">
+                  <FileIcon />
                 </span>
-                {change.movePath ? (
-                  <MiddleTruncate className="sheet-row__meta" suffixLength={18} text={change.path} />
-                ) : null}
-              </div>
-            </button>
-          ))
+                <div className="sheet-row__copy">
+                  <span className="sheet-row__title">
+                    <span className="sheet-row__eyebrow sheet-row__eyebrow--inline">{fileChangeVerb(change)}</span>
+                    <MiddleTruncate className="sheet-row__title-text" suffixLength={18} text={displayPathForPreview(change)} />
+                  </span>
+                  {detail ? <MiddleTruncate className="sheet-row__meta" suffixLength={18} text={detail} /> : null}
+                </div>
+              </button>
+            );
+          })
         ) : (
           <p className="sheet-empty">No file details were recorded for this run.</p>
         )}
@@ -1866,7 +1973,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   hasQueuedUpdates: boolean;
   onJumpToLatest: () => void;
   onOpenCommands: (commands: CommandExecutionEntry[]) => void;
-  onOpenFileChanges: (changes: FileChangeEntry[], count: number) => void;
+  onOpenFileChanges: (content: FileChangeListContent) => void;
   onOpenFileLink: (href: string) => void;
   onOpenSearches: (searches: SearchQueryEntry[]) => void;
   onOpenImageViewer: (attachments: MessageAttachment[], selectedIndex: number) => void;
@@ -1907,21 +2014,21 @@ const ConversationTimeline = memo(function ConversationTimeline({
             }
 
             if (entry.type === "file_group") {
-              const previewRows = entry.changes.slice(0, 5).map((change, index) => ({
-                id: `${change.path}:${index}`,
+              const previewRows = entry.source.changes.slice(0, 5).map((change) => ({
+                id: change.movePath ?? change.path,
                 prefix: fileChangeVerb(change),
-                text: change.movePath ?? change.path,
-                detail: change.movePath ? change.path : null
+                text: displayPathForPreview(change),
+                detail: fileChangeSummaryDetail(change)
               }));
 
               return (
                 <SummaryCard
                   key={entry.id}
                   tone="file"
-                  title={formatFileGroupTitle(entry.count)}
+                  title={formatFileGroupTitle(entry.source.count)}
                   rows={previewRows}
-                  extraCount={Math.max(0, entry.count - previewRows.length)}
-                  onClick={() => onOpenFileChanges(entry.changes, entry.count)}
+                  extraCount={Math.max(0, entry.source.count - previewRows.length)}
+                  onClick={() => onOpenFileChanges({ source: entry.source, title: formatFileGroupTitle(entry.source.count) })}
                 />
               );
             }
@@ -2129,7 +2236,6 @@ export function ChatPane({
   const [composerShellHeight, setComposerShellHeight] = useState(0);
   const [visualViewportBottomInset, setVisualViewportBottomInset] = useState(0);
   const [copiedDebugField, setCopiedDebugField] = useState<string | null>(null);
-  const [isCustomModelInput, setIsCustomModelInput] = useState(false);
   const actionsMenu = useAnchoredMenu({
     open: isActionsMenuOpen,
     onOpenChange: setIsActionsMenuOpen
@@ -2186,33 +2292,7 @@ export function ChatPane({
     !streamingText && (Boolean(effectiveOptimisticMessage) || sessionIsRunning || isSubmitting || hasPendingResponse);
   const showComposerEmptyState =
     !messagesError && !isLoadingMessages && messages.length === 0 && !streamingText && !effectiveOptimisticMessage && !showPendingAssistant;
-  const selectedModel = runSettings.model.trim();
-  const selectedServiceTier = runSettings.serviceTier ?? null;
-  const { defaultModelLabel, defaultModelDescription, defaultModelNote, modelSelectionOptions } =
-    buildModelSelectionState(availableModels);
-  const matchedModelSelectionOption =
-    modelSelectionOptions.find(
-      (option) => option.model === selectedModel && option.serviceTier === selectedServiceTier
-    ) ?? null;
-  const showModelPicker = availableModels.length > 0;
-  const showCustomModelInput =
-    !showModelPicker ||
-    isCustomModelInput ||
-    Boolean((selectedModel || selectedServiceTier) && !matchedModelSelectionOption);
-  const modelSelectionValue = showModelPicker
-    ? showCustomModelInput
-      ? CUSTOM_MODEL_OPTION
-      : matchedModelSelectionOption?.value ?? DEFAULT_MODEL_OPTION
-    : CUSTOM_MODEL_OPTION;
-  const modelFieldNote = !showModelPicker
-    ? "Model discovery is unavailable right now. Enter a model id directly."
-    : showCustomModelInput
-      ? "Use a custom model id when the model is not listed."
-      : matchedModelSelectionOption
-        ? matchedModelSelectionOption.note
-        : defaultModelNote;
-  const usesRootScroll = isMobileViewport;
-  const openFilePreview = useCallback((request: SessionFilePreviewRequest, sourceList: FilePreviewSourceList | null = null) => {
+  const openFilePreview = useCallback((request: SessionFilePreviewRequest, sourceList: FileChangeListContent | null = null) => {
     setSheetState({
       type: "file_preview",
       request,
@@ -2226,33 +2306,18 @@ export function ChatPane({
 
     setSheetState({
       type: "file_list",
-      changes: threadDiffSourceList.changes,
-      count: threadDiffSourceList.count,
-      title: formatThreadDiffTitle(threadDiffSourceList.count)
+      content: {
+        source: threadDiffSourceList,
+        title: formatThreadDiffTitle(threadDiffSourceList.count)
+      }
     });
   }, [threadDiffSourceList]);
   const openFilePreviewFromLink = useCallback(
-    (href: string, sourceList: FilePreviewSourceList | null = null) => {
+    (href: string, sourceList: FileChangeListContent | null = null) => {
       openFilePreview({ path: href }, sourceList);
     },
     [openFilePreview]
   );
-
-  useEffect(() => {
-    if (!showModelPicker) {
-      setIsCustomModelInput(true);
-      return;
-    }
-
-    if ((selectedModel || selectedServiceTier) && !matchedModelSelectionOption) {
-      setIsCustomModelInput(true);
-      return;
-    }
-
-    if (!selectedModel && !selectedServiceTier) {
-      setIsCustomModelInput(false);
-    }
-  }, [matchedModelSelectionOption, selectedModel, selectedServiceTier, showModelPicker]);
 
   useEffect(() => {
     debugChatState("render-state", {
@@ -2300,10 +2365,7 @@ export function ChatPane({
     };
   }, [copiedDebugField]);
 
-  const readCurrentScrollTop = useCallback(
-    () => (usesRootScroll ? readRootScrollTop() : timelineRef.current?.scrollTop ?? 0),
-    [usesRootScroll]
-  );
+  const readCurrentScrollTop = useCallback(() => timelineRef.current?.scrollTop ?? 0, []);
 
   const readTimelineEndOffset = useCallback(() => {
     const timelineEnd = timelineEndRef.current;
@@ -2320,9 +2382,7 @@ export function ChatPane({
   }, []);
 
   const syncTimelinePinnedState = useCallback((scrollDelta = 0, isProgrammaticScroll = false) => {
-    const pinnedToBottom = usesRootScroll
-      ? (timelineEndRef.current ? timelineViewportIsPinnedToBottom(timelineEndRef.current, composerShellHeight) : true)
-      : (timelineRef.current ? timelineIsPinnedToBottom(timelineRef.current) : true);
+    const pinnedToBottom = timelineRef.current ? timelineIsPinnedToBottom(timelineRef.current) : true;
     followModeRef.current = nextTimelineFollowMode({
       currentMode: followModeRef.current,
       pinnedToBottom,
@@ -2336,7 +2396,7 @@ export function ChatPane({
     if (pinnedToBottom) {
       setHasQueuedUpdates(false);
     }
-  }, [composerShellHeight, usesRootScroll]);
+  }, []);
 
   const scrollTimelineToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const timelineEnd = timelineEndRef.current;
@@ -2551,23 +2611,9 @@ export function ChatPane({
       return;
     }
 
-    let scrollTimeout: number | null = null;
     const frame = window.requestAnimationFrame(() => {
       const composer = composerRef.current;
       if (!composer) {
-        return;
-      }
-
-      if (usesRootScroll) {
-        if (showDraftRepoPicker) {
-          composer.focus({ preventScroll: true });
-          return;
-        }
-
-        composer.focus();
-        scrollTimeout = window.setTimeout(() => {
-          composerShellRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
-        }, 250);
         return;
       }
 
@@ -2576,17 +2622,12 @@ export function ChatPane({
 
     return () => {
       window.cancelAnimationFrame(frame);
-      if (scrollTimeout !== null) {
-        window.clearTimeout(scrollTimeout);
-      }
     };
-  }, [detail?.session.id, sessionIsArchived, sessionIsDraft, showComposerEmptyState, showDraftRepoPicker, usesRootScroll]);
+  }, [detail?.session.id, sessionIsArchived, sessionIsDraft, showComposerEmptyState, showDraftRepoPicker]);
 
   useEffect(() => {
     const timeline = timelineRef.current;
-    const scrollTarget = usesRootScroll ? window : timeline;
-    const touchTarget = usesRootScroll ? document : timeline;
-    if (!scrollTarget || !touchTarget) {
+    if (!timeline) {
       return;
     }
 
@@ -2600,7 +2641,7 @@ export function ChatPane({
     };
 
     handleScroll();
-    scrollTarget.addEventListener("scroll", handleScroll, { passive: true });
+    timeline.addEventListener("scroll", handleScroll, { passive: true });
 
     const handleWheel = (event: Event) => {
       if (!(event instanceof WheelEvent)) {
@@ -2639,21 +2680,21 @@ export function ChatPane({
       touchStartYRef.current = null;
     };
 
-    scrollTarget.addEventListener("wheel", handleWheel, { passive: true });
-    touchTarget.addEventListener("touchstart", handleTouchStart, { passive: true });
-    touchTarget.addEventListener("touchmove", handleTouchMove, { passive: true });
-    touchTarget.addEventListener("touchend", resetTouchTracking, { passive: true });
-    touchTarget.addEventListener("touchcancel", resetTouchTracking, { passive: true });
+    timeline.addEventListener("wheel", handleWheel, { passive: true });
+    timeline.addEventListener("touchstart", handleTouchStart, { passive: true });
+    timeline.addEventListener("touchmove", handleTouchMove, { passive: true });
+    timeline.addEventListener("touchend", resetTouchTracking, { passive: true });
+    timeline.addEventListener("touchcancel", resetTouchTracking, { passive: true });
 
     return () => {
-      scrollTarget.removeEventListener("scroll", handleScroll);
-      scrollTarget.removeEventListener("wheel", handleWheel);
-      touchTarget.removeEventListener("touchstart", handleTouchStart);
-      touchTarget.removeEventListener("touchmove", handleTouchMove);
-      touchTarget.removeEventListener("touchend", resetTouchTracking);
-      touchTarget.removeEventListener("touchcancel", resetTouchTracking);
+      timeline.removeEventListener("scroll", handleScroll);
+      timeline.removeEventListener("wheel", handleWheel);
+      timeline.removeEventListener("touchstart", handleTouchStart);
+      timeline.removeEventListener("touchmove", handleTouchMove);
+      timeline.removeEventListener("touchend", resetTouchTracking);
+      timeline.removeEventListener("touchcancel", resetTouchTracking);
     };
-  }, [composerShellHeight, detail?.session.id, disableAutoFollow, readCurrentScrollTop, syncTimelinePinnedState, usesRootScroll]);
+  }, [detail?.session.id, disableAutoFollow, readCurrentScrollTop, syncTimelinePinnedState]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -2663,7 +2704,7 @@ export function ChatPane({
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [composerShellHeight, detail?.session.id, readCurrentScrollTop, readTimelineEndOffset, syncTimelinePinnedState, usesRootScroll]);
+  }, [detail?.session.id, readCurrentScrollTop, readTimelineEndOffset, syncTimelinePinnedState]);
 
   useEffect(() => {
     if (!timelineEndRef.current) {
@@ -2676,6 +2717,7 @@ export function ChatPane({
 
     if (!shouldAutoScrollTimelineUpdate({
       followMode: followModeRef.current,
+      pinnedToBottom: isPinnedToBottomRef.current,
       pendingScrollToBottom: shouldScrollToBottomRef.current,
       contentExpanded
     })) {
@@ -2923,113 +2965,15 @@ export function ChatPane({
                       style={actionsMenu.floatingStyles}
                       {...actionsMenu.getFloatingProps()}
                     >
-                      <section className="sidebar-menu__section">
-                        <p className="sidebar-menu__section-title">Run settings</p>
-                        <div className="chat-head__settings-form">
-                          <CustomSelect
-                            label="Approval policy"
-                            value={runSettings.approvalPolicy}
-                            options={APPROVAL_POLICY_OPTIONS.map((opt) => ({
-                              value: opt.value,
-                              label: opt.label,
-                              description: opt.description
-                            }))}
-                            onChange={(value) =>
-                              onRunSettingsChange({
-                                ...runSettings,
-                                approvalPolicy: value as CodexApprovalPolicyPreset
-                              })
-                            }
-                          />
-
-                          <CustomSelect
-                            label="Sandbox"
-                            value={runSettings.sandbox}
-                            options={SANDBOX_OPTIONS.map((opt) => ({
-                              value: opt.value,
-                              label: opt.label
-                            }))}
-                            onChange={(value) =>
-                              onRunSettingsChange({
-                                ...runSettings,
-                                sandbox: value as CodexSandboxPreset
-                              })
-                            }
-                          />
-
-                          {showModelPicker ? (
-                            <CustomSelect
-                              label="Model"
-                              value={modelSelectionValue}
-                              options={[
-                                { value: DEFAULT_MODEL_OPTION, label: defaultModelLabel, description: defaultModelDescription },
-                                ...modelSelectionOptions.map((opt) => ({
-                                  value: opt.value,
-                                  label: opt.label,
-                                  description: opt.description
-                                })),
-                                { value: CUSTOM_MODEL_OPTION, label: "Custom model ID" }
-                              ]}
-                              onChange={(value) => {
-                                if (value === DEFAULT_MODEL_OPTION) {
-                                  setIsCustomModelInput(false);
-                                  onRunSettingsChange({ ...runSettings, serviceTier: null, model: "" });
-                                  return;
-                                }
-                                if (value === CUSTOM_MODEL_OPTION) {
-                                  setIsCustomModelInput(true);
-                                  onRunSettingsChange({
-                                    ...runSettings,
-                                    serviceTier: null,
-                                    model: matchedModelSelectionOption ? "" : selectedModel
-                                  });
-                                  return;
-                                }
-                                const selected = modelSelectionOptions.find((opt) => opt.value === value) ?? null;
-                                if (!selected) return;
-                                setIsCustomModelInput(false);
-                                onRunSettingsChange({
-                                  ...runSettings,
-                                  serviceTier: selected.serviceTier,
-                                  model: selected.model ?? ""
-                                });
-                              }}
-                            />
-                          ) : null}
-
-                          {showCustomModelInput ? (
-                            <label className="chat-head__settings-field">
-                              <span>{showModelPicker ? "Custom model ID" : "Model ID"}</span>
-                              <input
-                                type="text"
-                                value={runSettings.model}
-                                onChange={(event) =>
-                                  onRunSettingsChange({
-                                    ...runSettings,
-                                    serviceTier: null,
-                                    model: event.target.value
-                                  })
-                                }
-                                placeholder="gpt-5.4-mini"
-                              />
-                            </label>
-                          ) : null}
-
-                          <p className="chat-head__settings-hint">{modelFieldNote}</p>
-                          {isLoadingModels ? <p className="chat-head__settings-hint">Loading model list…</p> : null}
-                          {modelsError ? (
-                            <p className="chat-head__settings-error">
-                              Unable to load models. You can still enter a custom model id.
-                            </p>
-                          ) : null}
-
-                          <button className="settings-reset" onClick={() => onResetRunSettings()} type="button">
-                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 2V6H6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M2.5 10A6 6 0 1 0 4 4.5L2 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                            Reset to defaults
-                          </button>
-                          <p className="settings-note">Applies to the next run for this thread.</p>
-                        </div>
-                      </section>
+                      <RunSettingsPanel
+                        key={detail?.session.id ?? "idle"}
+                        availableModels={availableModels}
+                        isLoadingModels={isLoadingModels}
+                        modelsError={modelsError}
+                        runSettings={runSettings}
+                        onRunSettingsChange={onRunSettingsChange}
+                        onResetRunSettings={onResetRunSettings}
+                      />
 
                       {canRename || canArchive || canRestore ? (
                         <section className="sidebar-menu__section">
@@ -3235,7 +3179,7 @@ export function ChatPane({
             hasQueuedUpdates={hasQueuedUpdates}
             onJumpToLatest={() => scrollTimelineToBottom()}
             onOpenCommands={(commands) => setSheetState({ type: "command_list", commands })}
-            onOpenFileChanges={(changes, count) => setSheetState({ type: "file_list", changes, count })}
+            onOpenFileChanges={(content) => setSheetState({ type: "file_list", content })}
             onOpenFileLink={(href) => openFilePreviewFromLink(href)}
             onOpenSearches={(searches) => setSheetState({ type: "search_list", searches })}
             onOpenImageViewer={(attachments, selectedIndex) => setImageViewerState({ attachments, selectedIndex })}
@@ -3370,9 +3314,8 @@ export function ChatPane({
 
       {sheetState?.type === "file_list" ? (
         <FileChangeSheet
-          changes={sheetState.changes}
-          count={sheetState.count}
-          title={sheetState.title}
+          content={sheetState.content}
+          title={sheetState.content.title}
           onClose={() => setSheetState(null)}
           onSelect={(change) =>
             openFilePreview(
@@ -3382,10 +3325,7 @@ export function ChatPane({
                 changeKind: change.kind,
                 movePath: change.movePath ?? null
               },
-              {
-                changes: sheetState.changes,
-                count: sheetState.count
-              }
+              sheetState.content
             )
           }
         />
@@ -3401,8 +3341,7 @@ export function ChatPane({
               ? () =>
                   setSheetState({
                     type: "file_list",
-                    changes: sheetState.sourceList!.changes,
-                    count: sheetState.sourceList!.count
+                    content: sheetState.sourceList!
                   })
               : undefined
           }

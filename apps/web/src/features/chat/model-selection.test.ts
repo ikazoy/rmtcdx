@@ -3,7 +3,11 @@ import test from "node:test";
 
 import type { CodexAvailableModel } from "@codex-remote/shared-types";
 
-import { buildModelSelectionState } from "./model-selection";
+import {
+  buildModelSelectionState,
+  findModelSelectionOption,
+  shouldShowCustomModelInput
+} from "./model-selection";
 
 function createModel(overrides: Partial<CodexAvailableModel>): CodexAvailableModel {
   return {
@@ -73,4 +77,80 @@ test("buildModelSelectionState follows whichever model the backend marks as defa
   assert.match(state.defaultModelDescription, /Currently o4\./);
   assert.equal(pinnedNextDefault?.label, "o4");
   assert.match(pinnedNextDefault?.description ?? "", /Pin to o4/);
+});
+
+test("findModelSelectionOption matches the exact preset or tiered model entry", () => {
+  const state = buildModelSelectionState([
+    createModel({
+      id: "gpt-5.4",
+      model: "gpt-5.4",
+      displayName: "GPT-5.4",
+      description: "Frontier default model.",
+      isDefault: true
+    }),
+    createModel({
+      id: "gpt-5.4-mini",
+      model: "gpt-5.4-mini",
+      displayName: "GPT-5.4 Mini",
+      description: "Smaller model."
+    })
+  ]);
+
+  assert.equal(findModelSelectionOption(state.modelSelectionOptions, "gpt-5.4-mini", null)?.value, "gpt-5.4-mini");
+  assert.equal(findModelSelectionOption(state.modelSelectionOptions, "gpt-5.4", "fast")?.value, "gpt-5.4::fast");
+  assert.equal(findModelSelectionOption(state.modelSelectionOptions, "gpt-5.4", "flex"), null);
+});
+
+test("shouldShowCustomModelInput only falls back to custom while loading or for unmatched model ids", () => {
+  const state = buildModelSelectionState([
+    createModel({
+      id: "gpt-5.4",
+      model: "gpt-5.4",
+      displayName: "GPT-5.4",
+      description: "Frontier default model.",
+      isDefault: true
+    }),
+    createModel({
+      id: "gpt-5.4-mini",
+      model: "gpt-5.4-mini",
+      displayName: "GPT-5.4 Mini",
+      description: "Smaller model."
+    })
+  ]);
+  const miniOption = state.modelSelectionOptions.find(
+    (option) => option.model === "gpt-5.4-mini" && option.serviceTier === null
+  ) ?? null;
+
+  assert.equal(
+    shouldShowCustomModelInput({
+      showModelPicker: false,
+      selectedModel: "gpt-5.4-mini",
+      selectedServiceTier: null,
+      matchedModelSelectionOption: miniOption,
+      isManualCustomModelSelection: false
+    }),
+    true
+  );
+
+  assert.equal(
+    shouldShowCustomModelInput({
+      showModelPicker: true,
+      selectedModel: "gpt-5.4-mini",
+      selectedServiceTier: null,
+      matchedModelSelectionOption: miniOption,
+      isManualCustomModelSelection: false
+    }),
+    false
+  );
+
+  assert.equal(
+    shouldShowCustomModelInput({
+      showModelPicker: true,
+      selectedModel: "",
+      selectedServiceTier: null,
+      matchedModelSelectionOption: null,
+      isManualCustomModelSelection: true
+    }),
+    true
+  );
 });
