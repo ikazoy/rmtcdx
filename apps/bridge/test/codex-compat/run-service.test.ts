@@ -192,12 +192,14 @@ test("run service treats interrupted local runs without a local stop request as 
   });
 
   assert.equal(presented.session.status, "interrupted");
-  assert.equal(presented.session.statusReasonCode, "snapshot_only_interrupted");
-  assert.equal(presented.session.interruptEvidence, "snapshot_only");
+  assert.equal(presented.session.statusReasonCode, "latest_turn_interrupted");
+  assert.equal(presented.session.statusConfidence, "authoritative");
+  assert.equal(presented.session.interruptEvidence, "confirmed");
   assert.equal(presented.interruptOrigin, "external_or_unknown");
+  assert.equal(presented.interruptLooksSuspicious, false);
 });
 
-test("run service keeps snapshot-only interrupted sessions interrupted and marks them as external or unknown", () => {
+test("run service downgrades snapshot-only interrupted sessions to completed when there are no active hints", () => {
   const harness = createHarness();
   harness.detail.session.status = "interrupted";
   harness.detail.session.statusReasonCode = "latest_turn_interrupted";
@@ -217,12 +219,30 @@ test("run service keeps snapshot-only interrupted sessions interrupted and marks
 
   const presented = harness.service.presentSessionDetail(harness.detail);
 
-  assert.equal(presented.session.status, "interrupted");
+  assert.equal(presented.session.status, "completed");
   assert.equal(presented.session.statusReasonCode, "snapshot_only_interrupted");
   assert.equal(presented.session.statusConfidence, "suspicious");
   assert.equal(presented.session.interruptEvidence, "snapshot_only");
   assert.equal(presented.interruptOrigin, "external_or_unknown");
   assert.equal(presented.interruptLooksSuspicious, true);
+});
+
+test("run service downgrades snapshot-only interrupted sessions to running when the thread is still active", () => {
+  const harness = createHarness();
+  harness.detail.session.status = "interrupted";
+  harness.detail.session.statusReasonCode = "latest_turn_interrupted";
+  harness.detail.session.statusConfidence = "authoritative";
+  harness.detail.session.latestTurnId = "turn-active";
+  harness.detail.session.latestTurnStatus = "interrupted";
+  harness.detail.session.threadStatusType = "active";
+
+  const presented = harness.service.presentSessionDetail(harness.detail);
+
+  assert.equal(presented.session.status, "running");
+  assert.equal(presented.session.statusReasonCode, "snapshot_only_interrupted");
+  assert.equal(presented.session.statusConfidence, "suspicious");
+  assert.equal(presented.session.interruptEvidence, "snapshot_only");
+  assert.equal(presented.interruptOrigin, "external_or_unknown");
 });
 
 test("run service records completion unread only after a counted final assistant message completes the turn", async () => {
@@ -410,6 +430,10 @@ class FakeCodexBackend extends EventEmitter {
   }
 
   async interruptRun() {}
+
+  listPendingRequests() {
+    return [];
+  }
 
   emitMessageFinal(runId: string, turnId: string, countsUnread: boolean) {
     const event: CodexBridgeEvent = {

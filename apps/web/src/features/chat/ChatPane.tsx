@@ -2375,26 +2375,26 @@ export function ChatPane({
   const effectiveOptimisticMessage = optimisticMessage ?? localOptimisticMessage;
 
   const activeRunState = detail?.activeRun?.status ?? null;
-  const latestRunState = detail?.latestRun?.status ?? null;
+  const sessionStatus = detail?.session.status ?? null;
   const sessionIsArchived = Boolean(detail?.session.isArchived);
   const sessionIsDraft = detail?.session.id.startsWith("draft:") === true;
   const sessionIsRunning = activeRunState === "queued" || activeRunState === "running";
   const hasPendingRun = sessionIsRunning || isSubmitting || Boolean(effectiveOptimisticMessage) || hasPendingResponse;
   const interruptButtonEnabled = canInterruptRun && !isSubmitting;
-  const bannerRunState =
+  const headerRunState =
     (activeRunState === "queued" ? "running" : activeRunState) ??
-    (latestRunState === "error" || latestRunState === "interrupted" ? latestRunState : null);
+    (sessionStatus === "error" || sessionStatus === "interrupted" ? sessionStatus : null);
+  const bannerRunState = sessionStatus === "error" || sessionStatus === "interrupted" ? sessionStatus : null;
   const statusLooksSuspicious = detail?.session.statusConfidence === "suspicious";
-  const interruptOrigin = detail?.interruptOrigin ?? null;
   const interruptLooksSuspicious = detail?.interruptLooksSuspicious === true;
-  const snapshotOnlyInterrupted = detail?.session.status === "interrupted" && interruptOrigin === "external_or_unknown";
+  const snapshotOnlyInterrupted = detail?.session.interruptEvidence === "snapshot_only";
   const headerSignalTone = detail
     ? sessionIndicatorTone({
         ...detail.session,
         pendingRequestCount: Math.max(detail.session.pendingRequestCount, pendingCodexRequestCount)
       })
     : "none";
-  const headerStatusDotTone = bannerRunState ?? (headerSignalTone !== "none" ? headerSignalTone : null);
+  const headerStatusDotTone = headerRunState ?? (headerSignalTone !== "none" ? headerSignalTone : null);
   const showPendingAssistant =
     !streamingText && (Boolean(effectiveOptimisticMessage) || sessionIsRunning || isSubmitting || hasPendingResponse);
   const showComposerEmptyState =

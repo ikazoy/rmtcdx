@@ -61,6 +61,7 @@ export class RunService {
   private readonly runsById = new Map<string, Run>();
   private readonly activeRunBySession = new Map<string, string>();
   private readonly latestRunBySession = new Map<string, string>();
+  private readonly localInterruptedTurnBySession = new Map<string, string>();
   private readonly confirmedInterruptedTurnBySession = new Map<string, string>();
   private readonly lastPresentedSnapshotBySession = new Map<string, SessionStatusSnapshot>();
 
@@ -161,6 +162,7 @@ export class RunService {
     }
 
     await this.codex.interruptRun(run.id, run.sessionId, run.turnId);
+    this.localInterruptedTurnBySession.set(run.sessionId, run.turnId);
     this.confirmedInterruptedTurnBySession.set(run.sessionId, run.turnId);
     return this.runsById.get(runId) ?? null;
   }
@@ -420,12 +422,21 @@ export class RunService {
       case "interrupted":
         {
           const interruptEvidence = this.interruptEvidenceForRun(session.id, runs.latestRun);
+          if (interruptEvidence === "snapshot_only") {
+            return {
+              status: this.hasSnapshotOnlyActiveHints(session, runs) ? "running" : "completed",
+              reasonCode: "snapshot_only_interrupted",
+              confidence: "suspicious",
+              interruptEvidence
+            };
+          }
+
           return {
             status: "interrupted",
-            reasonCode: interruptEvidence === "confirmed"
+            reasonCode: this.isLocalInterruptedTurn(session.id, runs.latestRun?.turnId ?? runs.latestRun?.id)
               ? "local_latest_run_interrupted"
-              : "snapshot_only_interrupted",
-            confidence: interruptEvidence === "confirmed" ? "authoritative" : "suspicious",
+              : "latest_turn_interrupted",
+            confidence: "authoritative",
             interruptEvidence
           };
         }
@@ -457,7 +468,9 @@ export class RunService {
     if (interruptEvidence === "confirmed") {
       return {
         status: "interrupted",
-        reasonCode: session.statusReasonCode ?? "latest_turn_interrupted",
+        reasonCode: this.isLocalInterruptedTurn(session.id, session.latestTurnId)
+          ? "local_latest_run_interrupted"
+          : session.statusReasonCode ?? "latest_turn_interrupted",
         confidence: session.statusConfidence ?? "authoritative",
         interruptEvidence
       };
@@ -465,7 +478,7 @@ export class RunService {
 
     if (interruptEvidence === "snapshot_only") {
       return {
-        status: "interrupted",
+        status: this.hasSnapshotOnlyActiveHints(session, runs) ? "running" : "completed",
         reasonCode: "snapshot_only_interrupted",
         confidence: "suspicious",
         interruptEvidence
@@ -503,24 +516,36 @@ export class RunService {
   }
 
   private interruptOrigin(
-    session: Pick<SessionSummary, "interruptEvidence">
+    session: Pick<SessionSummary, "id" | "latestTurnId" | "interruptEvidence">
   ): SessionInterruptOrigin | null {
-    switch (session.interruptEvidence) {
-      case "confirmed":
-        return "local";
-      case "snapshot_only":
-        return "external_or_unknown";
-      default:
-        return null;
+    if (!session.interruptEvidence) {
+      return null;
     }
+
+    return this.isLocalInterruptedTurn(session.id, session.latestTurnId ?? null)
+      ? "local"
+      : "external_or_unknown";
+  }
+
+  private hasSnapshotOnlyActiveHints(
+    session: Pick<SessionSummary, "id" | "threadStatusType">,
+    runs: Pick<PresentedRuns, "activeRun">
+  ) {
+    return runs.activeRun !== null
+      || session.threadStatusType === "active"
+      || this.codex.listPendingRequests(session.id).length > 0;
+  }
+
+  private isLocalInterruptedTurn(sessionId: string, turnId: string | null | undefined) {
+    return Boolean(turnId) && this.localInterruptedTurnBySession.get(sessionId) === turnId;
   }
 
   private interruptLooksSuspicious(
-    session: Pick<SessionSummary, "status">,
+    session: Pick<SessionSummary, "interruptEvidence">,
     interruptOrigin: SessionInterruptOrigin | null,
     latestTurnHasAssistantOutput: boolean
   ) {
-    return session.status === "interrupted"
+    return session.interruptEvidence === "snapshot_only"
       && interruptOrigin === "external_or_unknown"
       && latestTurnHasAssistantOutput;
   }
@@ -674,6 +699,10 @@ export class RunService {
     if (event.type === "request.resolved") {
       this.realtime.broadcastCodexRequestResolved(event.sessionId, event.requestId);
       return;
+    }
+
+    if (event.type === "run.interrupted") {
+      this.confirmedInterruptedTurnBySession.set(event.sessionId, event.turnId);
     }
 
     const current = this.runsById.get(event.runId);
