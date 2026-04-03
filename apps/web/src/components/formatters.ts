@@ -21,6 +21,33 @@ export function formatRelativeTime(iso: string) {
   return "just now";
 }
 
+export function formatCompactTimeUntil(iso: string, now = Date.now()) {
+  const value = new Date(iso).getTime();
+  if (Number.isNaN(value)) {
+    return null;
+  }
+
+  const deltaMs = value - now;
+  if (deltaMs <= 0) {
+    return "now";
+  }
+
+  const totalMinutes = Math.max(1, Math.ceil(deltaMs / 60000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) {
+    return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  }
+
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+
+  return `${totalMinutes}m`;
+}
+
 export function formatClock(iso: string) {
   return new Intl.DateTimeFormat("en", {
     hour: "2-digit",
