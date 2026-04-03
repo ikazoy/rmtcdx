@@ -759,6 +759,59 @@ button {
   line-height: 1.45;
 }
 
+.status-menu__window-list {
+  display: grid;
+  gap: 0.58rem;
+}
+
+.status-menu__window-card {
+  display: grid;
+  gap: 0.52rem;
+  padding: 0.68rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0.76rem;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.status-menu__window-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.status-menu__window-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.25rem, 1fr));
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.status-menu__window-metric {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+  padding: 0.58rem 0.62rem;
+  border-radius: 0.68rem;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.status-menu__window-metric dt {
+  color: #94978f;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.status-menu__window-metric dd {
+  margin: 0;
+  color: #f1efe8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
 .status-menu__pill {
   flex: 0 0 auto;
   padding: 0.25rem 0.5rem;

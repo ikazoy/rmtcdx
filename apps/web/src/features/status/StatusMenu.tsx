@@ -34,6 +34,12 @@ type NotificationState =
 type Tone = "default" | "warning" | "danger";
 type NotificationTone = "default" | "accent" | "danger";
 type NotificationAction = "enable" | "disable" | "retry" | "help" | null;
+type RateLimitWindowView = {
+  key: string;
+  label: string;
+  usage: string;
+  reset: string;
+};
 
 function isIosDevice(userAgent: string) {
   return /iphone|ipad|ipod/.test(userAgent);
@@ -86,27 +92,38 @@ function formatWindowDuration(windowDurationMins: number | null) {
   return `${windowDurationMins}m`;
 }
 
-function formatWindowSummary(windowData: AccountRateLimitWindow | null) {
-  if (!windowData) {
-    return null;
-  }
+function formatWindowLabel(windowData: AccountRateLimitWindow) {
   const duration = formatWindowDuration(windowData.windowDurationMins);
-  const usedPercent = Math.round(windowData.usedPercent);
-  return duration ? `${duration} ${usedPercent}%` : `${usedPercent}%`;
+  return duration ? duration.toUpperCase() : "Window";
 }
 
-function formatWindowReset(windowData: AccountRateLimitWindow | null, now = Date.now()) {
+function formatWindowUsage(windowData: AccountRateLimitWindow) {
+  return `${Math.round(windowData.usedPercent)}% used`;
+}
+
+function formatWindowResetValue(windowData: AccountRateLimitWindow, now = Date.now()) {
   if (!windowData?.resetsAt) {
-    return null;
+    return "Unavailable";
   }
 
   const resetIn = formatCompactTimeUntil(windowData.resetsAt, now);
   if (!resetIn) {
-    return null;
+    return "Unavailable";
   }
 
-  const duration = formatWindowDuration(windowData.windowDurationMins);
-  return duration ? `${duration} resets in ${resetIn}` : `resets in ${resetIn}`;
+  return resetIn === "now" ? "Now" : `In ${resetIn}`;
+}
+
+function buildRateLimitWindowView(windowData: AccountRateLimitWindow, index: number, now = Date.now()): RateLimitWindowView {
+  const duration = windowData.windowDurationMins ?? index;
+  const label = formatWindowLabel(windowData);
+
+  return {
+    key: `${label}-${duration}-${index}`,
+    label,
+    usage: formatWindowUsage(windowData),
+    reset: formatWindowResetValue(windowData, now)
+  };
 }
 
 function rateLimitTone(snapshot: AccountRateLimitSnapshot | null): Tone {
@@ -432,35 +449,35 @@ export function StatusMenu({ isMobileViewport }: Props) {
     if (accountRateLimitsQuery.isLoading && !accountRateLimitsQuery.data) {
       return {
         tone: "default" as Tone,
-        summary: null,
         detail: "Loading account usage...",
-        meta: [] as string[]
+        windows: [] as RateLimitWindowView[]
       };
     }
 
     if (!accountRateLimitsQuery.data?.available || !accountRateLimitsQuery.data.rateLimits) {
       return {
         tone: "default" as Tone,
-        summary: null,
         detail: accountRateLimitsQuery.data?.error ?? "Usage data is not available in this environment.",
-        meta: [] as string[]
+        windows: [] as RateLimitWindowView[]
       };
     }
 
     const snapshotData = accountRateLimitsQuery.data.rateLimits;
     const snapshot = preferredSnapshot(snapshotData);
-    const summary = [formatWindowSummary(snapshot.primary), formatWindowSummary(snapshot.secondary)]
-      .filter((value): value is string => Boolean(value))
-      .join(" · ");
     const tone = rateLimitTone(snapshot);
-    const meta = [formatWindowReset(snapshot.primary, relativeNow), formatWindowReset(snapshot.secondary, relativeNow)]
-      .filter((value): value is string => Boolean(value));
+    const windows = [snapshot.primary, snapshot.secondary]
+      .filter((value): value is AccountRateLimitWindow => Boolean(value))
+      .sort((left, right) => {
+        const leftDuration = left.windowDurationMins ?? Number.POSITIVE_INFINITY;
+        const rightDuration = right.windowDurationMins ?? Number.POSITIVE_INFINITY;
+        return leftDuration - rightDuration;
+      })
+      .map((windowData, index) => buildRateLimitWindowView(windowData, index, relativeNow));
 
     return {
       tone,
-      summary: summary || null,
-      detail: summary ? null : "No usage data yet.",
-      meta
+      detail: windows.length > 0 ? null : "No usage data yet.",
+      windows
     };
   }, [accountRateLimitsQuery.data, accountRateLimitsQuery.isLoading, relativeNow]);
 
@@ -699,17 +716,26 @@ export function StatusMenu({ isMobileViewport }: Props) {
               <div className={`status-menu__card status-menu__card--${rateLimitView.tone}`}>
                 <div className="status-menu__card-head">
                   <strong>Usage</strong>
-                  {rateLimitView.summary ? (
-                    <span className={`status-menu__pill status-menu__pill--${rateLimitView.tone}`}>{rateLimitView.summary}</span>
-                  ) : null}
                 </div>
                 {rateLimitView.detail ? <p>{rateLimitView.detail}</p> : null}
-                {rateLimitView.meta.length > 0 ? (
-                  <div className="status-menu__meta-list">
-                    {rateLimitView.meta.map((item) => (
-                      <span key={item} className="status-menu__meta-badge">
-                        {item}
-                      </span>
+                {rateLimitView.windows.length > 0 ? (
+                  <div className="status-menu__window-list">
+                    {rateLimitView.windows.map((windowData) => (
+                      <section key={windowData.key} className="status-menu__window-card" aria-label={`${windowData.label} usage window`}>
+                        <div className="status-menu__window-head">
+                          <span className={`status-menu__pill status-menu__pill--${rateLimitView.tone}`}>{windowData.label}</span>
+                        </div>
+                        <dl className="status-menu__window-metrics">
+                          <div className="status-menu__window-metric">
+                            <dt>Usage</dt>
+                            <dd>{windowData.usage}</dd>
+                          </div>
+                          <div className="status-menu__window-metric">
+                            <dt>Reset</dt>
+                            <dd>{windowData.reset}</dd>
+                          </div>
+                        </dl>
+                      </section>
                     ))}
                   </div>
                 ) : null}
