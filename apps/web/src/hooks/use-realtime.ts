@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import type { ServerWsEvent } from "@codex-remote/shared-types";
 import { queryKeys } from "../app/query";
+import { clearPushNotificationsForSession } from "../app/push-notifications";
 import { useUiStore } from "../store/ui-store";
 
 function wsUrl() {
@@ -122,6 +123,10 @@ export function useRealtime() {
             void queryClient.invalidateQueries({ queryKey: queryKeys.accountRateLimits });
             return;
           case "notification.unread":
+            if (event.unreadCount === 0) {
+              void clearPushNotificationsForSession(event.sessionId);
+            }
+            return;
           case "pong":
             return;
         }

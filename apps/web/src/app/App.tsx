@@ -20,6 +20,7 @@ import { api } from "../api/client";
 import { queryKeys } from "./query";
 import { startAppViewportHeightTracking } from "./app-viewport-height";
 import { bindAppDisplayModeChange } from "./display-mode";
+import { clearPushNotificationsForSession } from "./push-notifications";
 import {
   buildChatViewState,
   buildDraftSessionDetail,
@@ -493,7 +494,10 @@ export function App() {
     }
 
     const timeoutId = window.setTimeout(() => {
-      void api.markRead(selectedSessionId).catch(() => undefined);
+      void api
+        .markRead(selectedSessionId)
+        .catch(() => undefined)
+        .finally(() => clearPushNotificationsForSession(selectedSessionId));
     }, 750);
 
     return () => window.clearTimeout(timeoutId);

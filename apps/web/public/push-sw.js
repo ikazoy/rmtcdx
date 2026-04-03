@@ -1,3 +1,12 @@
+self.addEventListener("message", (event) => {
+  const { data } = event;
+  if (data?.type !== "notifications.clearSession" || typeof data.sessionId !== "string" || !data.sessionId) {
+    return;
+  }
+
+  event.waitUntil(closeNotificationsForSession(data.sessionId));
+});
+
 self.addEventListener("push", (event) => {
   const payload = event.data ? event.data.json() : {};
   const title = payload.title || "Rmtcdx";
@@ -15,24 +24,46 @@ self.addEventListener("push", (event) => {
 });
 
 self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
-
   const targetUrl = event.notification.data?.url || "/";
+  const sessionId = typeof event.notification.data?.sessionId === "string" ? event.notification.data.sessionId : null;
 
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      for (const client of clients) {
-        if ("focus" in client) {
-          client.navigate(targetUrl);
-          return client.focus();
+    Promise.resolve()
+      .then(() => {
+        if (sessionId) {
+          return closeNotificationsForSession(sessionId);
         }
-      }
 
-      if (self.clients.openWindow) {
-        return self.clients.openWindow(targetUrl);
-      }
+        event.notification.close();
+        return undefined;
+      })
+      .then(() => self.clients.matchAll({ type: "window", includeUncontrolled: true }))
+      .then((clients) => {
+        for (const client of clients) {
+          if ("focus" in client) {
+            client.navigate(targetUrl);
+            return client.focus();
+          }
+        }
 
-      return undefined;
-    })
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(targetUrl);
+        }
+
+        return undefined;
+      })
   );
 });
+
+async function closeNotificationsForSession(sessionId) {
+  if (!sessionId || typeof self.registration.getNotifications !== "function") {
+    return;
+  }
+
+  const notifications = await self.registration.getNotifications();
+  for (const notification of notifications) {
+    if (notification.data?.sessionId === sessionId) {
+      notification.close();
+    }
+  }
+}
