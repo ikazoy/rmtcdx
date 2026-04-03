@@ -19,6 +19,7 @@ import { SESSION_FILTERS } from "@codex-remote/shared-types";
 import { api } from "../api/client";
 import { queryKeys } from "./query";
 import { startAppViewportHeightTracking } from "./app-viewport-height";
+import { bindAppDisplayModeChange } from "./display-mode";
 import {
   buildChatViewState,
   buildDraftSessionDetail,
@@ -528,6 +529,21 @@ export function App() {
       delete document.body.dataset.mobilePane;
     };
   }, [isMobileViewport, mobilePane]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const cleanup = bindAppDisplayModeChange((displayMode) => {
+      document.body.dataset.displayMode = displayMode;
+    });
+
+    return () => {
+      cleanup();
+      delete document.body.dataset.displayMode;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isMobileViewport || mobilePane !== "chat" || typeof window === "undefined") {

@@ -3,8 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import type { AccountRateLimitSnapshot, AccountRateLimitWindow } from "@codex-remote/shared-types";
+import { bindAppDisplayModeChange, readAppDisplayMode } from "../../app/display-mode";
 import { queryKeys } from "../../app/query";
 import { api } from "../../api/client";
+import { formatCompactTimeUntil } from "../../components/formatters";
 import { useAnchoredMenu } from "../../hooks/use-anchored-menu";
 
 type Props = {
@@ -19,10 +21,6 @@ type BeforeInstallPromptEvent = Event & {
   }>;
 };
 
-type NavigatorWithStandalone = Navigator & {
-  standalone?: boolean;
-};
-
 type NotificationState =
   | "unsupported"
   | "insecure"
@@ -33,25 +31,9 @@ type NotificationState =
   | "blocked"
   | "error";
 
-type LegacyMediaQueryList = MediaQueryList & {
-  addListener?: (listener: (event: MediaQueryListEvent) => void) => void;
-  removeListener?: (listener: (event: MediaQueryListEvent) => void) => void;
-};
-
 type Tone = "default" | "warning" | "danger";
 type NotificationTone = "default" | "accent" | "danger";
 type NotificationAction = "enable" | "disable" | "retry" | "help" | null;
-
-function readStandaloneState() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    Boolean((window.navigator as NavigatorWithStandalone).standalone)
-  );
-}
 
 function isIosDevice(userAgent: string) {
   return /iphone|ipad|ipod/.test(userAgent);
@@ -67,18 +49,6 @@ function isAndroidDevice(userAgent: string) {
 
 function isDesktopSafari(userAgent: string) {
   return /safari/.test(userAgent) && !/chrome|chromium|crios|fxios|edgios/.test(userAgent) && !isIosDevice(userAgent);
-}
-
-function bindMediaQueryChange(mediaQuery: MediaQueryList, listener: () => void) {
-  if (typeof mediaQuery.addEventListener === "function") {
-    mediaQuery.addEventListener("change", listener);
-    return () => mediaQuery.removeEventListener("change", listener);
-  }
-
-  const legacyMediaQuery = mediaQuery as LegacyMediaQueryList;
-  const legacyListener = listener as (event: MediaQueryListEvent) => void;
-  legacyMediaQuery.addListener?.(legacyListener);
-  return () => legacyMediaQuery.removeListener?.(legacyListener);
 }
 
 function supportsPushNotifications() {
@@ -123,6 +93,20 @@ function formatWindowSummary(windowData: AccountRateLimitWindow | null) {
   const duration = formatWindowDuration(windowData.windowDurationMins);
   const usedPercent = Math.round(windowData.usedPercent);
   return duration ? `${duration} ${usedPercent}%` : `${usedPercent}%`;
+}
+
+function formatWindowReset(windowData: AccountRateLimitWindow | null, now = Date.now()) {
+  if (!windowData?.resetsAt) {
+    return null;
+  }
+
+  const resetIn = formatCompactTimeUntil(windowData.resetsAt, now);
+  if (!resetIn) {
+    return null;
+  }
+
+  const duration = formatWindowDuration(windowData.windowDurationMins);
+  return duration ? `${duration} resets in ${resetIn}` : `resets in ${resetIn}`;
 }
 
 function rateLimitTone(snapshot: AccountRateLimitSnapshot | null): Tone {
@@ -200,10 +184,11 @@ async function registerPushWorker() {
 
 export function StatusMenu({ isMobileViewport }: Props) {
   const [isOpen, setIsOpen] = useState(false);
-  const [isStandalone, setIsStandalone] = useState(() => readStandaloneState());
+  const [isStandalone, setIsStandalone] = useState(() => readAppDisplayMode() === "standalone");
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isPromptingInstall, setIsPromptingInstall] = useState(false);
   const [showNotificationHelp, setShowNotificationHelp] = useState(false);
+  const [relativeNow, setRelativeNow] = useState(() => Date.now());
   const [notificationState, setNotificationState] = useState<NotificationState>(() => {
     if (typeof window === "undefined") {
       return "unsupported";
@@ -241,15 +226,23 @@ export function StatusMenu({ isMobileViewport }: Props) {
   });
 
   useEffect(() => {
+    return bindAppDisplayModeChange((displayMode) => {
+      setIsStandalone(displayMode === "standalone");
+    });
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
 
-    const mediaQuery = window.matchMedia("(display-mode: standalone)");
-    const syncStandaloneState = () => setIsStandalone(readStandaloneState());
-    syncStandaloneState();
+    const intervalId = window.setInterval(() => {
+      setRelativeNow(Date.now());
+    }, 60_000);
 
-    return bindMediaQueryChange(mediaQuery, syncStandaloneState);
+    return () => {
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   useEffect(() => {
@@ -460,14 +453,16 @@ export function StatusMenu({ isMobileViewport }: Props) {
       .filter((value): value is string => Boolean(value))
       .join(" · ");
     const tone = rateLimitTone(snapshot);
+    const meta = [formatWindowReset(snapshot.primary, relativeNow), formatWindowReset(snapshot.secondary, relativeNow)]
+      .filter((value): value is string => Boolean(value));
 
     return {
       tone,
       summary: summary || null,
       detail: summary ? null : "No usage data yet.",
-      meta: [] as string[]
+      meta
     };
-  }, [accountRateLimitsQuery.data, accountRateLimitsQuery.isLoading]);
+  }, [accountRateLimitsQuery.data, accountRateLimitsQuery.isLoading, relativeNow]);
 
   const notificationRecovery = useMemo(
     () => buildNotificationRecoverySteps(userAgent, isStandalone),

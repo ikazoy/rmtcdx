@@ -1474,13 +1474,34 @@ button {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.7rem;
 }
 
 .chat-head__nav {
   flex: 0 0 auto;
-  padding-top: 0.04rem;
+  align-self: center;
+  padding-top: 0;
+}
+
+.chat-head__nav .ghost-button--back {
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 999px;
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #dfdbd3;
+}
+
+.chat-head__nav .ghost-button--back svg {
+  width: 0.92rem;
+  height: 0.92rem;
+  transform: translateX(-0.03rem);
+}
+
+.chat-head__nav .ghost-button--back:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .chat-head__copy {
@@ -1524,12 +1545,12 @@ button {
 }
 
 .chat-head__menu {
-  align-self: flex-start;
+  align-self: center;
 }
 
 .chat-head__menu-trigger {
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 2.1rem;
+  height: 2.1rem;
   border-radius: 999px;
 }
 
@@ -3898,10 +3919,11 @@ button {
     max-width: none;
     margin-inline: calc(0px - var(--chat-mobile-inline-padding));
     isolation: isolate;
-    padding:
-      calc(env(safe-area-inset-top) + 0.55rem)
-      var(--chat-mobile-inline-padding)
-      0.6rem;
+    padding: 0.48rem var(--chat-mobile-inline-padding) 0.58rem;
+  }
+
+  body[data-display-mode="standalone"] .chat-topbar {
+    padding-top: calc(env(safe-area-inset-top) + 0.48rem);
   }
 
   .chat-topbar::before {
@@ -3927,8 +3949,9 @@ button {
 
   .chat-head__menu {
     position: absolute;
-    top: 0;
-    right: calc(0px - var(--chat-mobile-inline-padding));
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
     align-self: auto;
   }
 
@@ -3976,7 +3999,7 @@ button {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    padding: 0.9rem var(--chat-mobile-inline-padding) calc(0.4rem + env(safe-area-inset-bottom));
+    padding: 0 var(--chat-mobile-inline-padding) calc(0.4rem + env(safe-area-inset-bottom));
   }
 
   .timeline-shell {

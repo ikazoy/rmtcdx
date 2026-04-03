@@ -872,7 +872,7 @@ const MessageAttachments = memo(function MessageAttachments({
 function SheetBackIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M15.5 5.5 9 12l6.5 6.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M15.25 5.75 9.35 12l5.9 6.25" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.65" />
     </svg>
   );
 }

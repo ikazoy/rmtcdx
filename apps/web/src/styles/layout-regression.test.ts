@@ -28,14 +28,21 @@ after(async () => {
   browser = null;
 });
 
-function buildMobileChatFixture(messageMarkup: string, composerMarkup = '<div class="composer"></div>') {
+function buildMobileChatFixture(
+  messageMarkup: string,
+  composerMarkup = '<div class="composer"></div>',
+  options: {
+    displayMode?: "browser" | "standalone";
+  } = {}
+) {
+  const bodyAttributes = options.displayMode ? ` data-display-mode="${options.displayMode}"` : "";
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
   </head>
-  <body>
+  <body${bodyAttributes}>
     <div id="root">
       <div class="app-shell">
         <div class="workspace-shell" data-mobile-pane="chat">
@@ -44,12 +51,22 @@ function buildMobileChatFixture(messageMarkup: string, composerMarkup = '<div cl
               <div class="chat-topbar">
                 <div class="chat-head">
                   <div class="chat-head__lead">
+                    <div class="chat-toolbar__left chat-head__nav">
+                      <button class="ghost-button ghost-button--back" type="button" aria-label="Back to sidebar">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"></svg>
+                      </button>
+                    </div>
                     <div class="chat-head__copy">
                       <div class="chat-head__title">
                         <h2>Layout fixture</h2>
                       </div>
                       <p class="subtle">Mobile timeline overflow regression fixture</p>
                     </div>
+                  </div>
+                  <div class="sidebar-menu chat-head__menu">
+                    <button class="sidebar-menu__trigger chat-head__menu-trigger" type="button" aria-label="Open thread actions">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"></svg>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -73,7 +90,13 @@ function buildMobileChatFixture(messageMarkup: string, composerMarkup = '<div cl
 </html>`;
 }
 
-async function openFixturePage(messageMarkup: string, composerMarkup?: string) {
+async function openFixturePage(
+  messageMarkup: string,
+  composerMarkup?: string,
+  options: {
+    displayMode?: "browser" | "standalone";
+  } = {}
+) {
   if (!browser) {
     throw new Error("browser not initialized");
   }
@@ -81,7 +104,7 @@ async function openFixturePage(messageMarkup: string, composerMarkup?: string) {
   const stylesheet = await stylesheetPromise;
   const page = await browser.newPage();
   await page.setViewport(MOBILE_VIEWPORT);
-  await page.setContent(buildMobileChatFixture(messageMarkup, composerMarkup), {
+  await page.setContent(buildMobileChatFixture(messageMarkup, composerMarkup, options), {
     waitUntil: "domcontentloaded"
   });
   await page.addStyleTag({ content: stylesheet });
@@ -201,6 +224,183 @@ test("mobile chat topbar spans the full chat width", { timeout: 30_000 }, async 
     assert.ok(
       Math.abs(measurement.topbarWidth - measurement.chatCardWidth) <= 1,
       `.chat-topbar width ${measurement.topbarWidth} did not match .chat-card width ${measurement.chatCardWidth}`
+    );
+  } finally {
+    await page.close();
+  }
+});
+
+test("mobile browser chat topbar sits flush with the chat card top edge", { timeout: 30_000 }, async () => {
+  const page = await openFixturePage("");
+
+  try {
+    const measurement = await page.evaluate(() => {
+      const chatCard = document.querySelector<HTMLElement>(".chat-card");
+      const topbar = document.querySelector<HTMLElement>(".chat-topbar");
+      if (!chatCard || !topbar) {
+        throw new Error("Missing topbar fixture");
+      }
+
+      return {
+        chatCardTop: chatCard.getBoundingClientRect().top,
+        topbarTop: topbar.getBoundingClientRect().top
+      };
+    });
+
+    assert.ok(
+      Math.abs(measurement.topbarTop - measurement.chatCardTop) <= 1,
+      `.chat-topbar top ${measurement.topbarTop} did not align with .chat-card top ${measurement.chatCardTop}`
+    );
+  } finally {
+    await page.close();
+  }
+});
+
+test("mobile browser chat topbar keeps comfortable top padding inside the header", { timeout: 30_000 }, async () => {
+  const page = await openFixturePage("");
+
+  try {
+    const browserPaddingTop = await page.evaluate(() => {
+      const topbar = document.querySelector<HTMLElement>(".chat-topbar");
+      if (!topbar) {
+        throw new Error("Missing browser topbar fixture");
+      }
+
+      return Number.parseFloat(window.getComputedStyle(topbar).paddingTop);
+    });
+
+    assert.ok(browserPaddingTop >= 7, `browser padding-top ${browserPaddingTop} was smaller than the expected header breathing room`);
+  } finally {
+    await page.close();
+  }
+});
+
+test("mobile standalone chat topbar keeps at least the browser top padding baseline", { timeout: 30_000 }, async () => {
+  const browserPage = await openFixturePage("");
+  const standalonePage = await openFixturePage("", undefined, { displayMode: "standalone" });
+
+  try {
+    const browserPaddingTop = await browserPage.evaluate(() => {
+      const topbar = document.querySelector<HTMLElement>(".chat-topbar");
+      if (!topbar) {
+        throw new Error("Missing browser topbar fixture");
+      }
+
+      return Number.parseFloat(window.getComputedStyle(topbar).paddingTop);
+    });
+
+    const standalonePaddingTop = await standalonePage.evaluate(() => {
+      const topbar = document.querySelector<HTMLElement>(".chat-topbar");
+      if (!topbar) {
+        throw new Error("Missing standalone topbar fixture");
+      }
+
+      return Number.parseFloat(window.getComputedStyle(topbar).paddingTop);
+    });
+
+    assert.ok(
+      standalonePaddingTop >= browserPaddingTop,
+      `standalone padding-top ${standalonePaddingTop} was smaller than browser padding-top ${browserPaddingTop}`
+    );
+  } finally {
+    await browserPage.close();
+    await standalonePage.close();
+  }
+});
+
+test("mobile chat header back button matches the actions button size and top alignment", { timeout: 30_000 }, async () => {
+  const page = await openFixturePage("");
+
+  try {
+    const measurement = await page.evaluate(() => {
+      const backButton = document.querySelector<HTMLElement>(".ghost-button--back");
+      const menuButton = document.querySelector<HTMLElement>(".chat-head__menu-trigger");
+      if (!backButton || !menuButton) {
+        throw new Error("Missing chat header controls");
+      }
+
+      const backRect = backButton.getBoundingClientRect();
+      const menuRect = menuButton.getBoundingClientRect();
+
+      return {
+        backTop: backRect.top,
+        menuTop: menuRect.top,
+        backHeight: backRect.height,
+        menuHeight: menuRect.height,
+        backWidth: backRect.width,
+        menuWidth: menuRect.width
+      };
+    });
+
+    assert.ok(Math.abs(measurement.backTop - measurement.menuTop) <= 2, `back button top ${measurement.backTop} did not align with menu top ${measurement.menuTop}`);
+    assert.ok(Math.abs(measurement.backHeight - measurement.menuHeight) <= 1, `back button height ${measurement.backHeight} did not match menu height ${measurement.menuHeight}`);
+    assert.ok(Math.abs(measurement.backWidth - measurement.menuWidth) <= 1, `back button width ${measurement.backWidth} did not match menu width ${measurement.menuWidth}`);
+  } finally {
+    await page.close();
+  }
+});
+
+test("mobile chat header controls stay vertically centered within the header", { timeout: 30_000 }, async () => {
+  const page = await openFixturePage("");
+
+  try {
+    const measurement = await page.evaluate(() => {
+      const header = document.querySelector<HTMLElement>(".chat-head");
+      const backButton = document.querySelector<HTMLElement>(".ghost-button--back");
+      const menuButton = document.querySelector<HTMLElement>(".chat-head__menu-trigger");
+      if (!header || !backButton || !menuButton) {
+        throw new Error("Missing chat header controls");
+      }
+
+      const headerRect = header.getBoundingClientRect();
+      const backRect = backButton.getBoundingClientRect();
+      const menuRect = menuButton.getBoundingClientRect();
+      return {
+        headerCenterY: headerRect.top + headerRect.height / 2,
+        backCenterY: backRect.top + backRect.height / 2,
+        menuCenterY: menuRect.top + menuRect.height / 2
+      };
+    });
+
+    assert.ok(
+      Math.abs(measurement.backCenterY - measurement.headerCenterY) <= 2,
+      `back button center ${measurement.backCenterY} did not align with header center ${measurement.headerCenterY}`
+    );
+    assert.ok(
+      Math.abs(measurement.menuCenterY - measurement.headerCenterY) <= 2,
+      `menu button center ${measurement.menuCenterY} did not align with header center ${measurement.headerCenterY}`
+    );
+  } finally {
+    await page.close();
+  }
+});
+
+test("mobile chat header actions button stays inset from the right edge", { timeout: 30_000 }, async () => {
+  const page = await openFixturePage("");
+
+  try {
+    const measurement = await page.evaluate(() => {
+      const topbar = document.querySelector<HTMLElement>(".chat-topbar");
+      const backButton = document.querySelector<HTMLElement>(".ghost-button--back");
+      const menuButton = document.querySelector<HTMLElement>(".chat-head__menu-trigger");
+      if (!topbar || !backButton || !menuButton) {
+        throw new Error("Missing chat header controls");
+      }
+
+      const topbarRect = topbar.getBoundingClientRect();
+      const backRect = backButton.getBoundingClientRect();
+      const menuRect = menuButton.getBoundingClientRect();
+
+      return {
+        leftInset: backRect.left - topbarRect.left,
+        rightInset: topbarRect.right - menuRect.right
+      };
+    });
+
+    assert.ok(measurement.rightInset >= 6, `menu right inset ${measurement.rightInset} was too small`);
+    assert.ok(
+      Math.abs(measurement.leftInset - measurement.rightInset) <= 4,
+      `header control insets drifted too far apart (${measurement.leftInset} vs ${measurement.rightInset})`
     );
   } finally {
     await page.close();
