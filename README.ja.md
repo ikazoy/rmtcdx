@@ -143,7 +143,7 @@ npx rmtcdx stop
 - このアプリは `/api` と `/ws` を相対パスで使うので、同じ Tailscale URL 経由で UI と WebSocket の両方が動きます
 - `rmtcdx` は proxy を有効化する前に既存の Tailscale Serve 設定をバックアップし、`rmtcdx stop` でその設定に戻します
 - 初回に `Serve is not enabled on your tailnet` と出た場合は、コマンドが表示する admin URL を一度開いて node で Serve を有効化し、その後で `npx rmtcdx up --tailscale` を再実行してください
-- ポート 3000 は開発サーバー (`npm run dev`) 用に予約されています
+- ポート 3000 は bridge 側の開発サーバー (`npm run dev`) 用に予約されています。Web 側の開発サーバーの既定値は 4173 で、`WEB_PORT` で変更できます
 
 CLI の詳しい仕様: [docs/cli.ja.md](./docs/cli.ja.md)
 
@@ -187,6 +187,8 @@ cp repos.example.json repos.json
 ```bash
 npm run dev
 ```
+
+Web 側の dev server は既定で `http://127.0.0.1:4173` です。`WEB_PORT=4321 npm run dev` のように変更できます。
 
 個別ワークスペース用コマンド:
 

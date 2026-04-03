@@ -143,7 +143,7 @@ Notes:
 - This app uses relative `/api` and `/ws` paths, so the UI and WebSocket updates work through the same Tailscale URL
 - `rmtcdx` backs up the previous Tailscale Serve config before enabling its proxy and restores that backup on `rmtcdx stop`
 - If Tailscale prints `Serve is not enabled on your tailnet`, open the admin URL shown by the command once, enable Serve for the node, and run `npx rmtcdx up --tailscale` again
-- Port 3000 is reserved for the dev server (`npm run dev`)
+- Port 3000 is reserved for the bridge dev server (`npm run dev`); the web dev server defaults to 4173 and can be changed with `WEB_PORT`
 
 Full CLI details: [docs/cli.md](./docs/cli.md)
 
@@ -187,6 +187,8 @@ Run the bridge and web app together during development:
 ```bash
 npm run dev
 ```
+
+The web dev server defaults to `http://127.0.0.1:4173`. Set `WEB_PORT` to change it, for example `WEB_PORT=4321 npm run dev`.
 
 Workspace-specific commands:
 

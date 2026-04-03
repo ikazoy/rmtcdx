@@ -113,7 +113,7 @@ run 完了時の通知をバックグラウンド中にも届けるための
 
 ### 5.2 LAN の HTTP URL では push 前提を満たせない
 
-現在のような `http://<LAN-IP>:5173` は、
+現在のような `http://<LAN-IP>:4173` は、
 `localhost` / `127.0.0.1` と違って secure context ではない。
 
 そのため、バックグラウンド通知の本命である
@@ -154,7 +154,7 @@ service worker の役割は以下に限定する。
 
 - 日常利用は Vite dev server より
   bridge が返す build 済み UI を優先する
-- `:5173` は開発確認用、
+- `:4173` は開発確認用 (`WEB_PORT` で変更可)、
   常用 URL は bridge 側に寄せる
 
 ## 6.2 フェーズ 2: 画面を開いている間の通知強化
@@ -299,7 +299,7 @@ subscription は「この bridge を見ている端末」に紐づく前提で�
 
 ## 10. リスクと留意点
 
-- dev server (`:5173`) は常用 URL に向かない
+- dev server (`:4173`, `WEB_PORT` で変更可) は常用 URL に向かない
 - HTTPS 化しない限り、
   バックグラウンド通知は最終的には成立しない
 - iOS は install prompt がないため、
