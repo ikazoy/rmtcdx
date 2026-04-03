@@ -14,6 +14,38 @@ Codex Remote Web Client is a mobile-first web UI for remotely operating OpenAI C
 - Browser push notifications and Codex usage-limit status
 - Mobile-first layout for moving between the session list and chat view
 
+## Why `rmtcdx`
+
+If your goal is "keep my local Codex moving after I step away from my desk," `rmtcdx` is aimed at a different problem than a desktop-native Codex app or a mobile companion for another coding agent.
+
+Snapshot: April 2026.
+
+| If you care about... | Claude Code Remote Control | Codex app | `rmtcdx` |
+|---|---|---|---|
+| Continuing work after you leave your desk | Mobile and browser companion for Claude workflows | Strong native desktop experience | Built around desk-to-phone and desk-to-browser handoff for your local `codex` CLI |
+| Opening the same control surface on the device you already have | Good fit when you already live in Claude | Good fit when you stay on your main desktop | One browser/PWA surface across phone, tablet, and desktop |
+| Getting pulled back when a long run finishes | Not the main product story | Strong desktop experience | Browser push notifications for run completion and attention-needed events |
+| Starting remote access quickly | Product-specific setup | Install the desktop app | `npx rmtcdx up` and open the printed URL |
+| Using your own machine instead of a separate hosted workspace | Depends on your Claude workflow | Same-device native Codex workflow | Explicitly built to remotely drive the local `codex` CLI already running on your machine |
+
+Why people pick `rmtcdx`:
+
+- Keep using the local repository, local CLI, and local session history you already have
+- Open the same UI from another PC, phone, or tablet without installing a dedicated client
+- Get browser push notifications when a run completes or Codex needs your attention
+- Share a same-network URL immediately, or add Tailscale access with `npx rmtcdx up --tailscale`
+- Start from existing Codex threads, `repos.json`, or the current git working tree
+
+## Next for Power Users
+
+The next major control-surface expansions are already designed, not vague wishlist items:
+
+- Managed worktree sessions
+- Message-based fork and edit flows
+- Plan-first workflow controls
+
+See [worktree management design](./docs/worktree-management-design.md), [message fork / edit design](./docs/message-fork-edit-design.md), and [plan-first workflow design](./docs/plan-first-workflow-design.md).
+
 ## Requirements
 
 - Node.js 20 or newer

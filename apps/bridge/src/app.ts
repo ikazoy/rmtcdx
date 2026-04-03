@@ -98,7 +98,16 @@ const sessionFilePreviewSchema = z.object({
   path: z.string().trim().min(1),
   diff: z.string().optional().nullable(),
   changeKind: z.enum(["add", "delete", "update"]).optional().nullable(),
-  movePath: z.string().trim().min(1).optional().nullable()
+  movePath: z.string().trim().min(1).optional().nullable(),
+  selection: z
+    .object({
+      startLine: z.number().int().min(1),
+      endLine: z.number().int().min(1).optional().nullable(),
+      startColumn: z.number().int().min(1).optional().nullable(),
+      endColumn: z.number().int().min(1).optional().nullable()
+    })
+    .optional()
+    .nullable()
 });
 const codexPendingRequestResponseSchema = z.discriminatedUnion("type", [
   z.object({
@@ -442,7 +451,8 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
         imageDataUrl: null,
         diff: body.diff ?? null,
         changeKind: body.changeKind ?? null,
-        movePath: body.movePath ?? null
+        movePath: body.movePath ?? null,
+        selection: body.selection ?? null
       };
     }
 
@@ -458,7 +468,8 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
         imageDataUrl: null,
         diff: body.diff ?? null,
         changeKind: body.changeKind ?? null,
-        movePath: body.movePath ?? null
+        movePath: body.movePath ?? null,
+        selection: body.selection ?? null
       };
     }
 
@@ -488,7 +499,8 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
         imageDataUrl: null,
         diff: body.diff ?? null,
         changeKind: body.changeKind ?? null,
-        movePath: body.movePath ?? null
+        movePath: body.movePath ?? null,
+        selection: body.selection ?? null
       };
     }
 
@@ -517,7 +529,8 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
         imageDataUrl: null,
         diff: body.diff ?? null,
         changeKind: body.changeKind ?? null,
-        movePath: body.movePath ?? null
+        movePath: body.movePath ?? null,
+        selection: body.selection ?? null
       };
     }
 
@@ -533,7 +546,8 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
         imageDataUrl: `data:${mediaType};base64,${file.dataBase64}`,
         diff: body.diff ?? null,
         changeKind: body.changeKind ?? null,
-        movePath: body.movePath ?? null
+        movePath: body.movePath ?? null,
+        selection: body.selection ?? null
       };
     }
 
@@ -550,7 +564,8 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
         imageDataUrl: null,
         diff: body.diff ?? null,
         changeKind: body.changeKind ?? null,
-        movePath: body.movePath ?? null
+        movePath: body.movePath ?? null,
+        selection: body.selection ?? null
       };
     }
 
@@ -565,7 +580,8 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
       imageDataUrl: null,
       diff: body.diff ?? null,
       changeKind: body.changeKind ?? null,
-      movePath: body.movePath ?? null
+      movePath: body.movePath ?? null,
+      selection: body.selection ?? null
     };
   });
 

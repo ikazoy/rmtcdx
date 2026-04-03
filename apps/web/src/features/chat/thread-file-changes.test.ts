@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { Message } from "@codex-remote/shared-types";
-import { collectThreadFileChanges, summarizeThreadFileChanges } from "./thread-file-changes";
+import { collectThreadFileChanges, summarizeThreadFileChanges, summarizeUnifiedDiff } from "./thread-file-changes";
 
 test("summarizeThreadFileChanges collapses duplicate paths and keeps the latest representative", () => {
   const summary = summarizeThreadFileChanges([
@@ -31,20 +31,23 @@ test("summarizeThreadFileChanges collapses duplicate paths and keeps the latest 
       path: change.path,
       firstPath: change.firstPath,
       occurrenceCount: change.occurrenceCount,
-      diff: change.diff
+      diff: change.diff,
+      diffStat: change.diffStat
     })),
     [
       {
         path: "apps/web/src/features/chat/ChatPane.tsx",
         firstPath: "apps/web/src/features/chat/ChatPane.tsx",
         occurrenceCount: 2,
-        diff: "@@ latest"
+        diff: "@@ latest",
+        diffStat: null
       },
       {
         path: "apps/web/src/features/chat/Other.tsx",
         firstPath: "apps/web/src/features/chat/Other.tsx",
         occurrenceCount: 1,
-        diff: "@@ new"
+        diff: "@@ new",
+        diffStat: null
       }
     ]
   );
@@ -112,4 +115,23 @@ test("collectThreadFileChanges only reads file change items from thread messages
   assert.equal(summary.count, 1);
   assert.equal(summary.rawCount, 1);
   assert.equal(summary.changes[0]?.path, "apps/web/src/features/chat/ChatPane.tsx");
+});
+
+test("summarizeUnifiedDiff counts additions and deletions from unified diffs", () => {
+  assert.deepEqual(
+    summarizeUnifiedDiff([
+      "diff --git a/example.ts b/example.ts",
+      "--- a/example.ts",
+      "+++ b/example.ts",
+      "@@ -1,2 +1,3 @@",
+      "-const oldValue = 1;",
+      "+const newValue = 2;",
+      "+console.log(newValue);",
+      " unchanged();"
+    ].join("\n")),
+    {
+      additions: 2,
+      deletions: 1
+    }
+  );
 });

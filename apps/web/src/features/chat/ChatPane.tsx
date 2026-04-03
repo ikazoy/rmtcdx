@@ -47,6 +47,7 @@ import {
   type ThreadFileChangeEntry,
   type ThreadFileChangeSummary
 } from "./thread-file-changes";
+import { fileSelectionLineRange, formatFileSelectionSuffix, parseLocalFileHref } from "./file-links";
 import { MermaidBlock } from "./MermaidBlock";
 import {
   nextTimelineFollowMode,
@@ -417,6 +418,10 @@ function fileChangeSummaryDetail(change: ThreadFileChangeEntry) {
     details.push(formatCountLabel(change.occurrenceCount, "edit"));
   }
 
+  if (change.diffStat) {
+    details.push(`+${change.diffStat.additions} -${change.diffStat.deletions}`);
+  }
+
   return details.length > 0 ? details.join(" · ") : null;
 }
 
@@ -433,12 +438,14 @@ function filePreviewRequestFromChange(change: ThreadFileChangeEntry): SessionFil
     path: change.path,
     diff: change.diff ?? null,
     changeKind: change.kind,
-    movePath: change.movePath ?? null
+    movePath: change.movePath ?? null,
+    selection: null
   };
 }
 
 function findThreadFileChangeIndex(content: FileChangeListContent, href: string) {
-  const normalizedHref = href.replace(/^\.\//, "");
+  const parsedHref = parseLocalFileHref(href);
+  const normalizedHref = (parsedHref?.path ?? href).replace(/^\.\//, "");
 
   return content.source.changes.findIndex((change) => {
     const displayPath = displayPathForPreview(change);
@@ -594,6 +601,38 @@ function formatStatusConfidenceDebug(detail: SessionDetail) {
   return detail.session.statusConfidence ?? "missing";
 }
 
+function formatInterruptOriginDebug(detail: SessionDetail) {
+  return detail.interruptOrigin ?? "none";
+}
+
+function interruptedBannerTitle(detail: SessionDetail) {
+  return detail.interruptOrigin === "external_or_unknown" ? "Interrupt reported" : "Run interrupted";
+}
+
+function interruptedBannerBody(detail: SessionDetail) {
+  if (detail.interruptOrigin === "external_or_unknown") {
+    return detail.latestRun?.finishedAt
+      ? `Codex reported the latest turn as interrupted ${formatRelativeTime(detail.latestRun.finishedAt)}.`
+      : "Codex reported the latest turn as interrupted.";
+  }
+
+  return detail.latestRun?.finishedAt
+    ? `Last run stopped ${formatRelativeTime(detail.latestRun.finishedAt)}`
+    : "The latest run was interrupted.";
+}
+
+function interruptedBannerNote(detail: SessionDetail) {
+  if (detail.interruptOrigin !== "external_or_unknown") {
+    return null;
+  }
+
+  if (detail.interruptLooksSuspicious) {
+    return "This client did not send stop for the latest turn, and the interrupted turn already contains assistant output. Another Codex client may have completed or interrupted it, or the snapshot may be stale.";
+  }
+
+  return "This client did not send stop for the latest turn. Another Codex client may have interrupted it, or the snapshot may be stale.";
+}
+
 async function copyTextToClipboard(text: string) {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -631,6 +670,14 @@ function displayPathForPreview(preview: Pick<SessionFilePreviewRequest, "path" |
   return preview.movePath ?? preview.path;
 }
 
+function displayPathWithSelection(
+  preview: Pick<SessionFilePreviewRequest, "path" | "movePath" | "selection">,
+  resolvedPath?: string | null
+) {
+  const basePath = resolvedPath ?? displayPathForPreview(preview);
+  return `${basePath}${formatFileSelectionSuffix(preview.selection)}`;
+}
+
 function fileLeafName(candidate: string) {
   const parts = candidate.split(/[\\/]/);
   return parts[parts.length - 1] || candidate;
@@ -643,30 +690,14 @@ function looksLikeMarkdownPath(candidate: string) {
 }
 
 function isLikelyLocalFileHref(href: string) {
-  if (!href || href.startsWith("#")) {
-    return false;
-  }
-
-  if (href.startsWith("file://")) {
-    return true;
-  }
-
-  if (/^(https?:|mailto:|tel:)/i.test(href)) {
-    return false;
-  }
-
-  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(href)) {
-    return false;
-  }
-
-  if (href.startsWith("/") || href.startsWith("./") || href.startsWith("../")) {
-    return true;
-  }
-
-  return href.includes("/") || /\.[a-z0-9]+([?#].*)?$/i.test(href) || /^readme([?#].*)?$/i.test(href);
+  return parseLocalFileHref(href) !== null;
 }
 
-function defaultFilePreviewTab(request: Pick<SessionFilePreviewRequest, "path" | "movePath" | "diff">) {
+function defaultFilePreviewTab(request: Pick<SessionFilePreviewRequest, "path" | "movePath" | "diff" | "selection">) {
+  if (request.selection) {
+    return "source" as const;
+  }
+
   if (request.diff?.trim()) {
     return "diff" as const;
   }
@@ -1433,7 +1464,7 @@ function BottomSheet({
     }
 
     const target = event.target;
-    if (target instanceof HTMLElement && target.closest("button, a, input, textarea, select")) {
+    if (target instanceof Element && target.closest("button, a, input, textarea, select")) {
       return;
     }
 
@@ -1777,6 +1808,7 @@ function FilePreviewSheet({
   const [response, setResponse] = useState<SessionFilePreviewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"preview" | "source" | "diff">(() => defaultFilePreviewTab(request));
+  const sourcePanelRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setActiveTab(defaultFilePreviewTab(request));
@@ -1812,8 +1844,10 @@ function FilePreviewSheet({
 
   const preview = response ?? null;
   const displayPath = displayPathForPreview(preview ?? request);
-  const title = fileLeafName(displayPath) || "File";
-  const fullPath = preview?.resolvedPath ?? displayPath;
+  const selection = preview?.selection ?? request.selection ?? null;
+  const selectionLineRange = fileSelectionLineRange(selection);
+  const title = `${fileLeafName(displayPath) || "File"}${formatFileSelectionSuffix(selection)}`;
+  const fullPath = displayPathWithSelection(preview ?? request, preview?.resolvedPath);
   const hasPreviewTab = preview?.contentStatus === "ok" && preview.isMarkdown;
   const hasImageSource = filePreviewHasImage(preview);
   const hasSourceTab = preview?.contentStatus === "ok" && (preview.text !== null || hasImageSource);
@@ -1852,6 +1886,36 @@ function FilePreviewSheet({
       </button>
     </>
   ) : null;
+
+  useEffect(() => {
+    if (selectedTab !== "source" || !selectionLineRange || status !== "ready") {
+      return;
+    }
+
+    const panel = sourcePanelRef.current;
+    if (!panel) {
+      return;
+    }
+
+    const targetLine = panel.querySelector<HTMLElement>(
+      `[data-line-number="${selectionLineRange.startLine}"]`
+    );
+
+    if (!targetLine) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      targetLine.scrollIntoView({
+        block: "center",
+        inline: "nearest"
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [selectedTab, selectionLineRange, status]);
 
   return (
     <BottomSheet
@@ -1917,13 +1981,19 @@ function FilePreviewSheet({
           ) : null}
 
           {selectedTab === "source" && preview ? (
-            <section className="file-preview__panel">
+            <section ref={sourcePanelRef} className="file-preview__panel">
               {hasImageSource ? (
                 <figure className="file-preview__image-frame">
                   <img className="file-preview__image" src={preview.imageDataUrl!} alt={title} />
                 </figure>
               ) : preview.text !== null ? (
-                <SyntaxCodeBlock code={preview.text} language={sourceLanguage} className="file-preview__code" />
+                <SyntaxCodeBlock
+                  code={preview.text}
+                  language={sourceLanguage}
+                  className="file-preview__code"
+                  showLineNumbers
+                  highlightedLineRange={selectionLineRange}
+                />
               ) : null}
             </section>
           ) : null}
@@ -2315,6 +2385,9 @@ export function ChatPane({
     (activeRunState === "queued" ? "running" : activeRunState) ??
     (latestRunState === "error" || latestRunState === "interrupted" ? latestRunState : null);
   const statusLooksSuspicious = detail?.session.statusConfidence === "suspicious";
+  const interruptOrigin = detail?.interruptOrigin ?? null;
+  const interruptLooksSuspicious = detail?.interruptLooksSuspicious === true;
+  const snapshotOnlyInterrupted = detail?.session.status === "interrupted" && interruptOrigin === "external_or_unknown";
   const headerSignalTone = detail
     ? sessionIndicatorTone({
         ...detail.session,
@@ -2362,20 +2435,30 @@ export function ChatPane({
   }, [threadDiffSourceList]);
   const openFilePreviewFromLink = useCallback(
     (href: string, sourceList: FileChangeListContent | null = null) => {
+      const parsedHref = parseLocalFileHref(href);
+      const resolvedPath = parsedHref?.path ?? href;
+
       if (sourceList) {
-        const selectedIndex = findThreadFileChangeIndex(sourceList, href);
+        const selectedIndex = findThreadFileChangeIndex(sourceList, resolvedPath);
         if (selectedIndex >= 0) {
           const change = sourceList.source.changes[selectedIndex];
           if (change) {
-            openFilePreviewFromChange(change, sourceList, selectedIndex);
+            openFilePreview(
+              {
+                ...filePreviewRequestFromChange(change),
+                selection: parsedHref?.selection ?? null
+              },
+              sourceList,
+              selectedIndex
+            );
             return;
           }
         }
       }
 
-      openFilePreview({ path: href }, sourceList);
+      openFilePreview({ path: resolvedPath, selection: parsedHref?.selection ?? null }, sourceList);
     },
-    [openFilePreview, openFilePreviewFromChange]
+    [openFilePreview]
   );
   const navigateFilePreview = useCallback((delta: number) => {
     setSheetState((current) => {
@@ -2553,21 +2636,48 @@ export function ChatPane({
       setVisualViewportBottomInset(0);
       return;
     }
+    let frameId: number | null = null;
 
     const updateVisualViewportBottomInset = () => {
       const bottomInset = Math.max(0, Math.ceil(window.innerHeight - viewport.height - viewport.offsetTop));
       setVisualViewportBottomInset(bottomInset);
     };
 
+    const scheduleVisualViewportBottomInsetUpdate = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        updateVisualViewportBottomInset();
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        scheduleVisualViewportBottomInsetUpdate();
+      }
+    };
+
     updateVisualViewportBottomInset();
-    viewport.addEventListener("resize", updateVisualViewportBottomInset);
-    viewport.addEventListener("scroll", updateVisualViewportBottomInset);
-    window.addEventListener("resize", updateVisualViewportBottomInset);
+    viewport.addEventListener("resize", scheduleVisualViewportBottomInsetUpdate);
+    viewport.addEventListener("scroll", scheduleVisualViewportBottomInsetUpdate);
+    window.addEventListener("resize", scheduleVisualViewportBottomInsetUpdate);
+    window.addEventListener("focus", scheduleVisualViewportBottomInsetUpdate);
+    window.addEventListener("pageshow", scheduleVisualViewportBottomInsetUpdate);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      viewport.removeEventListener("resize", updateVisualViewportBottomInset);
-      viewport.removeEventListener("scroll", updateVisualViewportBottomInset);
-      window.removeEventListener("resize", updateVisualViewportBottomInset);
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      viewport.removeEventListener("resize", scheduleVisualViewportBottomInsetUpdate);
+      viewport.removeEventListener("scroll", scheduleVisualViewportBottomInsetUpdate);
+      window.removeEventListener("resize", scheduleVisualViewportBottomInsetUpdate);
+      window.removeEventListener("focus", scheduleVisualViewportBottomInsetUpdate);
+      window.removeEventListener("pageshow", scheduleVisualViewportBottomInsetUpdate);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
@@ -2577,9 +2687,32 @@ export function ChatPane({
       setComposerShellHeight(0);
       return;
     }
+    let frameId: number | null = null;
 
     const updateComposerShellHeight = () => {
       setComposerShellHeight(Math.ceil(composerShell.getBoundingClientRect().height));
+    };
+
+    const scheduleComposerShellHeightUpdate = () => {
+      if (typeof window === "undefined") {
+        updateComposerShellHeight();
+        return;
+      }
+
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        updateComposerShellHeight();
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        scheduleComposerShellHeightUpdate();
+      }
     };
 
     updateComposerShellHeight();
@@ -2589,11 +2722,42 @@ export function ChatPane({
         updateComposerShellHeight();
       });
       observer.observe(composerShell);
-      return () => observer.disconnect();
+      if (typeof window !== "undefined") {
+        window.addEventListener("focus", scheduleComposerShellHeightUpdate);
+        window.addEventListener("pageshow", scheduleComposerShellHeightUpdate);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+      }
+      return () => {
+        if (frameId !== null && typeof window !== "undefined") {
+          window.cancelAnimationFrame(frameId);
+        }
+        observer.disconnect();
+        if (typeof window !== "undefined") {
+          window.removeEventListener("focus", scheduleComposerShellHeightUpdate);
+          window.removeEventListener("pageshow", scheduleComposerShellHeightUpdate);
+          document.removeEventListener("visibilitychange", handleVisibilityChange);
+        }
+      };
     }
 
-    window.addEventListener("resize", updateComposerShellHeight);
-    return () => window.removeEventListener("resize", updateComposerShellHeight);
+    if (typeof window !== "undefined") {
+      window.addEventListener("resize", scheduleComposerShellHeightUpdate);
+      window.addEventListener("focus", scheduleComposerShellHeightUpdate);
+      window.addEventListener("pageshow", scheduleComposerShellHeightUpdate);
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
+    return () => {
+      if (frameId !== null && typeof window !== "undefined") {
+        window.cancelAnimationFrame(frameId);
+      }
+      if (typeof window !== "undefined") {
+        window.removeEventListener("resize", scheduleComposerShellHeightUpdate);
+        window.removeEventListener("focus", scheduleComposerShellHeightUpdate);
+        window.removeEventListener("pageshow", scheduleComposerShellHeightUpdate);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
+    };
   }, [detail?.session.id, isMobileViewport]);
 
   useEffect(() => {
@@ -3208,7 +3372,20 @@ export function ChatPane({
                                   <span className="chat-head__debug-label">session.status.confidence</span>
                                   <code className="chat-head__debug-value">{formatStatusConfidenceDebug(detail)}</code>
                                 </div>
-                                {statusLooksSuspicious ? (
+                                <div className="chat-head__debug-row">
+                                  <span className="chat-head__debug-label">interrupt.origin</span>
+                                  <code className="chat-head__debug-value">{formatInterruptOriginDebug(detail)}</code>
+                                </div>
+                                <div className="chat-head__debug-row">
+                                  <span className="chat-head__debug-label">interrupt.suspicious</span>
+                                  <code className="chat-head__debug-value">{detail.interruptLooksSuspicious ? "true" : "false"}</code>
+                                </div>
+                                {snapshotOnlyInterrupted ? (
+                                  <p className="chat-head__debug-note">
+                                    This client did not send stop for the latest turn. Another Codex client may have interrupted it, or the
+                                    snapshot may be stale.
+                                  </p>
+                                ) : statusLooksSuspicious ? (
                                   <p className="chat-head__debug-note">
                                     This status is inferred from a thread snapshot and may be stale if another Codex client is active.
                                   </p>
@@ -3249,16 +3426,10 @@ export function ChatPane({
             ) : bannerRunState === "interrupted" ? (
               <div className="run-banner run-banner--interrupted">
                 <div>
-                  <strong>Run interrupted</strong>
-                  <p>
-                    {detail.latestRun?.finishedAt
-                      ? `Last run stopped ${formatRelativeTime(detail.latestRun.finishedAt)}`
-                      : "The latest run was interrupted."}
-                  </p>
-                  {statusLooksSuspicious ? (
-                    <p>
-                      This interrupted status is heuristic and may be stale if another Codex client is still running.
-                    </p>
+                  <strong>{interruptedBannerTitle(detail)}</strong>
+                  <p>{interruptedBannerBody(detail)}</p>
+                  {interruptLooksSuspicious || snapshotOnlyInterrupted || statusLooksSuspicious ? (
+                    <p>{interruptedBannerNote(detail) ?? "This interrupted status may be stale if another Codex client is active."}</p>
                   ) : null}
                 </div>
               </div>

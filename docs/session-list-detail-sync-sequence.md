@@ -2,6 +2,10 @@
 
 このメモは、一覧 poll に連動して selected session の detail を background refetch する現在の挙動を前提にしたシーケンス整理です。
 
+session status 自体の意味論と user-facing 表示ルールは
+[`docs/session-status-model.md`](./session-status-model.md)
+を参照する。
+
 ## Scope
 
 - Thread list を開く

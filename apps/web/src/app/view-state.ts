@@ -147,6 +147,7 @@ export function sessionDetailSyncKey(session: SessionSummary | null | undefined)
     session.status,
     session.statusReasonCode ?? null,
     session.statusConfidence ?? null,
+    session.interruptEvidence ?? null,
     session.latestTurnStatus ?? null,
     session.threadStatusType ?? null,
     session.isArchived,

@@ -14,6 +14,38 @@ Codex Remote Web Client は、mobile-first の Web UI から OpenAI Codex CLI �
 - ブラウザ push 通知と Codex 利用量表示
 - session list と chat を行き来しやすい mobile-first レイアウト
 
+## なぜ `rmtcdx` なのか
+
+`rmtcdx` が狙っているのは、「ローカルの Codex を、席を離れたあとも止めずに使い続けること」です。desktop-native な Codex app や、別の coding agent の companion 製品とは、重視している体験が少し違います。
+
+比較のスナップショット: 2026 年 4 月。
+
+| 重視すること | Claude Code Remote Control | Codex app | `rmtcdx` |
+|---|---|---|---|
+| 席を離れたあとも作業を続けたい | Claude workflow の mobile / browser companion | 強い native desktop 体験 | ローカル `codex` CLI の desk-to-phone / desk-to-browser handoff を主目的にしている |
+| 手元にある端末ですぐ開きたい | すでに Claude 中心なら相性がよい | 普段のメイン desktop に張り付くなら相性がよい | phone / tablet / desktop で同じ browser / PWA UI を使える |
+| 長い run が終わったら呼び戻してほしい | そこが主訴の製品ではない | desktop では強い | run 完了や attention-needed をブラウザ push 通知で受けられる |
+| できるだけ早く remote access を始めたい | 製品ごとの導入フローがある | desktop app の install が前提 | `npx rmtcdx up` で起動して、表示された URL を開くだけ |
+| 別の hosted workspace ではなく、自分のマシンをそのまま使いたい | Claude 側の workflow に依る | 同一マシンで完結する native Codex 体験 | すでに手元で動いている local `codex` CLI を別デバイスから操作するための設計 |
+
+`rmtcdx` が刺さるポイント:
+
+- すでに持っている local repository、local CLI、local session history をそのまま使い続けられる
+- 別 PC、phone、tablet から同じ UI を開ける。専用 client install を前提にしない
+- 長い run が終わったときや Codex が attention を求めたときにブラウザ push 通知で戻れる
+- same-network URL をすぐ共有でき、外から使いたいときは `npx rmtcdx up --tailscale` でそのまま広げられる
+- 既存の Codex threads、`repos.json`、または現在の git working tree からすぐ始められる
+
+## Power User 向けの次
+
+次に広げる control surface は、単なる wishlist ではなく、すでに設計を切ってあります。
+
+- managed worktree session
+- message ベースの fork / edit
+- plan-first workflow control
+
+詳しくは [worktree management design](./docs/worktree-management-design.md)、[message fork / edit design](./docs/message-fork-edit-design.md)、[plan-first workflow design](./docs/plan-first-workflow-design.md) を参照してください。
+
 ## 前提
 
 - Node.js 20 以上

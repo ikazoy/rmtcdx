@@ -52,4 +52,22 @@ describe("inferSyntaxLanguageFromPath", () => {
       assert.match(markup, /language-php/);
     });
   });
+
+  test("SyntaxCodeBlock renders line numbers and highlighted ranges when requested", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SyntaxCodeBlock, {
+        code: "const a = 1;\nconst b = 2;\nconst c = 3;",
+        language: "typescript",
+        showLineNumbers: true,
+        highlightedLineRange: {
+          startLine: 2,
+          endLine: 3
+        }
+      })
+    );
+
+    assert.match(markup, /syntax-block__line-number/);
+    assert.match(markup, /data-line-number="2"/);
+    assert.match(markup, /syntax-block__line--highlighted/);
+  });
 });

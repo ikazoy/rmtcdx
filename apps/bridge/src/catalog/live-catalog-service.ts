@@ -157,7 +157,8 @@ export class LiveCatalogService {
       session: this.mapThreadSummary(context),
       activeRun: runOverride?.activeRun ?? derivedRuns.activeRun,
       latestRun: runOverride?.latestRun ?? derivedRuns.latestRun,
-      runSettings: null
+      runSettings: null,
+      latestTurnHasAssistantOutput: this.latestTurnHasAssistantOutput(thread)
     } satisfies SessionDetail;
   }
 
@@ -518,6 +519,21 @@ export class LiveCatalogService {
       reasonCode: "history_present",
       confidence: "derived"
     };
+  }
+
+  private latestTurnHasAssistantOutput(thread: CodexThread) {
+    const latestTurn = thread.turns.at(-1);
+    if (!latestTurn) {
+      return false;
+    }
+
+    return latestTurn.items.some((item) => {
+      if (item.type !== "agentMessage" || !("phase" in item) || !("text" in item)) {
+        return false;
+      }
+
+      return item.phase !== "commentary" && item.text.trim().length > 0;
+    });
   }
 
   private threadTitle(thread: CodexThread, fallback: string) {

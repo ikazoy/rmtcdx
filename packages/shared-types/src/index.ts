@@ -2,12 +2,15 @@ export type SessionStatus = "idle" | "running" | "completed" | "interrupted" | "
 export type RunStatus = "queued" | "running" | "completed" | "interrupted" | "error";
 export type CodexTurnStatus = "completed" | "interrupted" | "failed" | "inProgress";
 export type CodexThreadStatusType = "notLoaded" | "idle" | "systemError" | "active";
+export type SessionInterruptEvidence = "confirmed" | "snapshot_only";
+export type SessionInterruptOrigin = "local" | "external_or_unknown";
 export type SessionStatusReasonCode =
   | "thread_active"
   | "thread_system_error"
   | "latest_turn_completed"
   | "latest_turn_interrupted"
   | "latest_turn_failed"
+  | "snapshot_only_interrupted"
   | "in_progress_but_thread_inactive"
   | "empty_thread"
   | "history_present"
@@ -67,6 +70,7 @@ export type SessionSummary = {
   lastRunFinishedAt?: string;
   statusReasonCode?: SessionStatusReasonCode;
   statusConfidence?: SessionStatusConfidence;
+  interruptEvidence?: SessionInterruptEvidence | null;
   latestTurnId?: string | null;
   latestTurnStatus?: CodexTurnStatus | null;
   threadStatusType?: CodexThreadStatusType;
@@ -120,6 +124,13 @@ export type FileChangeEntry = {
   kind: "add" | "delete" | "update";
   movePath?: string | null;
   diff?: string;
+};
+
+export type FileSelection = {
+  startLine: number;
+  endLine?: number | null;
+  startColumn?: number | null;
+  endColumn?: number | null;
 };
 
 export type Run = {
@@ -309,6 +320,9 @@ export type SessionDetail = {
   activeRun: Run | null;
   latestRun: Run | null;
   runSettings: CodexRunSettings | null;
+  latestTurnHasAssistantOutput?: boolean;
+  interruptOrigin?: SessionInterruptOrigin | null;
+  interruptLooksSuspicious?: boolean;
 };
 
 export type HealthResponse = {
@@ -342,6 +356,7 @@ export type SessionFilePreviewRequest = {
   diff?: string | null;
   changeKind?: FileChangeEntry["kind"] | null;
   movePath?: string | null;
+  selection?: FileSelection | null;
 };
 export type SessionFilePreviewContentStatus = "ok" | "missing" | "directory" | "binary" | "too_large";
 export type SessionFilePreviewResponse = {
@@ -356,6 +371,7 @@ export type SessionFilePreviewResponse = {
   diff: string | null;
   changeKind: FileChangeEntry["kind"] | null;
   movePath: string | null;
+  selection: FileSelection | null;
 };
 
 export type CreateSessionRequest = {

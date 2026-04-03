@@ -6,6 +6,9 @@ session unread state をどう生成・保存・配信するかを整理する�
 前提となる既存フローは
 [`docs/session-list-detail-sync-sequence.md`](./session-list-detail-sync-sequence.md)
 を参照する。
+session status の意味論と execution / attention の分離は
+[`docs/session-status-model.md`](./session-status-model.md)
+を参照する。
 
 ## Goals
 

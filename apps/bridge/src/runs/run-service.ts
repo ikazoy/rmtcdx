@@ -8,6 +8,8 @@ import type {
   Message,
   Run,
   SessionDetail,
+  SessionInterruptEvidence,
+  SessionInterruptOrigin,
   SessionStatusConfidence,
   SessionStatusReasonCode,
   SessionSummary
@@ -35,6 +37,7 @@ type PresentedSessionState = {
   status: SessionSummary["status"];
   reasonCode: SessionStatusReasonCode | undefined;
   confidence: SessionStatusConfidence | undefined;
+  interruptEvidence: SessionInterruptEvidence | null;
 };
 
 type PresentedRuns = {
@@ -47,6 +50,7 @@ type SessionStatusSnapshot = {
   status: SessionSummary["status"];
   reasonCode: SessionStatusReasonCode | null;
   confidence: SessionStatusConfidence | null;
+  interruptEvidence: SessionInterruptEvidence | null;
   latestTurnStatus: SessionSummary["latestTurnStatus"] | null;
   threadStatusType: SessionSummary["threadStatusType"] | null;
   activeRunStatus: Run["status"] | null;
@@ -57,6 +61,7 @@ export class RunService {
   private readonly runsById = new Map<string, Run>();
   private readonly activeRunBySession = new Map<string, string>();
   private readonly latestRunBySession = new Map<string, string>();
+  private readonly confirmedInterruptedTurnBySession = new Map<string, string>();
   private readonly lastPresentedSnapshotBySession = new Map<string, SessionStatusSnapshot>();
 
   constructor(
@@ -156,6 +161,7 @@ export class RunService {
     }
 
     await this.codex.interruptRun(run.id, run.sessionId, run.turnId);
+    this.confirmedInterruptedTurnBySession.set(run.sessionId, run.turnId);
     return this.runsById.get(runId) ?? null;
   }
 
@@ -206,6 +212,12 @@ export class RunService {
       latestRun: detail.latestRun
     });
     const session = this.presentSessionSummaryWithRuns(detail.session, runs);
+    const interruptOrigin = this.interruptOrigin(session);
+    const interruptLooksSuspicious = this.interruptLooksSuspicious(
+      session,
+      interruptOrigin,
+      detail.latestTurnHasAssistantOutput ?? false
+    );
     // Only bridge-owned run settings are treated as authoritative here. In local codex-cli 0.116.0
     // probes, `thread/resume` after a completed turn collapsed many distinct configurations back to
     // the same default-ish values (`on-request` / `read-only` / `gpt-5.4` / `serviceTier: null`),
@@ -215,7 +227,9 @@ export class RunService {
       session === detail.session &&
       sameRun(detail.activeRun, runs.activeRun) &&
       sameRun(detail.latestRun, runs.latestRun) &&
-      sameRunSettings(detail.runSettings, runSettings)
+      sameRunSettings(detail.runSettings, runSettings) &&
+      (detail.interruptOrigin ?? null) === interruptOrigin &&
+      (detail.interruptLooksSuspicious ?? false) === interruptLooksSuspicious
     ) {
       return detail;
     }
@@ -225,20 +239,17 @@ export class RunService {
       session,
       activeRun: runs.activeRun,
       latestRun: runs.latestRun,
-      runSettings
+      runSettings,
+      interruptOrigin,
+      interruptLooksSuspicious
     };
   }
 
   private presentSessionSummaryWithRuns(session: SessionSummary, runs: PresentedRuns) {
-    if (runs.localState === "none") {
-      this.logPresentedSessionSummary(session, runs);
-      return session;
-    }
-
     const presentedState = this.presentedSessionState(session, runs);
     const lastUserMessageAt = runs.latestRun?.startedAt ?? session.lastUserMessageAt;
     const lastRunFinishedAt =
-      runs.activeRun || (runs.latestRun && isRunInProgress(runs.latestRun.status))
+      presentedState.status === "running" || runs.activeRun || (runs.latestRun && isRunInProgress(runs.latestRun.status))
         ? undefined
         : runs.latestRun?.finishedAt ?? session.lastRunFinishedAt;
 
@@ -246,6 +257,7 @@ export class RunService {
       presentedState.status === session.status &&
       presentedState.reasonCode === session.statusReasonCode &&
       presentedState.confidence === session.statusConfidence &&
+      presentedState.interruptEvidence === (session.interruptEvidence ?? null) &&
       lastUserMessageAt === session.lastUserMessageAt &&
       lastRunFinishedAt === session.lastRunFinishedAt
     ) {
@@ -258,6 +270,7 @@ export class RunService {
       status: presentedState.status,
       statusReasonCode: presentedState.reasonCode,
       statusConfidence: presentedState.confidence,
+      interruptEvidence: presentedState.interruptEvidence,
       lastUserMessageAt,
       lastRunFinishedAt
     };
@@ -347,7 +360,7 @@ export class RunService {
       case "failed":
         return "error";
       case "inProgress":
-        return session.threadStatusType === "active" ? "running" : "interrupted";
+        return "running";
       default:
         return null;
     }
@@ -367,14 +380,18 @@ export class RunService {
   }
 
   private presentedSessionState(
-    session: Pick<SessionSummary, "status" | "statusReasonCode" | "statusConfidence">,
+    session: Pick<
+      SessionSummary,
+      "id" | "status" | "statusReasonCode" | "statusConfidence" | "latestTurnId" | "latestTurnStatus" | "threadStatusType"
+    >,
     runs: Pick<PresentedRuns, "activeRun" | "latestRun" | "localState">
   ): PresentedSessionState {
     if (runs.localState === "active" && runs.activeRun) {
       return {
         status: "running",
         reasonCode: "local_active_run",
-        confidence: "authoritative"
+        confidence: "authoritative",
+        interruptEvidence: null
       };
     }
 
@@ -383,39 +400,129 @@ export class RunService {
         return {
           status: "running",
           reasonCode: "local_latest_run_queued",
-          confidence: "authoritative"
+          confidence: "authoritative",
+          interruptEvidence: null
         };
       case "running":
         return {
           status: "running",
           reasonCode: "local_latest_run_running",
-          confidence: "authoritative"
+          confidence: "authoritative",
+          interruptEvidence: null
         };
       case "completed":
         return {
           status: "completed",
           reasonCode: "local_latest_run_completed",
-          confidence: "authoritative"
+          confidence: "authoritative",
+          interruptEvidence: null
         };
       case "interrupted":
-        return {
-          status: "interrupted",
-          reasonCode: "local_latest_run_interrupted",
-          confidence: "authoritative"
-        };
+        {
+          const interruptEvidence = this.interruptEvidenceForRun(session.id, runs.latestRun);
+          return {
+            status: "interrupted",
+            reasonCode: interruptEvidence === "confirmed"
+              ? "local_latest_run_interrupted"
+              : "snapshot_only_interrupted",
+            confidence: interruptEvidence === "confirmed" ? "authoritative" : "suspicious",
+            interruptEvidence
+          };
+        }
       case "error":
         return {
           status: "error",
           reasonCode: "local_latest_run_error",
-          confidence: "authoritative"
+          confidence: "authoritative",
+          interruptEvidence: null
         };
       default:
-        return {
-          status: session.status,
-          reasonCode: session.statusReasonCode,
-          confidence: session.statusConfidence
-        };
+        break;
     }
+
+    if (session.latestTurnStatus === "inProgress") {
+      return {
+        status: "running",
+        reasonCode: session.threadStatusType === "active"
+          ? session.statusReasonCode ?? "thread_active"
+          : "in_progress_but_thread_inactive",
+        confidence: session.threadStatusType === "active"
+          ? session.statusConfidence
+          : "suspicious",
+        interruptEvidence: null
+      };
+    }
+
+    const interruptEvidence = this.interruptEvidence(session);
+    if (interruptEvidence === "confirmed") {
+      return {
+        status: "interrupted",
+        reasonCode: session.statusReasonCode ?? "latest_turn_interrupted",
+        confidence: session.statusConfidence ?? "authoritative",
+        interruptEvidence
+      };
+    }
+
+    if (interruptEvidence === "snapshot_only") {
+      return {
+        status: "interrupted",
+        reasonCode: "snapshot_only_interrupted",
+        confidence: "suspicious",
+        interruptEvidence
+      };
+    }
+
+    return {
+      status: session.status,
+      reasonCode: session.statusReasonCode,
+      confidence: session.statusConfidence,
+      interruptEvidence: null
+    };
+  }
+
+  private interruptEvidence(
+    session: Pick<SessionSummary, "id" | "latestTurnId" | "latestTurnStatus">
+  ): SessionInterruptEvidence | null {
+    if (session.latestTurnStatus !== "interrupted" || !session.latestTurnId) {
+      return null;
+    }
+
+    return this.confirmedInterruptedTurnBySession.get(session.id) === session.latestTurnId
+      ? "confirmed"
+      : "snapshot_only";
+  }
+
+  private interruptEvidenceForRun(
+    sessionId: string,
+    run: Pick<Run, "id" | "turnId"> | null | undefined
+  ): SessionInterruptEvidence {
+    const turnId = run?.turnId ?? run?.id;
+    return turnId && this.confirmedInterruptedTurnBySession.get(sessionId) === turnId
+      ? "confirmed"
+      : "snapshot_only";
+  }
+
+  private interruptOrigin(
+    session: Pick<SessionSummary, "interruptEvidence">
+  ): SessionInterruptOrigin | null {
+    switch (session.interruptEvidence) {
+      case "confirmed":
+        return "local";
+      case "snapshot_only":
+        return "external_or_unknown";
+      default:
+        return null;
+    }
+  }
+
+  private interruptLooksSuspicious(
+    session: Pick<SessionSummary, "status">,
+    interruptOrigin: SessionInterruptOrigin | null,
+    latestTurnHasAssistantOutput: boolean
+  ) {
+    return session.status === "interrupted"
+      && interruptOrigin === "external_or_unknown"
+      && latestTurnHasAssistantOutput;
   }
 
   private logPresentedSessionSummary(
@@ -430,6 +537,7 @@ export class RunService {
       status: session.status,
       reasonCode: session.statusReasonCode ?? null,
       confidence: session.statusConfidence ?? null,
+      interruptEvidence: session.interruptEvidence ?? null,
       latestTurnStatus: session.latestTurnStatus ?? null,
       threadStatusType: session.threadStatusType ?? null,
       activeRunStatus: runs.activeRun?.status ?? null,
@@ -448,6 +556,8 @@ export class RunService {
       statusReasonCode: nextSnapshot.reasonCode,
       previousConfidence: previousSnapshot?.confidence ?? null,
       statusConfidence: nextSnapshot.confidence,
+      previousInterruptEvidence: previousSnapshot?.interruptEvidence ?? null,
+      interruptEvidence: nextSnapshot.interruptEvidence,
       latestTurnStatus: nextSnapshot.latestTurnStatus,
       threadStatusType: nextSnapshot.threadStatusType,
       activeRunStatus: nextSnapshot.activeRunStatus,
@@ -459,6 +569,7 @@ export class RunService {
         sessionId: session.id,
         status: nextSnapshot.status,
         statusReasonCode: nextSnapshot.reasonCode,
+        interruptEvidence: nextSnapshot.interruptEvidence,
         latestTurnStatus: nextSnapshot.latestTurnStatus,
         threadStatusType: nextSnapshot.threadStatusType,
         activeRunStatus: nextSnapshot.activeRunStatus,
@@ -473,6 +584,7 @@ export class RunService {
     return left.status === right.status
       && left.reasonCode === right.reasonCode
       && left.confidence === right.confidence
+      && left.interruptEvidence === right.interruptEvidence
       && left.latestTurnStatus === right.latestTurnStatus
       && left.threadStatusType === right.threadStatusType
       && left.activeRunStatus === right.activeRunStatus

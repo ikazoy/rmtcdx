@@ -655,7 +655,11 @@ test("bridge smoke test previews session files from the current workspace", asyn
       payload: {
         path: "docs/preview.md",
         diff: previewDiff,
-        changeKind: "add"
+        changeKind: "add",
+        selection: {
+          startLine: 2,
+          endLine: 4
+        }
       }
     });
     assert.equal(previewResponse.statusCode, 200);
@@ -668,6 +672,10 @@ test("bridge smoke test previews session files from the current workspace", asyn
       imageDataUrl: string | null;
       diff: string | null;
       sizeBytes: number | null;
+      selection: {
+        startLine: number;
+        endLine: number | null;
+      } | null;
     };
     assert.equal(previewPayload.path, "docs/preview.md");
     assert.equal(previewPayload.resolvedPath, expectedResolvedPath);
@@ -677,6 +685,10 @@ test("bridge smoke test previews session files from the current workspace", asyn
     assert.equal(previewPayload.imageDataUrl, null);
     assert.equal(previewPayload.diff, previewDiff);
     assert.ok((previewPayload.sizeBytes ?? 0) > 0);
+    assert.deepEqual(previewPayload.selection, {
+      startLine: 2,
+      endLine: 4
+    });
 
     const outsideResponse = await app.inject({
       method: "POST",
@@ -1117,6 +1129,12 @@ test("bridge smoke test allows archiving after an immediate interrupt when the r
     };
     assert.equal(startRunPayload.run.turnId, "fixture_turn_interrupt_archive_1");
 
+    const interruptResponse = await app.inject({
+      method: "POST",
+      url: `/api/runs/${startRunPayload.run.id}/interrupt`
+    });
+    assert.equal(interruptResponse.statusCode, 200);
+
     backend.emit("event", {
       type: "run.interrupted",
       sessionId: "fixture_thread_interrupt_archive",
@@ -1282,7 +1300,7 @@ class FixtureBridgeBackend extends EventEmitter implements CodexBackend {
   }
 
   async interruptRun(_runId: string, _threadId: string, _turnId: string) {
-    throw new Error("Not implemented in fixture backend");
+    return;
   }
 
   listPendingRequests(sessionId?: string): CodexPendingRequest[] {

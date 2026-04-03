@@ -18,6 +18,7 @@ import type {
 import { SESSION_FILTERS } from "@codex-remote/shared-types";
 import { api } from "../api/client";
 import { queryKeys } from "./query";
+import { startAppViewportHeightTracking } from "./app-viewport-height";
 import {
   buildChatViewState,
   buildDraftSessionDetail,
@@ -309,6 +310,14 @@ export function App() {
   }, [optimisticMessage]);
 
   useEffect(() => () => revokeOptimisticAttachments(optimisticMessageRef.current), []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
+    return startAppViewportHeightTracking(window, document);
+  }, []);
 
   const selectedRepoId = useUiStore((state) => state.selectedRepoId);
   const selectedRepoSource = useUiStore((state) => state.selectedRepoSource);

@@ -86,6 +86,7 @@ test("run service clears a raw active run when the matching local run is interru
     prompt: "Interrupt immediately"
   });
   const turnId = run.turnId ?? "turn-1";
+  await harness.service.interrupt(run.id);
 
   harness.detail.session.status = "running";
   harness.detail.session.statusReasonCode = "thread_active";
@@ -111,10 +112,13 @@ test("run service clears a raw active run when the matching local run is interru
 
   assert.equal(presented.session.status, "interrupted");
   assert.equal(presented.session.statusReasonCode, "local_latest_run_interrupted");
+  assert.equal(presented.session.interruptEvidence, "confirmed");
   assert.equal(presented.activeRun, null);
   assert.equal(presented.latestRun?.id, run.id);
   assert.equal(presented.latestRun?.turnId, turnId);
   assert.equal(presented.latestRun?.status, "interrupted");
+  assert.equal(presented.interruptOrigin, "local");
+  assert.equal(presented.interruptLooksSuspicious, false);
 });
 
 test("run service only applies local terminal summary state when the latest turn id still matches", async () => {
@@ -125,6 +129,7 @@ test("run service only applies local terminal summary state when the latest turn
   });
   const turnId = run.turnId ?? "turn-1";
 
+  await harness.service.interrupt(run.id);
   harness.backend.emitTerminalEvent("run.interrupted", run.id, turnId);
   await flushAsyncWork();
 
@@ -139,6 +144,7 @@ test("run service only applies local terminal summary state when the latest turn
   });
   assert.equal(matchingSummary.status, "interrupted");
   assert.equal(matchingSummary.statusReasonCode, "local_latest_run_interrupted");
+  assert.equal(matchingSummary.interruptEvidence, "confirmed");
 
   const movedOnSummary = harness.service.presentSessionSummary({
     ...createSessionSummary("Deploy preview"),
@@ -151,6 +157,72 @@ test("run service only applies local terminal summary state when the latest turn
   });
   assert.equal(movedOnSummary.status, "running");
   assert.equal(movedOnSummary.statusReasonCode, "thread_active");
+});
+
+test("run service treats interrupted local runs without a local stop request as external or unknown", async () => {
+  const harness = createHarness();
+  const run = await harness.service.start({
+    sessionId: "thread-1",
+    prompt: "Interrupt from another client"
+  });
+  const turnId = run.turnId ?? "turn-1";
+
+  harness.backend.emitTerminalEvent("run.interrupted", run.id, turnId);
+  await flushAsyncWork();
+
+  const presented = harness.service.presentSessionDetail({
+    ...harness.detail,
+    session: {
+      ...harness.detail.session,
+      latestTurnId: turnId,
+      latestTurnStatus: "interrupted",
+      threadStatusType: "notLoaded",
+      status: "interrupted",
+      statusReasonCode: "latest_turn_interrupted",
+      statusConfidence: "authoritative"
+    },
+    latestRun: {
+      id: turnId,
+      sessionId: "thread-1",
+      turnId,
+      status: "interrupted",
+      startedAt: "2026-03-30T12:00:01.000Z",
+      finishedAt: "2026-03-30T12:00:05.000Z"
+    }
+  });
+
+  assert.equal(presented.session.status, "interrupted");
+  assert.equal(presented.session.statusReasonCode, "snapshot_only_interrupted");
+  assert.equal(presented.session.interruptEvidence, "snapshot_only");
+  assert.equal(presented.interruptOrigin, "external_or_unknown");
+});
+
+test("run service keeps snapshot-only interrupted sessions interrupted and marks them as external or unknown", () => {
+  const harness = createHarness();
+  harness.detail.session.status = "interrupted";
+  harness.detail.session.statusReasonCode = "latest_turn_interrupted";
+  harness.detail.session.statusConfidence = "authoritative";
+  harness.detail.session.latestTurnId = "turn-snapshot";
+  harness.detail.session.latestTurnStatus = "interrupted";
+  harness.detail.session.threadStatusType = "notLoaded";
+  harness.detail.latestRun = {
+    id: "turn-snapshot",
+    sessionId: "thread-1",
+    turnId: "turn-snapshot",
+    status: "interrupted",
+    startedAt: "2026-03-30T12:00:01.000Z",
+    finishedAt: "2026-03-30T12:00:05.000Z"
+  };
+  harness.detail.latestTurnHasAssistantOutput = true;
+
+  const presented = harness.service.presentSessionDetail(harness.detail);
+
+  assert.equal(presented.session.status, "interrupted");
+  assert.equal(presented.session.statusReasonCode, "snapshot_only_interrupted");
+  assert.equal(presented.session.statusConfidence, "suspicious");
+  assert.equal(presented.session.interruptEvidence, "snapshot_only");
+  assert.equal(presented.interruptOrigin, "external_or_unknown");
+  assert.equal(presented.interruptLooksSuspicious, true);
 });
 
 test("run service records completion unread only after a counted final assistant message completes the turn", async () => {

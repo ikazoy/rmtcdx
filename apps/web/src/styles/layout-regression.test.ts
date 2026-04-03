@@ -28,7 +28,7 @@ after(async () => {
   browser = null;
 });
 
-function buildMobileChatFixture(messageMarkup: string) {
+function buildMobileChatFixture(messageMarkup: string, composerMarkup = '<div class="composer"></div>') {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -62,7 +62,7 @@ function buildMobileChatFixture(messageMarkup: string) {
                 </div>
               </div>
               <div class="composer-shell">
-                <div class="composer"></div>
+                ${composerMarkup}
               </div>
             </div>
           </main>
@@ -73,7 +73,7 @@ function buildMobileChatFixture(messageMarkup: string) {
 </html>`;
 }
 
-async function openFixturePage(messageMarkup: string) {
+async function openFixturePage(messageMarkup: string, composerMarkup?: string) {
   if (!browser) {
     throw new Error("browser not initialized");
   }
@@ -81,7 +81,7 @@ async function openFixturePage(messageMarkup: string) {
   const stylesheet = await stylesheetPromise;
   const page = await browser.newPage();
   await page.setViewport(MOBILE_VIEWPORT);
-  await page.setContent(buildMobileChatFixture(messageMarkup), {
+  await page.setContent(buildMobileChatFixture(messageMarkup, composerMarkup), {
     waitUntil: "domcontentloaded"
   });
   await page.addStyleTag({ content: stylesheet });
@@ -202,6 +202,68 @@ test("mobile chat topbar spans the full chat width", { timeout: 30_000 }, async 
       Math.abs(measurement.topbarWidth - measurement.chatCardWidth) <= 1,
       `.chat-topbar width ${measurement.topbarWidth} did not match .chat-card width ${measurement.chatCardWidth}`
     );
+  } finally {
+    await page.close();
+  }
+});
+
+test("mobile chat keeps the composer inside the chat shell when the app viewport height changes", { timeout: 30_000 }, async () => {
+  const page = await openFixturePage(
+    `
+      <article class="message-row message-row--assistant">
+        <div class="message-card message-card--assistant">
+          <p>Viewport sync fixture</p>
+        </div>
+      </article>
+    `,
+    `
+      <div class="composer">
+        <div class="composer-input-row">
+          <div class="composer-field">
+            <textarea rows="1" placeholder="Ask Codex..."></textarea>
+            <div class="composer-actions">
+              <button class="composer-send" type="button">↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `
+  );
+
+  async function measureWithViewportHeight(height: number) {
+    return page.evaluate(async (nextHeight) => {
+      document.documentElement.style.setProperty("--app-viewport-height", `${nextHeight}px`);
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+
+      const appShell = document.querySelector<HTMLElement>(".app-shell");
+      const workspaceShell = document.querySelector<HTMLElement>(".workspace-shell");
+      const chat = document.querySelector<HTMLElement>(".workspace-shell__chat");
+      const composerField = document.querySelector<HTMLElement>(".composer-field");
+      if (!appShell || !workspaceShell || !chat || !composerField) {
+        throw new Error("Missing mobile chat viewport fixture");
+      }
+
+      return {
+        appShellHeight: appShell.getBoundingClientRect().height,
+        workspaceShellHeight: workspaceShell.getBoundingClientRect().height,
+        chatBottom: chat.getBoundingClientRect().bottom,
+        composerBottom: composerField.getBoundingClientRect().bottom
+      };
+    }, height);
+  }
+
+  try {
+    const initial = await measureWithViewportHeight(851);
+    assert.ok(Math.abs(initial.appShellHeight - 851) <= 1, `app shell height ${initial.appShellHeight} did not follow the synced viewport height`);
+    assert.ok(Math.abs(initial.workspaceShellHeight - 851) <= 1, `workspace shell height ${initial.workspaceShellHeight} did not follow the synced viewport height`);
+    assert.ok(initial.composerBottom <= initial.chatBottom + 1, `composer bottom ${initial.composerBottom} overflowed chat bottom ${initial.chatBottom}`);
+
+    const resized = await measureWithViewportHeight(640);
+    assert.ok(Math.abs(resized.appShellHeight - 640) <= 1, `app shell height ${resized.appShellHeight} did not update after viewport sync`);
+    assert.ok(Math.abs(resized.workspaceShellHeight - 640) <= 1, `workspace shell height ${resized.workspaceShellHeight} did not update after viewport sync`);
+    assert.ok(resized.composerBottom <= resized.chatBottom + 1, `composer bottom ${resized.composerBottom} overflowed chat bottom ${resized.chatBottom} after viewport resize`);
   } finally {
     await page.close();
   }

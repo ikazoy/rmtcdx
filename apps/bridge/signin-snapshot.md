@@ -1,0 +1,13 @@
+- generic [ref=e2]:
+  - generic [ref=e5]:
+    - img "AI Central Voice" [ref=e6]
+    - generic [ref=e7]:
+      - heading "ログイン" [level=3] [ref=e9]
+      - generic [ref=e11]
+    - generic [ref=e17]:
+      - link "利用規約" [ref=e18] [cursor=pointer]:
+        - /url: /terms
+      - link "プライバシーポリシー" [ref=e19] [cursor=pointer]:
+        - /url: https://techtouch.jp/privacy/
+  - region "Notifications (F8)":
+    - list

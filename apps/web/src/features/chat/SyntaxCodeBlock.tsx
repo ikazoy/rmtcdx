@@ -40,6 +40,11 @@ type SyntaxCodeBlockProps = {
   code: string;
   language?: string | null;
   className?: string;
+  showLineNumbers?: boolean;
+  highlightedLineRange?: {
+    startLine: number;
+    endLine: number;
+  } | null;
 };
 
 const syntaxAliasMap: Record<string, string> = {
@@ -151,6 +156,11 @@ function escapeHtml(code: string) {
     .replaceAll(">", "&gt;");
 }
 
+function highlightedHtmlForLine(code: string, grammar: Prism.Grammar | undefined, language: string | null) {
+  const highlighted = grammar && language ? Prism.highlight(code, grammar, language) : escapeHtml(code);
+  return highlighted || "&nbsp;";
+}
+
 export function syntaxLanguageFromMarkdownClassName(className?: string | null) {
   if (!className) {
     return null;
@@ -208,10 +218,54 @@ export function inferSyntaxLanguageFromPath(filePath: string) {
   return normalizeSyntaxLanguage(extension);
 }
 
-export function SyntaxCodeBlock({ code, language, className }: SyntaxCodeBlockProps) {
+export function SyntaxCodeBlock({
+  code,
+  language,
+  className,
+  showLineNumbers = false,
+  highlightedLineRange = null
+}: SyntaxCodeBlockProps) {
   const normalizedLanguage = normalizeSyntaxLanguage(language);
   const grammar = normalizedLanguage ? Prism.languages[normalizedLanguage] : undefined;
   const highlighted = grammar && normalizedLanguage ? Prism.highlight(code, grammar, normalizedLanguage) : escapeHtml(code);
+
+  if (showLineNumbers || highlightedLineRange) {
+    const lines = code.split("\n");
+
+    return (
+      <pre className={className ? `syntax-block ${className}` : "syntax-block"}>
+        <code className={normalizedLanguage ? `language-${normalizedLanguage}` : undefined}>
+          {lines.map((line, index) => {
+            const lineNumber = index + 1;
+            const isHighlighted =
+              highlightedLineRange !== null &&
+              lineNumber >= highlightedLineRange.startLine &&
+              lineNumber <= highlightedLineRange.endLine;
+
+            return (
+              <span
+                key={lineNumber}
+                className={`syntax-block__line${isHighlighted ? " syntax-block__line--highlighted" : ""}`}
+                data-line-number={lineNumber}
+              >
+                {showLineNumbers ? (
+                  <span className="syntax-block__line-number" aria-hidden="true">
+                    {lineNumber}
+                  </span>
+                ) : null}
+                <span
+                  className="syntax-block__line-content"
+                  dangerouslySetInnerHTML={{
+                    __html: highlightedHtmlForLine(line, grammar, normalizedLanguage)
+                  }}
+                />
+              </span>
+            );
+          })}
+        </code>
+      </pre>
+    );
+  }
 
   return (
     <pre className={className ? `syntax-block ${className}` : "syntax-block"}>
