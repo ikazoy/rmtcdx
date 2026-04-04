@@ -14,7 +14,7 @@ export function createCodexProcessEnv(
   }
 
   const platform = options.platform ?? process.platform;
-  const pathModule = platform === "win32" ? path.win32 : path;
+  const pathModule = platform === "win32" ? path.win32 : path.posix;
   const codexHomeDir = pathModule.resolve(options.codexHomeDir);
   const env: NodeJS.ProcessEnv = {
     ...baseEnv,
