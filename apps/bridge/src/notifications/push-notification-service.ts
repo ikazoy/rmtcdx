@@ -143,7 +143,8 @@ export class PushNotificationService {
   constructor(
     stateFile: string,
     config: AppConfig,
-    private readonly logger: FastifyBaseLogger
+    private readonly logger: FastifyBaseLogger,
+    private readonly hasFocusedSessionViewer: (sessionId: string) => boolean = () => false
   ) {
     this.stateFile = stateFile;
     fs.mkdirSync(path.dirname(stateFile), { recursive: true });
@@ -207,7 +208,7 @@ export class PushNotificationService {
   }
 
   async notifyRun(detail: SessionDetail, run: Run) {
-    if (!isNotifiableRunStatus(run.status)) {
+    if (!isNotifiableRunStatus(run.status) || this.hasFocusedSessionViewer(detail.session.id)) {
       return;
     }
 
@@ -218,6 +219,10 @@ export class PushNotificationService {
   }
 
   async notifyPendingRequest(detail: SessionDetail, request: CodexPendingRequest) {
+    if (this.hasFocusedSessionViewer(detail.session.id)) {
+      return;
+    }
+
     await this.sendPayload(buildPendingRequestPayload(detail, request), {
       requestId: request.id,
       sessionId: request.sessionId

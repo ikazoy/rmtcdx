@@ -482,7 +482,8 @@ export type AccountRateLimitsResponse = {
 
 export type ClientWsEvent =
   | { type: "ping" }
-  | { type: "session.read"; sessionId: string };
+  | { type: "session.read"; sessionId: string }
+  | { type: "session.focus"; sessionId: string | null };
 
 export type ServerWsEvent =
   | { type: "hello"; mode: "real" | "mock" }

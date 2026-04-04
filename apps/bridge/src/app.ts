@@ -199,7 +199,6 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
   );
   const repoConfig = overrides.repoConfig ?? readRepoConfigOptional(config.reposFile);
   const catalog = new LiveCatalogService(codex, repoConfig, uploads, threadObservations);
-  const pushNotifications = new PushNotificationService(config.stateFile, config, app.log);
   const unread = new SessionUnreadService(`${config.dataDir}/session-read-state.json`);
   const realtime = new RealtimeGateway((event: ClientWsEvent) => {
     if (event.type === "ping") {
@@ -213,6 +212,12 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
       });
     }
   });
+  const pushNotifications = new PushNotificationService(
+    config.stateFile,
+    config,
+    app.log,
+    (sessionId) => realtime.hasFocusedSessionViewer(sessionId)
+  );
   const runs = new RunService(
     config,
     catalog,
