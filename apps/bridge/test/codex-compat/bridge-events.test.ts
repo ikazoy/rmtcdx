@@ -21,7 +21,7 @@ test("maps supported notifications into bridge events in Step 1 order", () => {
   const sequence = [
     {
       method: "item/agentMessage/delta",
-      params: { turnId: "turn_1", delta: "Hello" }
+      params: { turnId: "turn_1", itemId: "assistant_1", delta: "Hello" }
     },
     {
       method: "item/commandExecution/outputDelta",
@@ -33,7 +33,7 @@ test("maps supported notifications into bridge events in Step 1 order", () => {
     },
     {
       method: "item/completed",
-      params: { turnId: "turn_1", item: { type: "agentMessage", text: "Final answer", phase: "final" } }
+      params: { turnId: "turn_1", item: { id: "assistant_1", type: "agentMessage", text: "Final answer", phase: "final" } }
     },
     {
       method: "turn/completed",
@@ -46,11 +46,22 @@ test("maps supported notifications into bridge events in Step 1 order", () => {
 
   assert.deepEqual(events, [
     {
-      type: "message.delta",
+      type: "item.delta",
       sessionId: "session_1",
       runId: "run_1",
       turnId: "turn_1",
-      text: "Hello"
+      itemId: "assistant_1",
+      delta: "Hello",
+      kind: "agentMessage.text"
+    },
+    {
+      type: "item.delta",
+      sessionId: "session_1",
+      runId: "run_1",
+      turnId: "turn_1",
+      itemId: "cmd_1",
+      delta: "stdout",
+      kind: "commandExecution.output"
     },
     {
       type: "activity.updated",
@@ -59,6 +70,17 @@ test("maps supported notifications into bridge events in Step 1 order", () => {
       turnId: "turn_1",
       itemId: "cmd_1",
       delta: "stdout"
+    },
+    {
+      type: "item.started",
+      sessionId: "session_1",
+      runId: "run_1",
+      turnId: "turn_1",
+      item: {
+        id: "cmd_1",
+        type: "commandExecution",
+        command: "git status"
+      }
     },
     {
       type: "activity.started",
@@ -77,12 +99,16 @@ test("maps supported notifications into bridge events in Step 1 order", () => {
       name: "shell:git"
     },
     {
-      type: "message.final",
+      type: "item.completed",
       sessionId: "session_1",
       runId: "run_1",
       turnId: "turn_1",
-      text: "Final answer",
-      countsUnread: true
+      item: {
+        id: "assistant_1",
+        type: "agentMessage",
+        text: "Final answer",
+        phase: "final"
+      }
     },
     {
       type: "run.completed",
@@ -120,6 +146,7 @@ test("tolerates known notifications with extra fields and missing mappings", () 
       turnId: "turn_1",
       item: {
         type: "agentMessage",
+        id: "assistant_2",
         text: "Commentary",
         phase: "commentary",
         futureField: { nested: true }
@@ -135,12 +162,17 @@ test("tolerates known notifications with extra fields and missing mappings", () 
 
   assert.deepEqual(withExtraFields.events, [
     {
-      type: "message.final",
+      type: "item.completed",
       sessionId: "session_1",
       runId: "run_1",
       turnId: "turn_1",
-      text: "Commentary",
-      countsUnread: false
+      item: {
+        type: "agentMessage",
+        id: "assistant_2",
+        text: "Commentary",
+        phase: "commentary",
+        futureField: { nested: true }
+      }
     }
   ]);
   assert.deepEqual(withoutMapping.events, []);
@@ -159,6 +191,15 @@ test("maps file change output deltas into activity updates", () => {
   );
 
   assert.deepEqual(parsed.events, [
+    {
+      type: "item.delta",
+      sessionId: "session_1",
+      runId: "run_1",
+      turnId: "turn_1",
+      itemId: "patch_1",
+      delta: "Success. Updated the following files:\nM notes.txt\n",
+      kind: "fileChange.output"
+    },
     {
       type: "activity.updated",
       sessionId: "session_1",

@@ -15,6 +15,7 @@ import type {
 } from "@codex-remote/shared-types";
 import type { RepoConfig } from "../config/repos";
 import { findLatestUserMessagePreview, mapThreadToMessages } from "../codex/parsers/thread-items";
+import { CodexThreadObservationStore } from "../codex/thread-observation-store";
 import type { CodexBackend, CodexThread, CodexThreadTurn } from "../codex/types";
 import { ImageUploadService } from "../uploads/image-upload-service";
 import { excerpt } from "../utils/text";
@@ -50,7 +51,8 @@ export class LiveCatalogService {
   constructor(
     private readonly codex: CodexBackend,
     repoOverrides: RepoConfig[],
-    private readonly uploads: ImageUploadService
+    private readonly uploads: ImageUploadService,
+    private readonly threadObservations = new CodexThreadObservationStore()
   ) {
     this.repoOverrideByPath = new Map(
       repoOverrides.map((repo) => [this.normalizeLookupPath(repo.path), repo] satisfies readonly [string, RepoConfig])
@@ -323,7 +325,7 @@ export class LiveCatalogService {
       return null;
     }
 
-    return this.shouldHydrateSummary(cached) ? null : cached;
+    return this.shouldHydrateSummary(cached) ? null : this.threadObservations.materializeThread(cached);
   }
 
   private rememberThread(thread: CodexThread) {
@@ -559,7 +561,9 @@ export class LiveCatalogService {
 
   private async readThreadWithFallback(threadId: string, includeTurns: boolean) {
     try {
-      return this.rememberThread(await this.codex.readThread(threadId, { includeTurns }));
+      return this.threadObservations.materializeThread(
+        this.rememberThread(await this.codex.readThread(threadId, { includeTurns }))
+      );
     } catch (error) {
       if (this.isThreadNotLoadedError(error)) {
         const resumed = await this.resumeArchivedThread(threadId, includeTurns);
@@ -568,7 +572,9 @@ export class LiveCatalogService {
         }
       }
       if (includeTurns && this.isTurnsUnavailableError(error)) {
-        return this.rememberThread(await this.codex.readThread(threadId, { includeTurns: false }));
+        return this.threadObservations.materializeThread(
+          this.rememberThread(await this.codex.readThread(threadId, { includeTurns: false }))
+        );
       }
       throw error;
     }
@@ -587,10 +593,14 @@ export class LiveCatalogService {
     });
 
     try {
-      return this.rememberThread(await this.codex.readThread(threadId, { includeTurns }));
+      return this.threadObservations.materializeThread(
+        this.rememberThread(await this.codex.readThread(threadId, { includeTurns }))
+      );
     } catch (error) {
       if (includeTurns && this.isTurnsUnavailableError(error)) {
-        return this.rememberThread(await this.codex.readThread(threadId, { includeTurns: false }));
+        return this.threadObservations.materializeThread(
+          this.rememberThread(await this.codex.readThread(threadId, { includeTurns: false }))
+        );
       }
       throw error;
     }

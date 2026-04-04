@@ -290,11 +290,13 @@ test("notification fixtures replay into the expected event stream", async () => 
   const debugEntries = parsed.flatMap((entry) => entry.debugEntries);
 
   assert.deepEqual(events.map((event) => event.type), [
-    "message.delta",
+    "item.delta",
+    "item.started",
     "activity.started",
     "tool.start",
+    "item.delta",
     "activity.updated",
-    "message.final",
+    "item.completed",
     "run.completed"
   ]);
   assert.deepEqual(debugEntries, [
@@ -360,7 +362,7 @@ test("sanitized real-canary fixtures still replay into catalog and bridge event 
   );
   assert.ok(toolEditEvents.some((event) => event.type === "activity.updated"));
   assert.ok(toolEditEvents.some((event) => event.type === "run.completed"));
-  assert.ok(toolEditEvents.some((event) => event.type === "message.final"));
+  assert.ok(toolEditEvents.some((event) => event.type === "item.completed"));
 });
 
 class FixtureCodexBackend extends EventEmitter implements CodexBackend {

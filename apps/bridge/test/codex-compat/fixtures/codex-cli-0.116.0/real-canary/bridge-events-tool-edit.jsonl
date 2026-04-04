@@ -1,9 +1,9 @@
-{"type":"message.final","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","text":"Inspecting `notes.txt` with the shell first, then I’ll append the required line with `apply_patch`.","countsUnread":false}
+{"type":"item.completed","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","item":{"type":"agentMessage","id":"item_tool-edit_1_2","text":"Inspecting `notes.txt` with the shell first, then I’ll append the required line with `apply_patch`.","phase":"commentary"}}
 {"type":"activity.started","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","itemId":"item_tool-edit_1_3","kind":"command","label":"/bin/zsh -lc \"sed -n '1,200p' notes.txt\""}
 {"type":"tool.start","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","name":"shell:/bin/zsh"}
 {"type":"activity.completed","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","itemId":"item_tool-edit_1_3"}
 {"type":"tool.end","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","name":"shell:/bin/zsh","ok":true}
-{"type":"message.final","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","text":"Appending `compat-tool-ok` to `notes.txt` now, then I’ll verify the file contents.","countsUnread":false}
+{"type":"item.completed","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","item":{"type":"agentMessage","id":"item_tool-edit_1_4","text":"Appending `compat-tool-ok` to `notes.txt` now, then I’ll verify the file contents.","phase":"commentary"}}
 {"type":"activity.started","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","itemId":"item_tool-edit_1_5","kind":"file","label":"Applying file changes"}
 {"type":"tool.start","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","name":"apply_patch"}
 {"type":"activity.updated","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","itemId":"item_tool-edit_1_5","delta":"Success. Updated the following files:\nM notes.txt\n"}
@@ -13,5 +13,5 @@
 {"type":"tool.start","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","name":"shell:/bin/zsh"}
 {"type":"activity.completed","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","itemId":"item_tool-edit_1_6"}
 {"type":"tool.end","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","name":"shell:/bin/zsh","ok":true}
-{"type":"message.final","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","text":"Updated [notes.txt](/fixtures/workspaces/tool-edit/notes.txt) and verified the appended line is present.\n\ncompat-tool-ok","countsUnread":true}
+{"type":"item.completed","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1","item":{"type":"agentMessage","id":"item_tool-edit_1_7","text":"Updated [notes.txt](/fixtures/workspaces/tool-edit/notes.txt) and verified the appended line is present.\n\ncompat-tool-ok","phase":"final_answer"}}
 {"type":"run.completed","sessionId":"thread_tool-edit","runId":"run_tool-edit","turnId":"turn_tool-edit_1"}

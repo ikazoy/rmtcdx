@@ -33,6 +33,7 @@ import { matchesSessionFilter } from "@codex-remote/shared-types";
 import { presentAccountRateLimits, unavailableAccountRateLimits } from "./account/rate-limits";
 import { LiveCatalogService } from "./catalog/live-catalog-service";
 import { createCodexBackend } from "./codex/index";
+import { CodexThreadObservationStore } from "./codex/thread-observation-store";
 import type { CodexBackend } from "./codex/types";
 import { loadConfig, type AppConfig } from "./config/env";
 import { readRepoConfigOptional, type RepoConfig } from "./config/repos";
@@ -189,6 +190,7 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
   app.log.info({ path: config.codexDebugLogFile }, "Codex app-server debug log enabled");
 
   const codex = overrides.codex ?? (await createCodexBackend(config.codexMode, app.log, codexDebugLog));
+  const threadObservations = new CodexThreadObservationStore();
   const uploads = new ImageUploadService(
     config.uploadsDir,
     "/api/uploads/",
@@ -196,7 +198,7 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
     config.maxImageAttachmentBytes
   );
   const repoConfig = overrides.repoConfig ?? readRepoConfigOptional(config.reposFile);
-  const catalog = new LiveCatalogService(codex, repoConfig, uploads);
+  const catalog = new LiveCatalogService(codex, repoConfig, uploads, threadObservations);
   const pushNotifications = new PushNotificationService(config.stateFile, config, app.log);
   const unread = new SessionUnreadService(`${config.dataDir}/session-read-state.json`);
   const realtime = new RealtimeGateway((event: ClientWsEvent) => {
@@ -220,7 +222,9 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
     pushNotifications,
     unread,
     app.log,
-    codexDebugLog
+    codexDebugLog,
+    undefined,
+    threadObservations
   );
   const withPendingRequestCount = (session: SessionSummary) => {
     const pendingRequestCount = codex.listPendingRequests(session.id).length;

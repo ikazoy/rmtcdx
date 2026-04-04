@@ -437,12 +437,16 @@ class FakeCodexBackend extends EventEmitter {
 
   emitMessageFinal(runId: string, turnId: string, countsUnread: boolean) {
     const event: CodexBridgeEvent = {
-      type: "message.final",
+      type: "item.completed",
       sessionId: "thread-1",
       runId,
       turnId,
-      text: countsUnread ? "Final answer" : "Thinking aloud",
-      countsUnread
+      item: {
+        type: "agentMessage",
+        id: countsUnread ? "assistant-final" : "assistant-commentary",
+        text: countsUnread ? "Final answer" : "Thinking aloud",
+        phase: countsUnread ? "final_answer" : "commentary"
+      }
     };
 
     this.emit("event", event);

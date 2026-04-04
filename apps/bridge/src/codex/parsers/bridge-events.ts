@@ -1,4 +1,4 @@
-import type { CodexActivityKind, CodexBridgeEvent } from "../types";
+import type { CodexActivityKind, CodexBridgeEvent, CodexThreadItem } from "../types";
 
 type RunMapping = {
   sessionId: string;
@@ -45,8 +45,9 @@ export function parseBridgeNotification(
 
   if (method === "item/agentMessage/delta") {
     const turnId = stringField(payload, "turnId");
+    const itemId = stringField(payload, "itemId");
     const delta = stringField(payload, "delta");
-    if (!turnId || delta === undefined) {
+    if (!turnId || !itemId || delta === undefined) {
       return emptyParseResult();
     }
     const mapping = runByTurn.get(turnId);
@@ -56,16 +57,115 @@ export function parseBridgeNotification(
     return {
       events: [
         {
-          type: "message.delta",
+          type: "item.delta",
           sessionId: mapping.sessionId,
           runId: mapping.runId,
           turnId,
-          text: delta
+          itemId,
+          delta,
+          kind: "agentMessage.text"
         }
       ],
       debugEntries: [],
       finishedTurn: null
     };
+  }
+
+  if (method === "item/plan/delta") {
+    const turnId = stringField(payload, "turnId");
+    const itemId = stringField(payload, "itemId");
+    const delta = stringField(payload, "delta");
+    if (!turnId || !itemId || delta === undefined) {
+      return emptyParseResult();
+    }
+    const mapping = runByTurn.get(turnId);
+    if (!mapping) {
+      return emptyParseResult();
+    }
+    return {
+      events: [
+        {
+          type: "item.delta",
+          sessionId: mapping.sessionId,
+          runId: mapping.runId,
+          turnId,
+          itemId,
+          delta,
+          kind: "plan.text"
+        }
+      ],
+      debugEntries: [],
+      finishedTurn: null
+    };
+  }
+
+  if (method === "item/reasoning/summaryTextDelta") {
+    const turnId = stringField(payload, "turnId");
+    const itemId = stringField(payload, "itemId");
+    const delta = stringField(payload, "delta");
+    const summaryIndex = numberField(payload, "summaryIndex");
+    if (!turnId || !itemId || delta === undefined || summaryIndex === null) {
+      return emptyParseResult();
+    }
+    const mapping = runByTurn.get(turnId);
+    if (!mapping) {
+      return emptyParseResult();
+    }
+    return {
+      events: [
+        {
+          type: "item.delta",
+          sessionId: mapping.sessionId,
+          runId: mapping.runId,
+          turnId,
+          itemId,
+          delta,
+          kind: "reasoning.summaryText",
+          summaryIndex
+        }
+      ],
+      debugEntries: [],
+      finishedTurn: null
+    };
+  }
+
+  if (method === "item/reasoning/textDelta") {
+    const turnId = stringField(payload, "turnId");
+    const itemId = stringField(payload, "itemId");
+    const delta = stringField(payload, "delta");
+    const contentIndex = numberField(payload, "contentIndex");
+    if (!turnId || !itemId || delta === undefined || contentIndex === null) {
+      return emptyParseResult();
+    }
+    const mapping = runByTurn.get(turnId);
+    if (!mapping) {
+      return emptyParseResult();
+    }
+    return {
+      events: [
+        {
+          type: "item.delta",
+          sessionId: mapping.sessionId,
+          runId: mapping.runId,
+          turnId,
+          itemId,
+          delta,
+          kind: "reasoning.text",
+          contentIndex
+        }
+      ],
+      debugEntries: [],
+      finishedTurn: null
+    };
+  }
+
+  if (method === "item/reasoning/summaryPartAdded") {
+    return debugOnly("item.reasoning.summary_part_added", {
+      threadId: stringField(payload, "threadId") ?? null,
+      turnId: stringField(payload, "turnId") ?? null,
+      itemId: stringField(payload, "itemId") ?? null,
+      summaryIndex: numberField(payload, "summaryIndex")
+    });
   }
 
   if (method === "item/commandExecution/outputDelta") {
@@ -81,6 +181,15 @@ export function parseBridgeNotification(
     }
     return {
       events: [
+        {
+          type: "item.delta",
+          sessionId: mapping.sessionId,
+          runId: mapping.runId,
+          turnId,
+          itemId,
+          delta,
+          kind: "commandExecution.output"
+        },
         {
           type: "activity.updated",
           sessionId: mapping.sessionId,
@@ -109,6 +218,15 @@ export function parseBridgeNotification(
     return {
       events: [
         {
+          type: "item.delta",
+          sessionId: mapping.sessionId,
+          runId: mapping.runId,
+          turnId,
+          itemId,
+          delta,
+          kind: "fileChange.output"
+        },
+        {
           type: "activity.updated",
           sessionId: mapping.sessionId,
           runId: mapping.runId,
@@ -124,8 +242,9 @@ export function parseBridgeNotification(
 
   if (method === "item/started") {
     const turnId = stringField(payload, "turnId");
-    const item = notificationItem(payload.item);
-    if (!turnId || !item) {
+    const item = threadItem(payload.item);
+    const itemMeta = notificationItem(payload.item);
+    if (!turnId || !item || !itemMeta) {
       return emptyParseResult();
     }
     const mapping = runByTurn.get(turnId);
@@ -133,21 +252,29 @@ export function parseBridgeNotification(
       return emptyParseResult();
     }
 
-    const events: CodexBridgeEvent[] = [];
-    const activity = activityFromItem(item);
-    if (activity && item.id) {
+    const events: CodexBridgeEvent[] = [
+      {
+        type: "item.started",
+        sessionId: mapping.sessionId,
+        runId: mapping.runId,
+        turnId,
+        item
+      }
+    ];
+    const activity = activityFromItem(itemMeta);
+    if (activity && itemMeta.id) {
       events.push({
         type: "activity.started",
         sessionId: mapping.sessionId,
         runId: mapping.runId,
         turnId,
-        itemId: item.id,
+        itemId: itemMeta.id,
         kind: activity.kind,
         label: activity.label
       });
     }
 
-    const toolName = toolNameFromItem(item);
+    const toolName = toolNameFromItem(itemMeta);
     if (toolName) {
       events.push({
         type: "tool.start",
@@ -167,7 +294,7 @@ export function parseBridgeNotification(
 
   if (method === "item/completed") {
     const turnId = stringField(payload, "turnId");
-    const item = notificationItem(payload.item);
+    const item = threadItem(payload.item);
     if (!turnId || !item) {
       return emptyParseResult();
     }
@@ -176,35 +303,27 @@ export function parseBridgeNotification(
       return emptyParseResult();
     }
 
-    if (item.type === "agentMessage" && item.text) {
-      return {
-        events: [
-          {
-            type: "message.final",
-            sessionId: mapping.sessionId,
-            runId: mapping.runId,
-            turnId,
-            text: item.text,
-            countsUnread: item.phase !== "commentary"
-          }
-        ],
-        debugEntries: [],
-        finishedTurn: null
-      };
-    }
-
-    const events: CodexBridgeEvent[] = [];
-    if (item.id && activityFromItem(item)) {
+    const itemMeta = notificationItem(item);
+    const events: CodexBridgeEvent[] = [
+      {
+        type: "item.completed",
+        sessionId: mapping.sessionId,
+        runId: mapping.runId,
+        turnId,
+        item
+      }
+    ];
+    if (itemMeta?.id && activityFromItem(itemMeta)) {
       events.push({
         type: "activity.completed",
         sessionId: mapping.sessionId,
         runId: mapping.runId,
         turnId,
-        itemId: item.id
+        itemId: itemMeta.id
       });
     }
 
-    const toolName = toolNameFromItem(item);
+    const toolName = toolNameFromItem(itemMeta ?? {});
     if (toolName) {
       events.push({
         type: "tool.end",
@@ -212,7 +331,7 @@ export function parseBridgeNotification(
         runId: mapping.runId,
         turnId,
         name: toolName,
-        ok: !item.status || !["failed", "declined"].includes(item.status)
+        ok: !itemMeta?.status || !["failed", "declined"].includes(itemMeta.status)
       });
     }
 
@@ -378,6 +497,16 @@ export function parseBridgeNotification(
     });
   }
 
+  if (method === "turn/plan/updated") {
+    const plan = payload.plan;
+    return debugOnly("turn.plan.updated", {
+      threadId: stringField(payload, "threadId") ?? null,
+      turnId: stringField(payload, "turnId") ?? null,
+      explanation: stringField(payload, "explanation") ?? null,
+      planStepCount: Array.isArray(plan) ? plan.length : 0
+    });
+  }
+
   if (method === "thread/tokenUsage/updated") {
     const tokenUsage = asObject(payload.tokenUsage);
     const total = asObject(tokenUsage?.total);
@@ -517,6 +646,13 @@ function stringArrayField(record: Record<string, unknown> | null, key: string) {
   }
   const strings = value.filter((entry): entry is string => typeof entry === "string");
   return strings.length === value.length ? strings : null;
+}
+
+function threadItem(value: unknown): CodexThreadItem | null {
+  const record = asObject(value);
+  return record && stringField(record, "id") && stringField(record, "type")
+    ? (record as CodexThreadItem)
+    : null;
 }
 
 function notificationItem(value: unknown): NotificationItem | null {

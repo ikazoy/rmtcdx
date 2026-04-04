@@ -304,7 +304,7 @@ async function waitForFirstProgressEvent(
     (event) =>
       "runId" in event
       && event.runId === runId
-      && (event.type === "message.delta" || event.type === "activity.started" || event.type === "activity.updated")
+      && (event.type === "item.delta" || event.type === "activity.started" || event.type === "activity.updated")
   );
   if (alreadyObserved) {
     return;
@@ -315,7 +315,7 @@ async function waitForFirstProgressEvent(
     (event) =>
       "runId" in event
       && event.runId === runId
-      && (event.type === "message.delta" || event.type === "activity.started" || event.type === "activity.updated"),
+      && (event.type === "item.delta" || event.type === "activity.started" || event.type === "activity.updated"),
     Math.max(2_000, Math.min(timeoutMs, 15_000))
   ).catch(() => {
     // If no progress event arrives, interrupt anyway to exercise the interrupt path.

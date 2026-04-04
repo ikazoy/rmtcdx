@@ -16,6 +16,7 @@ import type {
 } from "@codex-remote/shared-types";
 import type { AppConfig } from "../config/env";
 import type { CodexBackend, CodexBridgeEvent } from "../codex/types";
+import { CodexThreadObservationStore } from "../codex/thread-observation-store";
 import { LiveCatalogService } from "../catalog/live-catalog-service";
 import { PushNotificationService } from "../notifications/push-notification-service";
 import { RealtimeGateway } from "../realtime/realtime-gateway";
@@ -75,7 +76,8 @@ export class RunService {
     private readonly sessionUnread: SessionUnreadService,
     private readonly logger: FastifyBaseLogger,
     private readonly debugLog?: CodexDebugLog,
-    private readonly sessionRunSettings = new SessionRunSettingsStore(`${config.dataDir}/run-settings.json`)
+    private readonly sessionRunSettings = new SessionRunSettingsStore(`${config.dataDir}/run-settings.json`),
+    private readonly threadObservations = new CodexThreadObservationStore()
   ) {
     this.codex.on("event", (event: CodexBridgeEvent) => {
       void this.handleBackendEvent(event);
@@ -617,26 +619,39 @@ export class RunService {
   }
 
   private async handleBackendEvent(event: CodexBridgeEvent) {
+    this.threadObservations.observe(event);
+
     if (event.type === "backend.degraded") {
       this.realtime.broadcastBackendDegraded(event.reason);
       return;
     }
 
-    if (event.type === "message.delta") {
-      this.realtime.broadcastMessageDelta(event.sessionId, event.runId, event.text);
+    if (event.type === "item.delta") {
+      if (event.kind === "agentMessage.text") {
+        this.realtime.broadcastMessageDelta(event.sessionId, event.runId, event.delta);
+      }
       return;
     }
 
-    if (event.type === "message.final") {
+    if (event.type === "item.started") {
+      return;
+    }
+
+    if (event.type === "item.completed") {
+      if (event.item.type !== "agentMessage" || !("text" in event.item) || !event.item.text.trim()) {
+        return;
+      }
+
       const message: Message = {
-        id: `${event.turnId}:final`,
+        id: event.item.id,
         sessionId: event.sessionId,
         role: "assistant",
-        kind: "assistant_message",
-        text: event.text,
-        createdAt: nowIso()
+        kind: event.item.phase === "commentary" ? "assistant_thinking" : "assistant_message",
+        text: event.item.text,
+        createdAt: nowIso(),
+        status: event.item.phase ?? undefined
       };
-      if (event.countsUnread) {
+      if (event.item.phase !== "commentary") {
         this.sessionUnread.stageCompletion({
           sessionId: event.sessionId,
           runId: event.runId,

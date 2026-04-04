@@ -1,2 +1,2 @@
-{"type":"message.final","sessionId":"thread_basic","runId":"run_basic","turnId":"turn_basic_1","text":"compat-basic-ok","countsUnread":true}
+{"type":"item.completed","sessionId":"thread_basic","runId":"run_basic","turnId":"turn_basic_1","item":{"type":"agentMessage","id":"item_basic_1_2","text":"compat-basic-ok","phase":"final_answer"}}
 {"type":"run.completed","sessionId":"thread_basic","runId":"run_basic","turnId":"turn_basic_1"}

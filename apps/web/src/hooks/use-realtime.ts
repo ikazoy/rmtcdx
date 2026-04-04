@@ -110,6 +110,7 @@ export function useRealtime() {
           case "run.error":
           case "run.interrupted":
             clearActivities(event.run.sessionId);
+            void queryClient.invalidateQueries({ queryKey: queryKeys.messages(event.run.sessionId) });
             void queryClient.invalidateQueries({ queryKey: queryKeys.session(event.run.sessionId) });
             void queryClient.invalidateQueries({ queryKey: queryKeys.pendingCodexRequests(event.run.sessionId) });
             void queryClient.invalidateQueries({ queryKey: ["sessions"] });

@@ -328,12 +328,16 @@ test("bridge smoke test tracks unread from live completion events and clears it 
     };
 
     backend.emit("event", {
-      type: "message.final",
+      type: "item.completed",
       sessionId: "fixture_thread_unread",
       runId: startRunPayload.run.id,
       turnId: startRunPayload.run.turnId ?? "fixture_turn_unread_2",
-      text: "Fresh unread completion",
-      countsUnread: true
+      item: {
+        type: "agentMessage",
+        id: "fixture_thread_unread:assistant",
+        text: "Fresh unread completion",
+        phase: "final_answer"
+      }
     } satisfies CodexBridgeEvent);
     backend.emit("event", {
       type: "run.completed",
@@ -515,12 +519,16 @@ test("bridge smoke test applies filters to presented unread and run state", asyn
     assert.deepEqual(await filteredSessionIds("running"), ["fixture_thread_filters"]);
 
     backend.emit("event", {
-      type: "message.final",
+      type: "item.completed",
       sessionId: "fixture_thread_filters",
       runId: runningPayload.run.id,
       turnId: runningPayload.run.turnId ?? "fixture_turn_filters_1",
-      text: "Completed with unread output",
-      countsUnread: true
+      item: {
+        type: "agentMessage",
+        id: "fixture_thread_filters:assistant",
+        text: "Completed with unread output",
+        phase: "final_answer"
+      }
     } satisfies CodexBridgeEvent);
     backend.emit("event", {
       type: "run.completed",

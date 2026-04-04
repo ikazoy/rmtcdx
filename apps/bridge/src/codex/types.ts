@@ -125,9 +125,25 @@ export type CodexAccountRateLimits = {
   rateLimitsByLimitId: Record<string, CodexRateLimitSnapshot> | null;
 };
 
+export type CodexBridgeItemDelta =
+  | { kind: "agentMessage.text" }
+  | { kind: "plan.text" }
+  | { kind: "reasoning.summaryText"; summaryIndex: number }
+  | { kind: "reasoning.text"; contentIndex: number }
+  | { kind: "commandExecution.output" }
+  | { kind: "fileChange.output" };
+
 export type CodexBridgeEvent =
-  | { type: "message.delta"; sessionId: string; runId: string; turnId: string; text: string }
-  | { type: "message.final"; sessionId: string; runId: string; turnId: string; text: string; countsUnread: boolean }
+  | { type: "item.started"; sessionId: string; runId: string; turnId: string; item: CodexThreadItem }
+  | ({
+      type: "item.delta";
+      sessionId: string;
+      runId: string;
+      turnId: string;
+      itemId: string;
+      delta: string;
+    } & CodexBridgeItemDelta)
+  | { type: "item.completed"; sessionId: string; runId: string; turnId: string; item: CodexThreadItem }
   | {
       type: "activity.started";
       sessionId: string;

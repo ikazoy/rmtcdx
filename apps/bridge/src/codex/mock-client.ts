@@ -211,6 +211,7 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
     const sessionId = params.sessionId ?? threadId;
     const prompt = this.inputText(params.input);
     const imageCount = this.inputImageCount(params.input);
+    const assistantItemId = `${turnId}:assistant`;
     const chunks = [
       "Planning the changes against the selected repository.\n",
       "Scanning current files and deriving the first implementation pass.\n",
@@ -233,11 +234,13 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
     const timers = chunks.map((chunk, index) =>
       setTimeout(() => {
         this.emit("event", {
-          type: "message.delta",
+          type: "item.delta",
           sessionId,
           runId: params.runId,
           turnId,
-          text: chunk
+          itemId: assistantItemId,
+          delta: chunk,
+          kind: "agentMessage.text"
         });
       }, 500 + index * 700)
     );
@@ -255,7 +258,7 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
 
         this.pushThreadItem(threadId, turnId, {
           type: "agentMessage",
-          id: `item_${randomUUID()}`,
+          id: assistantItemId,
           text,
           phase: "final"
         });
@@ -267,12 +270,16 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
         this.finishTurn(threadId, turnId, "completed");
 
         this.emit("event", {
-          type: "message.final",
+          type: "item.completed",
           sessionId,
           runId: params.runId,
           turnId,
-          text,
-          countsUnread: true
+          item: {
+            type: "agentMessage",
+            id: assistantItemId,
+            text,
+            phase: "final"
+          }
         });
         this.emit("event", {
           type: "run.completed",
