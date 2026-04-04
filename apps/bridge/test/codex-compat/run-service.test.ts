@@ -360,6 +360,7 @@ function createConfig(): AppConfig {
     dataDir: "/tmp",
     stateFile: "/tmp/state.json",
     runtimeFile: "/tmp/runtime.json",
+    codexHomeDir: "/tmp",
     codexDebugLogFile: "/tmp/codex-app-server.jsonl",
     uploadsDir: "/tmp/uploads",
     webDistDir: "/tmp/web-dist",

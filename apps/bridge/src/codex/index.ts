@@ -6,7 +6,8 @@ import type { CodexDebugLog } from "../observability/codex-debug-log";
 export async function createCodexBackend(
   mode: "auto" | "real" | "mock",
   logger: LoggerLike,
-  debugLog?: CodexDebugLog
+  debugLog?: CodexDebugLog,
+  codexHomeDir?: string
 ) {
   debugLog?.write("backend.select", { requestedMode: mode });
 
@@ -17,7 +18,7 @@ export async function createCodexBackend(
     return mock;
   }
 
-  const real = new RealCodexClient(logger, debugLog);
+  const real = new RealCodexClient(logger, debugLog, codexHomeDir);
   try {
     await real.start();
     debugLog?.write("backend.ready", { mode: "real" });

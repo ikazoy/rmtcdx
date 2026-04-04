@@ -189,7 +189,7 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
   });
   app.log.info({ path: config.codexDebugLogFile }, "Codex app-server debug log enabled");
 
-  const codex = overrides.codex ?? (await createCodexBackend(config.codexMode, app.log, codexDebugLog));
+  const codex = overrides.codex ?? (await createCodexBackend(config.codexMode, app.log, codexDebugLog, config.codexHomeDir));
   const threadObservations = new CodexThreadObservationStore();
   const uploads = new ImageUploadService(
     config.uploadsDir,

@@ -118,6 +118,7 @@ function createConfig(rootDir: string): AppConfig {
     dataDir: rootDir,
     stateFile: path.join(rootDir, "state.json"),
     runtimeFile: path.join(rootDir, "runtime.json"),
+    codexHomeDir: rootDir,
     codexDebugLogFile: path.join(rootDir, "codex-app-server.jsonl"),
     uploadsDir: path.join(rootDir, "uploads"),
     webDistDir: path.join(rootDir, "web-dist"),
@@ -200,7 +201,8 @@ function createPendingRequest(type: CodexPendingRequest["type"]): CodexPendingRe
         ...base,
         type,
         reason: "Need approval to edit files.",
-        grantRoot: "/tmp/repo"
+        grantRoot: "/tmp/repo",
+        availableDecisions: null
       };
     case "permissions_approval":
       return {

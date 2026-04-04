@@ -489,7 +489,8 @@ export class MockCodexClient extends EventEmitter implements CodexBackend {
           itemId: null,
           createdAt,
           reason: "Simulated file change approval for UI verification.",
-          grantRoot: cwd
+          grantRoot: cwd,
+          availableDecisions: ["accept", "decline", "cancel"]
         };
       case "permissions_approval":
         return {

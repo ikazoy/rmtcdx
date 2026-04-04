@@ -26,6 +26,7 @@ import type {
   StartRunParams
 } from "./types";
 import type { CodexDebugLog } from "../observability/codex-debug-log";
+import { createCodexProcessEnv } from "./process-env";
 import { parseBridgeNotification } from "./parsers/bridge-events";
 import { parsePendingServerRequest, resultForPendingRequestResponse } from "./parsers/pending-requests";
 
@@ -72,7 +73,8 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
 
   constructor(
     private readonly logger: LoggerLike,
-    private readonly debugLog?: CodexDebugLog
+    private readonly debugLog?: CodexDebugLog,
+    private readonly codexHomeDir?: string
   ) {
     super();
   }
@@ -408,13 +410,18 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
   }
 
   private spawnChild() {
+    const childEnv = createCodexProcessEnv(process.env, {
+      codexHomeDir: this.codexHomeDir
+    });
     this.debugLog?.write("child.spawn.request", {
       command: "codex",
       args: ["app-server", "--listen", "stdio://"],
+      codexHomeDir: this.codexHomeDir ?? null,
       restarts: this.restarts
     });
     const child = spawn("codex", ["app-server", "--listen", "stdio://"], {
-      stdio: ["pipe", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"],
+      env: childEnv
     });
     this.child = child;
     this.buffer = "";
@@ -836,7 +843,8 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
           itemId: null,
           createdAt,
           reason: "Simulated file change approval for UI verification.",
-          grantRoot: cwd
+          grantRoot: cwd,
+          availableDecisions: ["accept", "decline", "cancel"]
         };
       case "permissions_approval":
         return {

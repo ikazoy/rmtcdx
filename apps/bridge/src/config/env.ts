@@ -18,6 +18,7 @@ export type AppConfig = {
   dataDir: string;
   stateFile: string;
   runtimeFile: string;
+  codexHomeDir: string;
   codexDebugLogFile: string;
   uploadsDir: string;
   webDistDir: string;
@@ -170,6 +171,7 @@ export function loadConfig(): AppConfig {
     dataDir,
     stateFile: resolveStateFile(dataDir),
     runtimeFile: resolveRuntimeFile(dataDir),
+    codexHomeDir: path.resolve(process.env.CODEX_HOME_DIR ?? os.homedir()),
     codexDebugLogFile: process.env.CODEX_DEBUG_LOG_FILE ?? path.join(dataDir, "codex-app-server.jsonl"),
     uploadsDir: process.env.UPLOADS_DIR ?? path.join(dataDir, "uploads"),
     webDistDir: process.env.WEB_DIST_DIR ?? resolveDefaultWebDistDir(runtimePaths),

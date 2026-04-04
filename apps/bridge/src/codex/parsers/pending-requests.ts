@@ -1,6 +1,7 @@
 import type {
   CodexCommandAction,
   CodexCommandApprovalDecision,
+  CodexFileChangeApprovalDecision,
   CodexPendingRequest,
   CodexPendingRequestResponse,
   CodexRequestUserInputOption,
@@ -66,7 +67,8 @@ export function parsePendingServerRequest(input: PendingServerRequestParseInput)
       itemId: stringField(payload, "itemId") ?? null,
       createdAt: input.createdAt,
       reason: stringField(payload, "reason") ?? null,
-      grantRoot: stringField(payload, "grantRoot") ?? null
+      grantRoot: stringField(payload, "grantRoot") ?? null,
+      availableDecisions: fileChangeApprovalDecisions(payload.availableDecisions)
     };
   }
 
@@ -274,6 +276,26 @@ function commandApprovalDecisions(value: unknown): CodexCommandApprovalDecision[
   }
 
   return decisions.length > 0 ? decisions : ["accept", "decline", "cancel"];
+}
+
+function fileChangeApprovalDecisions(value: unknown): CodexFileChangeApprovalDecision[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const decisions: CodexFileChangeApprovalDecision[] = [];
+  for (const entry of value) {
+    if (
+      entry === "accept" ||
+      entry === "acceptForSession" ||
+      entry === "decline" ||
+      entry === "cancel"
+    ) {
+      decisions.push(entry);
+    }
+  }
+
+  return decisions.length > 0 ? decisions : null;
 }
 
 function requestedPermissions(value: unknown) {

@@ -8,6 +8,9 @@ import type {
   JsonValue
 } from "@codex-remote/shared-types";
 
+import { resolveFileChangeApprovalDecisions } from "./request-decisions";
+import { presentMcpElicitation, requestSubtitle, requestTitle } from "./request-presentation";
+
 type Props = {
   request: CodexPendingRequest | null;
   isSubmitting: boolean;
@@ -15,69 +18,12 @@ type Props = {
   onRespond: (response: CodexPendingRequestResponse) => Promise<void>;
 };
 
-const REQUEST_SUBTITLE_PREVIEW_MAX = 120;
-
 function permissionPaths(paths: string[] | null | undefined) {
   return paths?.filter(Boolean) ?? [];
 }
 
 function prettyJson(value: JsonValue | null) {
   return JSON.stringify(value ?? {}, null, 2);
-}
-
-function collapseWhitespace(value: string) {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function truncatePreview(value: string, maxLength: number) {
-  if (value.length <= maxLength) {
-    return value;
-  }
-
-  if (maxLength <= 3) {
-    return ".".repeat(maxLength);
-  }
-
-  return `${value.slice(0, maxLength - 3).trimEnd()}...`;
-}
-
-function summarizeCommand(command: string | null) {
-  const preview = collapseWhitespace(command ?? "");
-  if (!preview) {
-    return "Review the requested command below.";
-  }
-
-  return truncatePreview(preview, REQUEST_SUBTITLE_PREVIEW_MAX);
-}
-
-function requestTitle(request: CodexPendingRequest) {
-  switch (request.type) {
-    case "command_approval":
-      return "Command approval required";
-    case "file_change_approval":
-      return "File change approval required";
-    case "permissions_approval":
-      return "Permission approval required";
-    case "request_user_input":
-      return "Input required";
-    case "mcp_elicitation":
-      return "MCP confirmation required";
-  }
-}
-
-function requestSubtitle(request: CodexPendingRequest) {
-  switch (request.type) {
-    case "command_approval":
-      return summarizeCommand(request.command);
-    case "file_change_approval":
-      return request.reason ?? "The assistant wants to apply file changes.";
-    case "permissions_approval":
-      return request.reason ?? "The assistant wants additional access.";
-    case "request_user_input":
-      return `${request.questions.length} question${request.questions.length === 1 ? "" : "s"}`;
-    case "mcp_elicitation":
-      return request.serverName;
-  }
 }
 
 function RequestSection({ title, children }: { title: string; children: ReactNode }) {
@@ -171,13 +117,18 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
       return;
     }
 
+    const presentation = presentMcpElicitation(request);
     let content: JsonValue | null = null;
     if (request.mode === "form") {
-      try {
-        content = JSON.parse(mcpContent) as JsonValue;
-      } catch {
-        setLocalError("Form response must be valid JSON.");
-        return;
+      if (presentation.requiresResponseJson) {
+        try {
+          content = JSON.parse(mcpContent) as JsonValue;
+        } catch {
+          setLocalError("Form response must be valid JSON.");
+          return;
+        }
+      } else {
+        content = {};
       }
     }
 
@@ -293,6 +244,8 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
   }
 
   if (request.type === "file_change_approval") {
+    const availableDecisions = resolveFileChangeApprovalDecisions(request);
+
     content = (
       <>
         <RequestSection title="Reason">
@@ -309,38 +262,46 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
 
     footer = (
       <div className="codex-request-actions">
-        <button
-          className="action-button"
-          disabled={isSubmitting}
-          type="button"
-          onClick={() => void respond({ type: "file_change_approval", decision: "accept" })}
-        >
-          Allow once
-        </button>
-        <button
-          className="ghost-button"
-          disabled={isSubmitting}
-          type="button"
-          onClick={() => void respond({ type: "file_change_approval", decision: "acceptForSession" })}
-        >
-          Allow for session
-        </button>
-        <button
-          className="ghost-button ghost-button--danger"
-          disabled={isSubmitting}
-          type="button"
-          onClick={() => void respond({ type: "file_change_approval", decision: "decline" })}
-        >
-          Decline
-        </button>
-        <button
-          className="ghost-button"
-          disabled={isSubmitting}
-          type="button"
-          onClick={() => void respond({ type: "file_change_approval", decision: "cancel" })}
-        >
-          Cancel
-        </button>
+        {availableDecisions.includes("accept") ? (
+          <button
+            className="action-button"
+            disabled={isSubmitting}
+            type="button"
+            onClick={() => void respond({ type: "file_change_approval", decision: "accept" })}
+          >
+            Allow once
+          </button>
+        ) : null}
+        {availableDecisions.includes("acceptForSession") ? (
+          <button
+            className="ghost-button"
+            disabled={isSubmitting}
+            type="button"
+            onClick={() => void respond({ type: "file_change_approval", decision: "acceptForSession" })}
+          >
+            Allow for session
+          </button>
+        ) : null}
+        {availableDecisions.includes("decline") ? (
+          <button
+            className="ghost-button ghost-button--danger"
+            disabled={isSubmitting}
+            type="button"
+            onClick={() => void respond({ type: "file_change_approval", decision: "decline" })}
+          >
+            Decline
+          </button>
+        ) : null}
+        {availableDecisions.includes("cancel") ? (
+          <button
+            className="ghost-button"
+            disabled={isSubmitting}
+            type="button"
+            onClick={() => void respond({ type: "file_change_approval", decision: "cancel" })}
+          >
+            Cancel
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -486,11 +447,19 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
   }
 
   if (request.type === "mcp_elicitation") {
+    const presentation = presentMcpElicitation(request);
+
     content = (
       <>
         <RequestSection title="Server">
           <p className="codex-request-copy">{request.serverName}</p>
         </RequestSection>
+
+        {presentation.toolName ? (
+          <RequestSection title="Tool">
+            <p className="codex-request-copy">{presentation.toolName}</p>
+          </RequestSection>
+        ) : null}
 
         <RequestSection title="Message">
           <p className="codex-request-copy">{request.message}</p>
@@ -502,7 +471,7 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
               {request.url}
             </a>
           </RequestSection>
-        ) : (
+        ) : presentation.requiresResponseJson ? (
           <>
             <RequestSection title="Requested schema">
               <pre className="codex-request-code">{prettyJson(request.requestedSchema)}</pre>
@@ -518,6 +487,10 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
               />
             </RequestSection>
           </>
+        ) : (
+          <RequestSection title="Confirmation">
+            <p className="codex-request-copy">{presentation.confirmationCopy}</p>
+          </RequestSection>
         )}
       </>
     );
@@ -525,7 +498,7 @@ export function CodexRequestDialog({ request, isSubmitting, submitError, onRespo
     footer = (
       <div className="codex-request-actions">
         <button className="action-button" disabled={isSubmitting} type="button" onClick={() => void submitMcpAccept()}>
-          Accept
+          {presentation.primaryActionLabel}
         </button>
         <button
           className="ghost-button ghost-button--danger"
