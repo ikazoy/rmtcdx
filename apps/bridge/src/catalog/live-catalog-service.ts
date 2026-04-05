@@ -18,6 +18,7 @@ import { findLatestUserMessagePreview, mapThreadToMessages } from "../codex/pars
 import { CodexThreadObservationStore } from "../codex/thread-observation-store";
 import type { CodexBackend, CodexThread, CodexThreadTurn } from "../codex/types";
 import { ImageUploadService } from "../uploads/image-upload-service";
+import { createIsolatedGitEnv } from "../utils/git-env";
 import { excerpt } from "../utils/text";
 
 const execFileAsync = promisify(execFile);
@@ -640,7 +641,9 @@ export class LiveCatalogService {
     const promise = (async () => {
       let rootPath = cwd;
       try {
-        const { stdout } = await execFileAsync("git", ["-C", cwd, "rev-parse", "--show-toplevel"]);
+        const { stdout } = await execFileAsync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+          env: createIsolatedGitEnv()
+        });
         rootPath = stdout.trim() || cwd;
       } catch {
         rootPath = cwd;
@@ -648,7 +651,9 @@ export class LiveCatalogService {
 
       let branch = fallbackBranch ?? undefined;
       try {
-        const { stdout } = await execFileAsync("git", ["-C", rootPath, "branch", "--show-current"]);
+        const { stdout } = await execFileAsync("git", ["-C", rootPath, "branch", "--show-current"], {
+          env: createIsolatedGitEnv()
+        });
         const current = stdout.trim();
         if (current) {
           branch = current;
@@ -659,7 +664,9 @@ export class LiveCatalogService {
 
       let canonicalRepoPath: string | undefined;
       try {
-        const { stdout } = await execFileAsync("git", ["-C", rootPath, "rev-parse", "--git-common-dir"]);
+        const { stdout } = await execFileAsync("git", ["-C", rootPath, "rev-parse", "--git-common-dir"], {
+          env: createIsolatedGitEnv()
+        });
         const commonGitDirRaw = stdout.trim();
         if (commonGitDirRaw) {
           const commonGitDir = path.isAbsolute(commonGitDirRaw)
@@ -680,7 +687,9 @@ export class LiveCatalogService {
 
   private async readBranch(repoPath: string) {
     try {
-      const { stdout } = await execFileAsync("git", ["-C", repoPath, "branch", "--show-current"]);
+      const { stdout } = await execFileAsync("git", ["-C", repoPath, "branch", "--show-current"], {
+        env: createIsolatedGitEnv()
+      });
       const branch = stdout.trim();
       return branch || undefined;
     } catch {

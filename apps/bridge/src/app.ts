@@ -43,6 +43,7 @@ import { RealtimeGateway } from "./realtime/realtime-gateway";
 import { RunService } from "./runs/run-service";
 import { SessionUnreadService } from "./sessions/session-unread-service";
 import { ImageUploadService } from "./uploads/image-upload-service";
+import { createIsolatedGitEnv } from "./utils/git-env";
 
 const filterSchema = z.enum(["all", "running", "unread", "completed", "interrupted", "error", "archived"]).optional();
 const filePreviewMaxBytes = 256 * 1024;
@@ -885,7 +886,8 @@ function resolveSessionPreviewPath(rawPath: string, cwd: string, repoRoot: strin
 async function resolveSessionRepoRoot(cwd: string) {
   try {
     const { stdout } = await execFileAsync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: createIsolatedGitEnv()
     });
     return stdout.trim() || cwd;
   } catch {

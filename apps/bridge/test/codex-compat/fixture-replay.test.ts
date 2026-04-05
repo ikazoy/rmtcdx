@@ -23,6 +23,7 @@ import type {
 } from "../../src/codex/types";
 import { ImageUploadService } from "../../src/uploads/image-upload-service";
 import type { CodexAvailableModel, CodexPendingRequest, CodexPendingRequestResponse } from "@codex-remote/shared-types";
+import { createIsolatedGitEnv } from "../../src/utils/git-env";
 
 const fixturesDir = new URL("./fixtures/codex-cli-0.116.0/", import.meta.url);
 const realCanaryFixturesDir = new URL("./fixtures/codex-cli-0.116.0/real-canary/", import.meta.url);
@@ -503,6 +504,7 @@ async function readBridgeEventFixture(fileName: string) {
 
 function runGit(cwd: string, args: string[]) {
   execFileSync("git", ["-C", cwd, ...args], {
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
+    env: createIsolatedGitEnv()
   });
 }

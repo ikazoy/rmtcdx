@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { z } from "zod";
+import { createIsolatedGitEnv } from "../utils/git-env";
 
 const repoConfigSchema = z.array(
   z.object({
@@ -42,7 +43,8 @@ function inferRepoConfigFromCwd(cwd: string) {
   try {
     const rootPath = execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
+      stdio: ["ignore", "pipe", "ignore"],
+      env: createIsolatedGitEnv()
     }).trim();
 
     if (!rootPath || !fs.existsSync(rootPath)) {
