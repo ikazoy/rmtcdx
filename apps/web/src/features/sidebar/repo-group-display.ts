@@ -1,6 +1,7 @@
 import type { SessionFilter, SessionSummary } from "@codex-remote/shared-types";
 
 export const DEFAULT_REPO_GROUP_VISIBLE_SESSION_LIMIT = 10;
+export const EXPANDED_REPO_GROUP_VISIBLE_SESSION_LIMIT = 30;
 export type RepoGroupIndicator = "error" | "pending" | "unread" | "running";
 
 function effectivePendingRequestCount(
@@ -36,13 +37,16 @@ export function getVisibleRepoGroupSessions(
   sessions: SessionSummary[],
   {
     isExpanded,
-    limit = DEFAULT_REPO_GROUP_VISIBLE_SESSION_LIMIT
+    collapsedLimit = DEFAULT_REPO_GROUP_VISIBLE_SESSION_LIMIT,
+    expandedLimit = EXPANDED_REPO_GROUP_VISIBLE_SESSION_LIMIT
   }: {
     isExpanded: boolean;
-    limit?: number;
+    collapsedLimit?: number;
+    expandedLimit?: number;
   }
 ) {
-  return isExpanded ? sessions : sessions.slice(0, limit);
+  const limit = isExpanded ? expandedLimit : collapsedLimit;
+  return sessions.slice(0, limit);
 }
 
 export function shouldAutoExpandRepoGroup(
@@ -59,13 +63,22 @@ export function shouldAutoExpandRepoGroup(
 
 export function repoGroupToggleLabel({
   totalCount,
-  visibleCount
+  visibleCount,
+  collapsedLimit = DEFAULT_REPO_GROUP_VISIBLE_SESSION_LIMIT,
+  expandedLimit = EXPANDED_REPO_GROUP_VISIBLE_SESSION_LIMIT
 }: {
   totalCount: number;
   visibleCount: number;
+  collapsedLimit?: number;
+  expandedLimit?: number;
 }) {
-  const hiddenCount = Math.max(totalCount - visibleCount, 0);
-  return hiddenCount > 0 ? `Show ${hiddenCount} more` : "Show less";
+  if (visibleCount > collapsedLimit) {
+    return "Show less";
+  }
+
+  const expandedCount = Math.min(totalCount, expandedLimit);
+  const additionalCount = Math.max(expandedCount - visibleCount, 0);
+  return additionalCount > 0 ? `Show ${additionalCount} more` : "Show less";
 }
 
 export function getRepoGroupIndicators(

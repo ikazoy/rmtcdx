@@ -423,11 +423,8 @@ export function SidebarPane({
                 const visibleSessions = shouldLimitGroupedSessions
                   ? getVisibleRepoGroupSessions(group.sessions, { isExpanded })
                   : group.sessions;
-                const showGroupToggle = shouldLimitGroupedSessions && group.sessions.length > visibleSessions.length;
-                const showCollapseToggle =
-                  shouldLimitGroupedSessions
-                  && group.sessions.length > DEFAULT_REPO_GROUP_VISIBLE_SESSION_LIMIT
-                  && isExpanded;
+                const showGroupToggle =
+                  shouldLimitGroupedSessions && group.sessions.length > DEFAULT_REPO_GROUP_VISIBLE_SESSION_LIMIT;
                 return (
                   <section key={group.repoKey} className="repo-group">
                     <button
@@ -463,7 +460,7 @@ export function SidebarPane({
                             />
                           ))}
                         </div>
-                        {showGroupToggle || showCollapseToggle ? (
+                        {showGroupToggle ? (
                           <div className="repo-group__footer">
                             <button
                               className="repo-group__toggle"

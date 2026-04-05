@@ -3,6 +3,7 @@ import test from "node:test";
 import type { SessionSummary } from "@codex-remote/shared-types";
 import {
   DEFAULT_REPO_GROUP_VISIBLE_SESSION_LIMIT,
+  EXPANDED_REPO_GROUP_VISIBLE_SESSION_LIMIT,
   getVisibleRepoGroupSessions,
   getRepoGroupIndicators,
   repoGroupToggleLabel,
@@ -64,8 +65,8 @@ test("shouldLimitRepoGroupSessions only limits the grouped unfiltered view", () 
   );
 });
 
-test("getVisibleRepoGroupSessions limits collapsed groups to the latest ten sessions", () => {
-  const sessions = Array.from({ length: 14 }, (_unused, index) => createSession(index));
+test("getVisibleRepoGroupSessions limits collapsed groups to ten and expanded groups to thirty", () => {
+  const sessions = Array.from({ length: 34 }, (_unused, index) => createSession(index));
 
   assert.equal(
     getVisibleRepoGroupSessions(sessions, {
@@ -78,7 +79,7 @@ test("getVisibleRepoGroupSessions limits collapsed groups to the latest ten sess
     getVisibleRepoGroupSessions(sessions, {
       isExpanded: true
     }).length,
-    sessions.length
+    EXPANDED_REPO_GROUP_VISIBLE_SESSION_LIMIT
   );
 });
 
@@ -92,16 +93,16 @@ test("shouldAutoExpandRepoGroup expands when the selected session is beyond the 
 test("repoGroupToggleLabel switches between show more and show less", () => {
   assert.equal(
     repoGroupToggleLabel({
-      totalCount: 14,
+      totalCount: 34,
       visibleCount: 10
     }),
-    "Show 4 more"
+    "Show 20 more"
   );
 
   assert.equal(
     repoGroupToggleLabel({
-      totalCount: 14,
-      visibleCount: 14
+      totalCount: 34,
+      visibleCount: 30
     }),
     "Show less"
   );

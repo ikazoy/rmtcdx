@@ -213,6 +213,88 @@ test("catalog keeps the original thread title while previewing the latest user m
   assert.equal(sessions[0]?.latestUserPrompt, "Latest follow-up request");
 });
 
+test("catalog search matches readable thread previews beyond the title", async () => {
+  const latestPromptThread: CodexThread = {
+    id: "thread_search_latest_prompt",
+    preview: "Initial request title",
+    createdAt: 1_774_899_488,
+    updatedAt: 1_774_899_500,
+    status: { type: "idle" },
+    cwd: "/fixtures/repo",
+    path: "/fixtures/codex/sessions/search-latest-prompt.jsonl",
+    name: null,
+    modelProvider: "openai",
+    source: "cli",
+    gitInfo: null,
+    turns: [
+      {
+        id: "turn_search_latest_prompt_1",
+        items: [
+          {
+            type: "userMessage",
+            id: "user_search_latest_prompt_1",
+            content: [{ type: "text", text: "Initial request title", text_elements: [] }]
+          },
+          {
+            type: "agentMessage",
+            id: "assistant_search_latest_prompt_1",
+            text: "First answer",
+            phase: "final"
+          }
+        ],
+        status: "completed",
+        error: null
+      },
+      {
+        id: "turn_search_latest_prompt_2",
+        items: [
+          {
+            type: "userMessage",
+            id: "user_search_latest_prompt_2",
+            content: [{ type: "text", text: "Searchable follow-up request", text_elements: [] }]
+          }
+        ],
+        status: "completed",
+        error: null
+      }
+    ]
+  };
+  const summaryThread: CodexThread = {
+    id: "thread_search_summary",
+    preview: "Searchable summary preview",
+    createdAt: 1_774_899_488,
+    updatedAt: 1_774_899_499,
+    status: { type: "idle" },
+    cwd: "/fixtures/repo",
+    path: "/fixtures/codex/sessions/search-summary.jsonl",
+    name: "Something else entirely",
+    modelProvider: "openai",
+    source: "cli",
+    gitInfo: null,
+    turns: []
+  };
+
+  const backend = new FixtureCodexBackend([latestPromptThread, summaryThread]);
+  const catalog = new LiveCatalogService(
+    backend,
+    [
+      {
+        id: "fixture_repo",
+        path: "/fixtures/repo",
+        name: "Fixture Repo",
+        pinned: false
+      }
+    ],
+    uploads
+  );
+
+  const promptMatches = await catalog.listSessions(undefined, { search: "follow-up request" });
+  const summaryMatches = await catalog.listSessions(undefined, { search: "summary preview" });
+
+  assert.deepEqual(promptMatches.map((session) => session.id), ["thread_search_latest_prompt"]);
+  assert.deepEqual(summaryMatches.map((session) => session.id), ["thread_search_summary"]);
+});
+
 test("worktree sessions inherit the configured repo name while keeping a worktree-specific branch", async (t) => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-worktree-fixture-"));
   const repoPath = path.join(tempDir, "fixture-repo");

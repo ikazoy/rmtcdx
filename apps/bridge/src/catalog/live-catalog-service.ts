@@ -132,8 +132,7 @@ export class LiveCatalogService {
     const search = options?.search?.trim();
     const archived = options?.filter === "archived";
     const threads = await this.codex.listThreads({
-      archived,
-      searchTerm: search || undefined
+      archived
     });
     const contexts = await this.enrichThreads(threads, archived);
     const hydratedContexts = await this.hydrateSessionContexts(contexts, {
@@ -144,8 +143,8 @@ export class LiveCatalogService {
     return hydratedContexts
       .filter((context) => !repoId || context.repo.id === repoId)
       .map((context) => this.mapThreadSummary(context))
-      // `thread/list.searchTerm` is part of the protocol, but current Codex CLI builds may still
-      // return unfiltered pages. Re-apply the same title-only match here so the UI stays aligned.
+      // Intentionally avoid backend-side search filtering so the UI can match against hydrated
+      // summary text and latest prompts consistently across Codex CLI versions.
       .filter((session) => this.matchesSearch(session, search))
       .filter((session) => this.matchesFilter(session, options?.filter))
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
@@ -224,7 +223,13 @@ export class LiveCatalogService {
       return true;
     }
 
-    return session.title.toLocaleLowerCase().includes(search.toLocaleLowerCase());
+    const normalizedSearch = search.toLocaleLowerCase();
+    return [
+      session.title,
+      session.summary,
+      session.latestUserPrompt,
+      session.latestAssistantExcerpt
+    ].some((value) => value?.toLocaleLowerCase().includes(normalizedSearch));
   }
 
   private async enrichThreads(threads: CodexThread[], isArchived: boolean) {
