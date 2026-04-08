@@ -4,8 +4,6 @@
 
 Codex Remote Web Client is a mobile-first web UI for remotely operating OpenAI Codex CLI from your browser. It lets you choose a local repository, create and revisit sessions, send prompts, follow runs in real time, and review message history from one interface.
 
-Its core idea is to stay a thin wrapper around Codex rather than create a separate companion-session layer. `rmtcdx` works against the same Codex threads and session history that the official Codex app uses, so moving between your main PC, another PC, and your phone stays simple.
-
 ## Features
 
 - One-command launch via `npx rmtcdx` or `bunx rmtcdx`
@@ -20,8 +18,6 @@ Its core idea is to stay a thin wrapper around Codex rather than create a separa
 
 If your goal is "keep my local Codex moving after I step away from my desk," `rmtcdx` is aimed at a different problem than a desktop-native Codex app or a mobile companion for another coding agent.
 
-The design goal is not to wrap Codex in a separate product world. It is to remain a thin Codex wrapper that makes the same sessions easier to continue from another browser-capable device, while keeping the official Codex app and local CLI in the same flow.
-
 Snapshot: April 2026.
 
 | If you care about... | Claude Code Remote Control | Codex app | `rmtcdx` |
@@ -34,7 +30,6 @@ Snapshot: April 2026.
 
 Why people pick `rmtcdx`:
 
-- Stay on the same Codex session history the official Codex app already uses, instead of managing a second companion-specific session layer
 - Keep using the local repository, local CLI, and local session history you already have
 - Open the same UI from another PC, phone, or tablet without installing a dedicated client
 - Get browser push notifications when a run completes or Codex needs your attention
@@ -104,7 +99,8 @@ The bridge keeps only a small amount of server-owned state on disk:
 - `codex-app-server.jsonl` stores optional bridge debug logs
 
 Session and message history, thread titles, archive state, and run history are read live from Codex threads through `codex app-server`. The bridge does not duplicate that catalog into a local database.
-The bridge starts its own `codex app-server` child, but by default that child reads the Codex home for the current OS user. `rmtcdx` does not require Codex Desktop to be running to reuse the same thread catalog. Set `CODEX_HOME_DIR` only when you need both sides to point at a different shared Codex home explicitly.
+
+By default, `rmtcdx` starts its own `codex app-server` process, but that child reads the same Codex home directory used by the current OS user. Codex Desktop does not need to be running for `rmtcdx` to see the same thread catalog.
 
 ## Source Checkout
 
@@ -269,7 +265,7 @@ rg '"listenPort":3210|"listenPort":3000' data/codex-app-server.jsonl
 | Variable | Default | Description |
 | --- | --- | --- |
 | `CODEX_MODE` | `auto` | Default startup mode. Set `mock` for UI/backend-only development |
-| `CODEX_HOME_DIR` | current OS user home directory | Home directory passed to the spawned `codex` child so multiple bridges can share one Codex thread catalog |
+| `CODEX_HOME_DIR` | current OS user's home directory | Override which Codex home the spawned `codex app-server` reads for thread history |
 | `CODEX_DEBUG_LOG_FILE` | `<DATA_DIR>/codex-app-server.jsonl` | JSONL debug log for Codex app-server lifecycle |
 | `HOST` | `127.0.0.1` | Bridge listen host |
 | `PORT` | `3210` | Bridge listen port |

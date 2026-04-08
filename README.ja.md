@@ -4,8 +4,6 @@
 
 Codex Remote Web Client は、mobile-first の Web UI から OpenAI Codex CLI をリモート操作するためのアプリです。ローカルリポジトリを選択し、session を作成して prompt を送り、run の進行をリアルタイムに追い、message 履歴を 1 つの画面で確認できます。
 
-このプロジェクトの思想は、Codex の上に別の companion-session レイヤーを作ることではなく、Codex の薄いラッパーにとどまることです。`rmtcdx` は Codex 公式 app と同じ Codex thread / session history をそのまま使いながら、メイン PC、別の PC、phone の行き来をしやすくします。
-
 ## できること
 
 - `npx rmtcdx` / `bunx rmtcdx` で one-command 起動できる
@@ -20,8 +18,6 @@ Codex Remote Web Client は、mobile-first の Web UI から OpenAI Codex CLI �
 
 `rmtcdx` が狙っているのは、「ローカルの Codex を、席を離れたあとも止めずに使い続けること」です。desktop-native な Codex app や、別の coding agent の companion 製品とは、重視している体験が少し違います。
 
-目指しているのは、Codex を別世界の製品体験で包み直すことではありません。同じ Codex session を、公式 app と local CLI と browser UI のあいだで行き来しやすくする、薄い Codex wrapper であることを優先しています。
-
 比較のスナップショット: 2026 年 4 月。
 
 | 重視すること | Claude Code Remote Control | Codex app | `rmtcdx` |
@@ -34,7 +30,6 @@ Codex Remote Web Client は、mobile-first の Web UI から OpenAI Codex CLI �
 
 `rmtcdx` が刺さるポイント:
 
-- Codex 公式 app が使っているのと同じ session history にそのまま乗り、companion 専用の別 session レイヤーを増やさずに済む
 - すでに持っている local repository、local CLI、local session history をそのまま使い続けられる
 - 別 PC、phone、tablet から同じ UI を開ける。専用 client install を前提にしない
 - 長い run が終わったときや Codex が attention を求めたときにブラウザ push 通知で戻れる
@@ -104,7 +99,8 @@ bridge がローカルに保持する server-owned state は最小限です。
 - `codex-app-server.jsonl`: 任意の bridge デバッグログ
 
 session / message 履歴、thread title、archive 状態、run 履歴は `codex app-server` 越しに Codex thread からその都度読みます。bridge 側でそれらをローカル DB に複製しません。
-bridge は独自の `codex app-server` 子プロセスを起動しますが、その子プロセスは既定で現在の OS ユーザーの Codex home を読みます。Codex Desktop が起動していなくても同じ thread catalog を再利用でき、明示的に別の shared Codex home を向かせたいときだけ `CODEX_HOME_DIR` を設定します。
+
+`rmtcdx` は既定で自前の `codex app-server` process を起動しますが、その child は現在の OS ユーザーと同じ Codex home directory を参照します。そのため、Codex Desktop が起動していなくても `rmtcdx` から同じ thread catalog を見られます。
 
 ## Source Checkout
 
@@ -269,7 +265,7 @@ rg '"listenPort":3210|"listenPort":3000' data/codex-app-server.jsonl
 | Variable | Default | Description |
 | --- | --- | --- |
 | `CODEX_MODE` | `auto` | 既定の起動モード。UI / backend 単体確認では `mock` を使う |
-| `CODEX_HOME_DIR` | 現在の OS ユーザーの home directory | 起動した `codex` 子プロセスへ渡す home directory。複数の bridge で同じ Codex thread catalog を共有したいときに使う |
+| `CODEX_HOME_DIR` | current OS user's home directory | 起動した `codex app-server` が thread 履歴を読む Codex home を上書きしたいときに使う |
 | `CODEX_DEBUG_LOG_FILE` | `<DATA_DIR>/codex-app-server.jsonl` | Codex app-server のライフサイクルを記録する JSONL デバッグログ |
 | `HOST` | `127.0.0.1` | bridge の listen host |
 | `PORT` | `3210` | bridge の listen port |

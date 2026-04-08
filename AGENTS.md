@@ -9,7 +9,6 @@ Codex Remote Web Client — mobile-first の Web UI から OpenAI Codex CLI を�
 
 - Remodex: https://www.phodex.app/
 - Farfield: https://github.com/achimala/farfield
-- Happy: https://github.com/slopus/happy
 
 ## Tech Stack
 
