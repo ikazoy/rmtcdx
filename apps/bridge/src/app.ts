@@ -46,7 +46,8 @@ import { ImageUploadService } from "./uploads/image-upload-service";
 import { createIsolatedGitEnv } from "./utils/git-env";
 
 const filterSchema = z.enum(["all", "running", "unread", "completed", "interrupted", "error", "archived"]).optional();
-const filePreviewMaxBytes = 256 * 1024;
+const filePreviewMaxTextBytes = 256 * 1024;
+const filePreviewMaxImageBytes = 2 * 1024 * 1024;
 const execFileAsync = promisify(execFile);
 const renameSessionSchema = z.object({
   title: z.string().trim().min(1)
@@ -527,6 +528,9 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
     const isMarkdown = isMarkdownPreviewPath(resolvedPath);
     const mediaType = guessFilePreviewMediaType(resolvedPath, isMarkdown);
 
+    const isPreviewableImage = isPreviewableImageMediaType(mediaType);
+    const filePreviewMaxBytes = isPreviewableImage ? filePreviewMaxImageBytes : filePreviewMaxTextBytes;
+
     if (sizeBytes > filePreviewMaxBytes) {
       return {
         path: body.path,
@@ -544,7 +548,7 @@ export async function buildApp(overrides: BuildAppOverrides = {}) {
       };
     }
 
-    if (isPreviewableImageMediaType(mediaType)) {
+    if (isPreviewableImage) {
       return {
         path: body.path,
         resolvedPath,
