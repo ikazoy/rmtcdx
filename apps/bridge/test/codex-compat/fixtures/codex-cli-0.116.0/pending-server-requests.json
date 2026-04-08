@@ -121,41 +121,7 @@
         "itemId": "item_2",
         "createdAt": "2026-03-30T20:00:00.000Z",
         "reason": "Write access required",
-        "grantRoot": "/repo",
-        "availableDecisions": null
-      }
-    },
-    {
-      "name": "file change approval with explicit decisions",
-      "requestId": "12b",
-      "method": "item/fileChange/requestApproval",
-      "params": {
-        "threadId": "thread_1",
-        "turnId": "turn_1",
-        "itemId": "item_2b",
-        "reason": "Write access required",
-        "grantRoot": "/repo",
-        "availableDecisions": [
-          "accept",
-          "decline",
-          "cancel"
-        ]
-      },
-      "expected": {
-        "type": "file_change_approval",
-        "id": "12b",
-        "sessionId": "thread_1:turn_1",
-        "threadId": "thread_1",
-        "turnId": "turn_1",
-        "itemId": "item_2b",
-        "createdAt": "2026-03-30T20:00:00.000Z",
-        "reason": "Write access required",
-        "grantRoot": "/repo",
-        "availableDecisions": [
-          "accept",
-          "decline",
-          "cancel"
-        ]
+        "grantRoot": "/repo"
       }
     },
     {
@@ -386,29 +352,9 @@
       }
     },
     {
-      "name": "file change approval response",
-      "request": {
-        "requestId": 23,
-        "method": "item/fileChange/requestApproval",
-        "params": {
-          "threadId": "thread_1",
-          "turnId": "turn_1",
-          "reason": "Write access required",
-          "grantRoot": "/repo"
-        }
-      },
-      "response": {
-        "type": "file_change_approval",
-        "decision": "accept"
-      },
-      "expected": {
-        "decision": "accept"
-      }
-    },
-    {
       "name": "mcp elicitation response",
       "request": {
-        "requestId": 24,
+        "requestId": 23,
         "method": "mcpServer/elicitation/request",
         "params": {
           "threadId": "thread_1",

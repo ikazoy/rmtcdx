@@ -253,7 +253,6 @@ export type CodexFileChangeApprovalRequest = CodexPendingRequestBase & {
   type: "file_change_approval";
   reason: string | null;
   grantRoot: string | null;
-  availableDecisions: CodexFileChangeApprovalDecision[] | null;
 };
 
 export type CodexPermissionsApprovalRequest = CodexPendingRequestBase & {

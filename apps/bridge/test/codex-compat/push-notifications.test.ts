@@ -240,8 +240,7 @@ function createPendingRequest(type: CodexPendingRequest["type"]): CodexPendingRe
         ...base,
         type,
         reason: "Need approval to edit files.",
-        grantRoot: "/tmp/repo",
-        availableDecisions: null
+        grantRoot: "/tmp/repo"
       };
     case "permissions_approval":
       return {

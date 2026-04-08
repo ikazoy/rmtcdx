@@ -843,8 +843,7 @@ export class RealCodexClient extends EventEmitter implements CodexBackend {
           itemId: null,
           createdAt,
           reason: "Simulated file change approval for UI verification.",
-          grantRoot: cwd,
-          availableDecisions: ["accept", "decline", "cancel"]
+          grantRoot: cwd
         };
       case "permissions_approval":
         return {
