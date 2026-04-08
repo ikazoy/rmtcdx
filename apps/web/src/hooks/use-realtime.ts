@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import type { ClientWsEvent, ServerWsEvent } from "@codex-remote/shared-types";
+import type { ServerWsEvent } from "@codex-remote/shared-types";
 import { queryKeys } from "../app/query";
 import { clearPushNotificationsForSession } from "../app/push-notifications";
 import { useUiStore } from "../store/ui-store";
@@ -11,20 +11,7 @@ function wsUrl() {
   return `${protocol}//${window.location.host}/ws`;
 }
 
-function sendFocusedSession(socket: WebSocket | null, sessionId: string | null) {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    return;
-  }
-
-  socket.send(
-    JSON.stringify({
-      type: "session.focus",
-      sessionId
-    } satisfies Extract<ClientWsEvent, { type: "session.focus" }>)
-  );
-}
-
-export function useRealtime(focusedSessionId: string | null) {
+export function useRealtime() {
   const queryClient = useQueryClient();
   const setWsState = useUiStore((state) => state.setWsState);
   const appendStreaming = useUiStore((state) => state.appendStreaming);
@@ -34,15 +21,9 @@ export function useRealtime(focusedSessionId: string | null) {
   const removeActivity = useUiStore((state) => state.removeActivity);
   const clearActivities = useUiStore((state) => state.clearActivities);
   const setBackendBanner = useUiStore((state) => state.setBackendBanner);
-  const socketRef = useRef<WebSocket | null>(null);
-  const focusedSessionIdRef = useRef<string | null>(focusedSessionId);
 
   useEffect(() => {
-    focusedSessionIdRef.current = focusedSessionId;
-    sendFocusedSession(socketRef.current, focusedSessionId);
-  }, [focusedSessionId]);
-
-  useEffect(() => {
+    let socket: WebSocket | null = null;
     let reconnectTimer: number | undefined;
     let attempts = 0;
     let disposed = false;
@@ -69,20 +50,19 @@ export function useRealtime(focusedSessionId: string | null) {
 
       setWsState(attempts === 0 ? "connecting" : "reconnecting");
       const nextSocket = new WebSocket(wsUrl());
-      socketRef.current = nextSocket;
+      socket = nextSocket;
 
       nextSocket.addEventListener("open", () => {
-        if (disposed || socketRef.current !== nextSocket) {
+        if (disposed || socket !== nextSocket) {
           nextSocket.close();
           return;
         }
         attempts = 0;
         setWsState("connected");
-        sendFocusedSession(nextSocket, focusedSessionIdRef.current);
       });
 
       nextSocket.addEventListener("message", (message) => {
-        if (disposed || socketRef.current !== nextSocket) {
+        if (disposed || socket !== nextSocket) {
           return;
         }
 
@@ -154,8 +134,8 @@ export function useRealtime(focusedSessionId: string | null) {
       });
 
       nextSocket.addEventListener("close", () => {
-        if (socketRef.current === nextSocket) {
-          socketRef.current = null;
+        if (socket === nextSocket) {
+          socket = null;
         }
         if (disposed) {
           return;
@@ -166,7 +146,7 @@ export function useRealtime(focusedSessionId: string | null) {
       });
 
       nextSocket.addEventListener("error", () => {
-        if (socketRef.current !== nextSocket) {
+        if (socket !== nextSocket) {
           return;
         }
         nextSocket.close();
@@ -180,8 +160,8 @@ export function useRealtime(focusedSessionId: string | null) {
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
       }
-      const currentSocket = socketRef.current;
-      socketRef.current = null;
+      const currentSocket = socket;
+      socket = null;
       currentSocket?.close();
     };
   }, [

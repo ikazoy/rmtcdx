@@ -19,12 +19,12 @@ type SocketLike = {
 const OPEN = 1;
 
 export class RealtimeGateway {
-  private readonly socketFocusBySocket = new Map<SocketLike, string | null>();
+  private readonly sockets = new Set<SocketLike>();
 
   constructor(private readonly onClientEvent: (event: ClientWsEvent) => void) {}
 
   register(socket: SocketLike, mode: "real" | "mock") {
-    this.socketFocusBySocket.set(socket, null);
+    this.sockets.add(socket);
     this.send(socket, { type: "hello", mode });
 
     socket.on("message", (value) => {
@@ -35,14 +35,6 @@ export class RealtimeGateway {
 
       try {
         const event = JSON.parse(text) as ClientWsEvent;
-        if (event.type === "session.focus") {
-          this.socketFocusBySocket.set(
-            socket,
-            typeof event.sessionId === "string" && event.sessionId ? event.sessionId : null
-          );
-          return;
-        }
-
         if (event.type === "ping" || event.type === "session.read") {
           this.onClientEvent(event);
         }
@@ -51,27 +43,13 @@ export class RealtimeGateway {
       }
     });
 
-    const cleanup = () => this.socketFocusBySocket.delete(socket);
+    const cleanup = () => this.sockets.delete(socket);
     socket.on("close", cleanup);
     socket.on("error", cleanup);
   }
 
   getConnectionCount() {
-    return this.socketFocusBySocket.size;
-  }
-
-  hasFocusedSessionViewer(sessionId: string) {
-    if (!sessionId) {
-      return false;
-    }
-
-    for (const focusedSessionId of this.socketFocusBySocket.values()) {
-      if (focusedSessionId === sessionId) {
-        return true;
-      }
-    }
-
-    return false;
+    return this.sockets.size;
   }
 
   broadcastRepos(repos: Repository[]) {
@@ -141,7 +119,7 @@ export class RealtimeGateway {
   }
 
   private broadcast(event: ServerWsEvent) {
-    for (const socket of this.socketFocusBySocket.keys()) {
+    for (const socket of this.sockets) {
       this.send(socket, event);
     }
   }

@@ -278,6 +278,7 @@ function sessionIdsForSelection(selectedSessionId: string | null, transition: Se
 }
 
 export function App() {
+  useRealtime();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
@@ -336,15 +337,6 @@ export function App() {
   );
   const selectedSessionIdList = useMemo(() => [...selectedSessionIds], [selectedSessionIds]);
   const mobilePane = selectedSessionId ? "chat" : "sidebar";
-  const focusedSessionId =
-    selectedSessionId
-    && !isDraftSession
-    && isPageVisible
-    && isWindowFocused
-    && (!isMobileViewport || mobilePane === "chat")
-      ? selectedSessionId
-      : null;
-  useRealtime(focusedSessionId);
   const sidebarVisible = useUiStore((state) => state.sidebarVisible);
   const toggleSidebarVisible = useUiStore((state) => state.toggleSidebarVisible);
   const wsState = useUiStore((state) => state.wsState);
@@ -483,14 +475,6 @@ export function App() {
     const hasUnread = sessions.some((session) => session.hasUnreadCompletion || session.hasUnreadError);
     document.title = hasUnread ? "(•) Rmtcdx" : "Rmtcdx";
   }, [sessionsQuery.data?.sessions]);
-
-  useEffect(() => {
-    if (!selectedSessionId || isDraftSession) {
-      return;
-    }
-
-    void clearPushNotificationsForSession(selectedSessionId);
-  }, [isDraftSession, selectedSessionId]);
 
   useEffect(() => {
     const selected = sessionsQuery.data?.sessions.find((session) => session.id === selectedSessionId);

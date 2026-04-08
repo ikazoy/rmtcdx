@@ -110,45 +110,6 @@ test("push notifications include pending request labels and session links", asyn
   });
 });
 
-test("push notifications are suppressed while the session is focused in a foreground client", async (t) => {
-  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-push-notifications-"));
-  t.after(async () => {
-    await fs.rm(rootDir, { recursive: true, force: true });
-  });
-
-  t.mock.method(webpush, "generateVAPIDKeys", () => ({
-    publicKey: "public-key",
-    privateKey: "private-key"
-  }));
-  t.mock.method(webpush, "setVapidDetails", () => {});
-
-  const sentPayloads: string[] = [];
-  t.mock.method(webpush, "sendNotification", async (_subscription: unknown, payload: string | Buffer) => {
-    sentPayloads.push(payload.toString());
-  });
-
-  const config = createConfig(rootDir);
-  const service = new PushNotificationService(
-    path.join(rootDir, "state.json"),
-    config,
-    logger,
-    (sessionId) => sessionId === "thread-1"
-  );
-
-  service.saveSubscription({
-    endpoint: "https://example.test/push/subscription",
-    keys: {
-      p256dh: "p256dh-key",
-      auth: "auth-key"
-    }
-  });
-
-  await service.notifyRun(createSessionDetail("Deploy preview"), createRun("completed"));
-  await service.notifyPendingRequest(createSessionDetail("Deploy preview"), createPendingRequest("request_user_input"));
-
-  assert.equal(sentPayloads.length, 0);
-});
-
 function createConfig(rootDir: string): AppConfig {
   return {
     port: 0,
