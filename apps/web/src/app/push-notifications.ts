@@ -3,12 +3,19 @@ type ClearSessionNotificationsMessage = {
   sessionId: string;
 };
 
+type ClearRequestNotificationsMessage = {
+  type: "notifications.clearRequest";
+  requestId: string;
+};
+
+type PushNotificationsMessage = ClearSessionNotificationsMessage | ClearRequestNotificationsMessage;
+
 function serviceWorkerMessageTarget(registration: ServiceWorkerRegistration) {
   return registration.active ?? registration.waiting ?? registration.installing ?? null;
 }
 
-export async function clearPushNotificationsForSession(sessionId: string) {
-  if (!sessionId || typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+async function postServiceWorkerMessage(message: PushNotificationsMessage) {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
     return false;
   }
 
@@ -28,13 +35,33 @@ export async function clearPushNotificationsForSession(sessionId: string) {
       return false;
     }
 
-    const message: ClearSessionNotificationsMessage = {
-      type: "notifications.clearSession",
-      sessionId
-    };
     target.postMessage(message);
     return true;
   } catch {
     return false;
   }
+}
+
+export async function clearPushNotificationsForSession(sessionId: string) {
+  if (!sessionId) {
+    return false;
+  }
+
+  const message: ClearSessionNotificationsMessage = {
+    type: "notifications.clearSession",
+    sessionId
+  };
+  return postServiceWorkerMessage(message);
+}
+
+export async function clearPushNotificationsForRequest(requestId: string) {
+  if (!requestId) {
+    return false;
+  }
+
+  const message: ClearRequestNotificationsMessage = {
+    type: "notifications.clearRequest",
+    requestId
+  };
+  return postServiceWorkerMessage(message);
 }

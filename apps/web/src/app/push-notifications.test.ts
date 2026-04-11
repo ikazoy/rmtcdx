@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { clearPushNotificationsForSession } from "./push-notifications";
+import { clearPushNotificationsForRequest, clearPushNotificationsForSession } from "./push-notifications";
 
 function withNavigator(navigatorValue: Navigator | undefined) {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
@@ -45,6 +45,36 @@ test("clearPushNotificationsForSession posts a clear message to the active worke
       {
         type: "notifications.clearSession",
         sessionId: "session-123"
+      }
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+test("clearPushNotificationsForRequest posts a clear message to the active worker", async () => {
+  const messages: unknown[] = [];
+  const restore = withNavigator({
+    serviceWorker: {
+      getRegistration: async () =>
+        ({
+          active: {
+            postMessage: (message: unknown) => {
+              messages.push(message);
+            }
+          }
+        }) as ServiceWorkerRegistration
+    } as ServiceWorkerContainer
+  } as Navigator);
+
+  try {
+    const cleared = await clearPushNotificationsForRequest("request-123");
+
+    assert.equal(cleared, true);
+    assert.deepEqual(messages, [
+      {
+        type: "notifications.clearRequest",
+        requestId: "request-123"
       }
     ]);
   } finally {

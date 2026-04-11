@@ -20,7 +20,7 @@ import { api } from "../api/client";
 import { queryKeys } from "./query";
 import { startAppViewportHeightTracking } from "./app-viewport-height";
 import { bindAppDisplayModeChange } from "./display-mode";
-import { clearPushNotificationsForSession } from "./push-notifications";
+import { clearPushNotificationsForRequest, clearPushNotificationsForSession } from "./push-notifications";
 import {
   buildChatViewState,
   buildDraftSessionDetail,
@@ -696,6 +696,7 @@ export function App() {
     mutationFn: ({ requestId, payload }: { requestId: string; payload: CodexPendingRequestResponse }) =>
       api.respondToCodexRequest(requestId, payload),
     onSuccess: async (_data, variables) => {
+      await clearPushNotificationsForRequest(variables.requestId);
       await queryClient.invalidateQueries({ queryKey: queryKeys.pendingCodexRequests(selectedSessionId) });
       await queryClient.invalidateQueries({ queryKey: queryKeys.session(selectedSessionId) });
       await queryClient.invalidateQueries({ queryKey: queryKeys.messages(selectedSessionId) });

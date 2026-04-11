@@ -1,10 +1,13 @@
 self.addEventListener("message", (event) => {
   const { data } = event;
-  if (data?.type !== "notifications.clearSession" || typeof data.sessionId !== "string" || !data.sessionId) {
-    return;
+
+  if (data?.type === "notifications.clearSession" && typeof data.sessionId === "string" && data.sessionId) {
+    event.waitUntil(closeNotifications({ sessionId: data.sessionId }));
   }
 
-  event.waitUntil(closeNotificationsForSession(data.sessionId));
+  if (data?.type === "notifications.clearRequest" && typeof data.requestId === "string" && data.requestId) {
+    event.waitUntil(closeNotifications({ requestId: data.requestId }));
+  }
 });
 
 self.addEventListener("push", (event) => {
@@ -20,7 +23,18 @@ self.addEventListener("push", (event) => {
     data: payload.data || { url: "/" }
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    Promise.resolve()
+      .then(() => {
+        const requestId = typeof options.data?.requestId === "string" ? options.data.requestId : null;
+        if (requestId) {
+          return closeNotifications({ requestId });
+        }
+
+        return undefined;
+      })
+      .then(() => self.registration.showNotification(title, options))
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {
@@ -31,7 +45,7 @@ self.addEventListener("notificationclick", (event) => {
     Promise.resolve()
       .then(() => {
         if (sessionId) {
-          return closeNotificationsForSession(sessionId);
+          return closeNotifications({ sessionId });
         }
 
         event.notification.close();
@@ -55,14 +69,17 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 
-async function closeNotificationsForSession(sessionId) {
-  if (!sessionId || typeof self.registration.getNotifications !== "function") {
+async function closeNotifications({ sessionId, requestId }) {
+  if ((!sessionId && !requestId) || typeof self.registration.getNotifications !== "function") {
     return;
   }
 
   const notifications = await self.registration.getNotifications();
   for (const notification of notifications) {
-    if (notification.data?.sessionId === sessionId) {
+    if (
+      (sessionId && notification.data?.sessionId === sessionId)
+      || (requestId && notification.data?.requestId === requestId)
+    ) {
       notification.close();
     }
   }
